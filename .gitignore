@@ -1,0 +1,43 @@
+# Python and test/tool caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets.yaml
+
+# Editors and operating systems
+.idea/
+.vscode/
+*.swp
+*~
+.DS_Store
+Thumbs.db
+
+# Build and packaging output
+build/
+dist/
+*.egg-info/
+
+# Future local infrastructure state/output (not definitions)
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+packer_cache/
+*.box
+
