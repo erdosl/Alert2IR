@@ -16,6 +16,16 @@ The WS02 Puppet catalog stages the canonical profile at `C:\ProgramData\Alert2IR
 
 This managed file is a deployment artifact, not evidence that Sysmon's active configuration matches it. File changes do not invoke `Sysmon64.exe -c` and have no service reload or restart relationship. Active-configuration drift detection and application remain deferred.
 
+### Staging validation
+
+The staging slice at Git commit `88f0e8fddca1837cf221ede5f2d8b4c99e8913d9` (`feat: stage Sysmon config with Puppet`) was runtime-validated on the `win11-02` canary and then promoted to `win11-01`. Both endpoints used the unchanged `alert2ir_ws02-88f0e8fddca1.zip` bytes with SHA-256 `48085012ab89f8898e9beee61c0f0ad21b3ca068c5b9e10ced0ac3818927a436`. The canonical source and both staged target files had SHA-256 `71b792bfdbe3e3fc0ede56a6b9dd680c0a708c06130f54d1fa5b9c15267b9932` after convergence.
+
+On `win11-02`, the initially absent target and its two parent directories were the only resources proposed by the initial noop and created by the enforcing apply. A second enforcing apply reported no corrective changes. Harmless comment-only drift in the staged file then changed its SHA-256 to `7bf1831f457bc4d77108c5188bf31b90387fa75b5555c7a2b013129ac8dacba5`; the drift noop detected the content difference without modifying it, the repair apply restored the canonical bytes, and the final noop reported no corrective events.
+
+On `win11-01`, the initially absent target and its two parent directories were likewise the only resources proposed by the initial noop and created by the enforcing promotion; the final noop reported no corrective events. Promotion tested reproducibility of the already-validated artifact and did not repeat the canary's second enforcing apply or deliberate drift experiment. No active Sysmon configuration was changed, the Sysmon event ID 16 count was `0` during both endpoint validations, service state was preserved, and current Sysmon telemetry remained available in Splunk.
+
+This validates staged-file deployment, idempotence, drift detection and repair, and cross-endpoint reproduction from identical Git-derived artifact bytes. It does not validate active Sysmon configuration convergence, normalized active-config comparison, conditional `Sysmon64.exe -c` execution, or ownership of the Sysmon Operational channel.
+
 ## Global settings
 
 - `HashAlgorithms` is `SHA256`, providing a widely supported, collision-resistant file identity without the added cost and volume of calculating several hashes.

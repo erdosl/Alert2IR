@@ -98,6 +98,25 @@ Puppet's implicit certname on `win11-02` was an environment-derived FQDN rather 
 
 The override was runtime-tested on `win11-02` and resolved to `win11-02`. Supplying it is required so the existing `nodes/%{trusted.certname}.yaml` Hiera hierarchy deterministically selects the intended per-node file. Do not modify Puppet's global certname solely for this workflow unless a later design decision requires it.
 
+The explicit certname selects Puppet data; it does not prove which physical endpoint is running the command. Before every endpoint Puppet execution, independently verify both operational identity signals:
+
+```powershell
+$env:COMPUTERNAME
+
+Get-NetIPAddress -AddressFamily IPv4 |
+Where-Object { $_.IPAddress -like '192.168.56.*' } |
+Select-Object IPAddress, InterfaceAlias
+```
+
+The intended computer name and host-only IPv4 must match this inventory:
+
+| Computer name | Host-only IPv4 |
+| --- | --- |
+| `WIN11-01` | `192.168.56.60` |
+| `WIN11-02` | `192.168.56.62` |
+
+Stop before running Puppet if either value does not match the intended endpoint. This is a mandatory operational validation guard, not Puppet ownership of the hostname or network configuration; both remain unmanaged.
+
 ## Code delivery and directory environment
 
 `dev01` remains the development and administration system. Code executed on an endpoint must originate from a reviewed Git revision. Build the WS02 directory-environment ZIP with:
@@ -132,19 +151,20 @@ For each catalog revision:
 2. Verify the staged artifact and its hash.
 3. Verify the Puppet runtime and version.
 4. Verify that the Puppet Agent service is `Stopped` and `Disabled`.
-5. Explicitly supply the intended short certname.
-6. Run the intended catalog with `--noop` and `--detailed-exitcodes`.
-7. Review every proposed change.
-8. Apply on `win11-02`.
-9. Verify the managed Windows state.
-10. Verify the relevant Sysmon and Splunk telemetry.
-11. Run the catalog again and require no corrective changes.
-12. Introduce deliberate, harmless drift in managed state.
-13. Verify that a no-op run detects the drift.
-14. Apply the catalog and verify that Puppet repairs the drift.
-15. Verify that telemetry remains healthy.
-16. Repeat the validation and promote on `win11-01`.
-17. Review the Git diff before any commit or push.
+5. Before every Puppet execution, verify that `$env:COMPUTERNAME` and the host-only IPv4 both match the intended endpoint inventory above.
+6. Explicitly supply the intended short certname.
+7. Run the intended catalog with `--noop` and `--detailed-exitcodes`.
+8. Review every proposed change.
+9. Apply on `win11-02`.
+10. Verify the managed Windows state.
+11. Verify the relevant Sysmon and Splunk telemetry.
+12. Run the catalog again and require no corrective changes.
+13. Introduce deliberate, harmless drift in managed state.
+14. Verify that a no-op run detects the drift.
+15. Apply the catalog and verify that Puppet repairs the drift.
+16. Verify that telemetry remains healthy.
+17. Repeat the validation and promote on `win11-01`, repeating the physical-identity guard before execution.
+18. Review the Git diff before any commit or push.
 
 For an enforcing `puppet apply --detailed-exitcodes`, exit code `0` means a successful run with no actual changes, and exit code `2` means a successful run that made actual changes. Exit codes `1`, `4`, and `6` are failure-bearing outcomes and must not be treated as successful convergence.
 
@@ -185,7 +205,46 @@ Final managed state on `win11-01` was `Sysmon64` `Running`/`Automatic`, `SplunkF
 
 The first functional Windows endpoint Puppet slice is therefore validated across the `win11-02` canary and the `win11-01` promotion. This demonstrates reproducibility of the same Puppet 8.20.0 runtime artifact, the same Git-derived Puppet catalog artifact, and the same desired service state on both Windows endpoints. `win11-02` performed the deliberate harmless startup-mode drift test; `win11-01` did not repeat it because promotion tested reproducibility of the already-validated runtime and catalog.
 
-This conclusion is limited to the first slice managing `Sysmon64` as `Running`/`Automatic` and `SplunkForwarder` as `Running`/`Automatic`. It does not validate the later staged-file slice, claim convergence of Sysmon's active configuration, or claim implementation of Splunk inputs or outputs management, package lifecycle management, networking, or time synchronization, and it does not complete WS02.
+That first-slice conclusion is limited to managing `Sysmon64` as `Running`/`Automatic` and `SplunkForwarder` as `Running`/`Automatic`. Its validation did not cover the staged-file slice documented below, claim convergence of Sysmon's active configuration, or claim implementation of Splunk inputs or outputs management, package lifecycle management, networking, or time synchronization, and it did not complete WS02.
+
+### Validated staged Sysmon configuration slice
+
+The second narrow Puppet convergence slice was runtime-validated on both Windows endpoints from this exact implementation provenance:
+
+| Item | Validated value |
+| --- | --- |
+| Git commit | `88f0e8fddca1837cf221ede5f2d8b4c99e8913d9` |
+| Commit message | `feat: stage Sysmon config with Puppet` |
+| Artifact | `alert2ir_ws02-88f0e8fddca1.zip` |
+| Artifact SHA-256 | `48085012ab89f8898e9beee61c0f0ad21b3ca068c5b9e10ced0ac3818927a436` |
+| Canonical and staged XML SHA-256 | `71b792bfdbe3e3fc0ede56a6b9dd680c0a708c06130f54d1fa5b9c15267b9932` |
+
+The exact same ZIP bytes were used unchanged for the `win11-02` canary and `win11-01` promotion. Temporary extraction paths are execution details, not portable desired state.
+
+On physical endpoint `win11-02` (`192.168.56.62`), Puppet Core `8.20.0` ran as standalone `puppet apply` with explicit `--certname=win11-02`. The target `C:\ProgramData\Alert2IR\Sysmon\alert2ir-sysmon.xml` was initially absent. The initial noop compiled successfully, exited `0`, and proposed exactly `C:/ProgramData/Alert2IR`, `C:/ProgramData/Alert2IR/Sysmon`, and the target XML with its canonical content hash. It proposed no `Sysmon64` or `SplunkForwarder` correction and did not create the target. The first enforcing apply exited `2`, created exactly those three resources, and deployed the canonical XML. A second enforcing apply exited `0` with no corrective changes, and the XML remained canonical.
+
+For the canary drift test, a comment was appended only to the staged managed XML; active Sysmon configuration was not modified. The drifted file SHA-256 was `7bf1831f457bc4d77108c5188bf31b90387fa75b5555c7a2b013129ac8dacba5`. A drift noop exited `0` while explicitly proposing replacement of the drifted content with the canonical SHA-256, proposed no other correction, and left the drifted file unchanged. The repairing apply exited `2` and restored the canonical XML. The final noop exited `0` with no corrective resource events, and the final XML SHA-256 was canonical. This reinforces the existing finding that noop exit `0` alone is not proof of convergence: simulated corrective events in the report or output must be inspected.
+
+During the canary, the Sysmon event ID 16 count was `0`. `Sysmon64` remained `Running`/`Automatic`/`LocalSystem`; `SplunkForwarder` remained `Running`/`Automatic`/`NT SERVICE\SplunkForwarder`; and Puppet Agent remained `Stopped`/`Disabled`/`LocalSystem`. Current Sysmon telemetry remained available in Splunk.
+
+Before promotion, the physical identity of `win11-01` (`192.168.56.60`) was explicitly verified independently of Puppet certname. Puppet Core `8.20.0` ran as standalone `puppet apply` with explicit `--certname=win11-01`. The received artifact and embedded XML matched the SHA-256 values above, and the target was initially absent. The promotion noop exited `0`, proposed exactly the same three resources as the canary, and proposed no service or unrelated correction. The enforcing promotion exited `2`, created the three intended resources, and deployed the canonical XML. The final promotion noop exited `0` with no corrective events.
+
+During promotion, the Sysmon event ID 16 count was `0`. `Sysmon64`, `SplunkForwarder`, and Puppet Agent retained the same respective service state, startup mode, and accounts recorded for the canary. Current Sysmon telemetry continued arriving in Splunk; transient telemetry counts are not desired state or promotion requirements.
+
+#### Physical-identity safety finding
+
+During promotion preparation, commands intended for `win11-01` were accidentally run in the existing `win11-02` PowerShell session while Puppet was explicitly given `--certname=win11-01`. Puppet compiled successfully as `win11-01` even though the physical machine was `WIN11-02` at `192.168.56.62`. Because that endpoint was already converged, the mistaken noop and apply reported no corrective events and required no rollback.
+
+This demonstrates that `trusted.certname` and `--certname` are not sufficient proof of physical endpoint identity in the standalone WS02 workflow. The computer-name and host-only-IPv4 check documented above is therefore mandatory before endpoint Puppet execution. It is an operational guard only and does not change the accepted boundary that Puppet leaves networking and hostname unmanaged.
+
+The second narrow Puppet slice is validated across both Windows endpoints. The cumulative validated WS02 Puppet boundary now covers:
+
+- Previously validated first-slice controls: `Sysmon64` `Running`/`Automatic` and `SplunkForwarder` `Running`/`Automatic`.
+- Newly validated second-slice control: the project-owned canonical Sysmon XML staged at `C:\ProgramData\Alert2IR\Sysmon\alert2ir-sysmon.xml`, with staged-file content drift detected and repaired idempotently and the same Git-derived artifact reproducing the result on both endpoints.
+
+Puppet Agent `Stopped`/`Disabled` remains the accepted WS02 execution and control model; it is not a resource newly managed by this slice.
+
+The following remain out of scope or unresolved: active Sysmon configuration convergence; normalized active-configuration comparison; conditional `Sysmon64.exe -c` execution; Sysmon Operational channel ownership; Splunk `inputs.conf` and `outputs.conf` ownership; Event Log Readers membership management; package and installer lifecycle; networking; hostname; time synchronization; unrelated Windows hardening; and later workstreams. This validation does not complete WS02 as a whole.
 
 ## First functional catalog boundary
 
