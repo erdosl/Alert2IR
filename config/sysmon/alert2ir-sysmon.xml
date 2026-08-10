@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Alert2IR-owned v0.1 telemetry profile. Detection logic belongs in Sigma/Splunk. -->
+<Sysmon schemaversion="4.91">
+  <HashAlgorithms>SHA256</HashAlgorithms>
+  <CheckRevocation>true</CheckRevocation>
+  <DnsLookup>false</DnsLookup>
+
+  <EventFiltering>
+    <!-- Process and network activity preserve execution and connection context. -->
+    <ProcessCreate onmatch="exclude" />
+    <NetworkConnect onmatch="exclude" />
+
+    <!-- Loads, remote threads, and raw reads preserve low-level system context. -->
+    <DriverLoad onmatch="exclude" />
+    <CreateRemoteThread onmatch="exclude" />
+    <RawAccessRead onmatch="exclude" />
+
+    <!-- File changes preserve durable host-change evidence. -->
+    <FileCreate onmatch="exclude">
+      <Rule groupRelation="and">
+        <Image condition="is">C:\Program Files\SplunkUniversalForwarder\bin\splunk-winevtlog.exe</Image>
+        <TargetFilename condition="begin with">C:\Program Files\SplunkUniversalForwarder\var\lib\splunk\modinputs\WinEventLog\</TargetFilename>
+      </Rule>
+    </FileCreate>
+    <FileCreateStreamHash onmatch="exclude" />
+    <FileDeleteDetected onmatch="exclude">
+      <Rule groupRelation="and">
+        <Image condition="is">C:\Program Files\SplunkUniversalForwarder\bin\splunk-winevtlog.exe</Image>
+        <TargetFilename condition="begin with">C:\Program Files\SplunkUniversalForwarder\var\lib\splunk\modinputs\WinEventLog\</TargetFilename>
+      </Rule>
+    </FileDeleteDetected>
+
+    <!-- Named-pipe and WMI activity preserve common interprocess-management context. -->
+    <PipeEvent onmatch="exclude" />
+    <WmiEvent onmatch="exclude" />
+
+    <!-- DNS requests preserve queried names without enriching network events. -->
+    <DnsQuery onmatch="exclude" />
+
+    <!-- Process tampering records changes to process image state. -->
+    <ProcessTampering onmatch="exclude" />
+
+    <!-- Deferred filterable events are explicitly disabled with empty include filters. -->
+    <FileCreateTime onmatch="include" />
+    <ProcessTerminate onmatch="include" />
+    <ImageLoad onmatch="include" />
+    <ProcessAccess onmatch="include" />
+    <RegistryEvent onmatch="include" />
+    <FileDelete onmatch="include" />
+    <ClipboardChange onmatch="include" />
+    <FileBlockExecutable onmatch="include" />
+    <FileBlockShredding onmatch="include" />
+    <FileExecutableDetected onmatch="include" />
+  </EventFiltering>
+</Sysmon>
