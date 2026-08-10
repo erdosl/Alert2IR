@@ -119,7 +119,34 @@ For each catalog revision:
 16. Repeat the validation and promote on `win11-01`.
 17. Review the Git diff before any commit or push.
 
-With `--detailed-exitcodes`, exit code `0` means success with no changes and `2` means success with changes. Exit codes `1`, `4`, and `6` indicate failure conditions and must not be treated as successful convergence.
+For an enforcing `puppet apply --detailed-exitcodes`, exit code `0` means a successful run with no actual changes, and exit code `2` means a successful run that made actual changes. Exit codes `1`, `4`, and `6` are failure-bearing outcomes and must not be treated as successful convergence.
+
+For `puppet apply --noop --detailed-exitcodes`, the exit code alone is not sufficient evidence that no drift exists. Simulated corrective changes are reported in Puppet's noop output or report, and WS02 validation must inspect that evidence for pending changes. Puppet 8.20.0 returned exit code `0` during the validated WS02 drift-detection noop described below while reporting a simulated corrective change. This observed behavior does not establish that noop always returns `0` when drift exists; operationally, a noop exit code of `0` does not by itself prove convergence.
+
+### Validated functional canary evidence
+
+The first functional catalog was runtime-validated with the following evidence:
+
+| Item | Validated value |
+| --- | --- |
+| Endpoint | `win11-02` |
+| Puppet version | `8.20.0` |
+| Functional catalog commit | `646fa6bb310bcf95a384f21b2d03ad8ca027bc23` |
+| Artifact | `alert2ir_ws02-646fa6bb310b.zip` |
+| Artifact SHA-256 | `2b5af50b337e9dfde287d8f5f6e6c33630b73ddf4741a3a75c94fd7a6a198ade` |
+
+The observed validation sequence was:
+
+1. A functional noop on the already-compliant services succeeded with exit code `0` and no corrective events.
+2. An enforcing apply on the already-compliant services succeeded with exit code `0` and no changes.
+3. Harmless drift was introduced by manually changing `SplunkForwarder` startup mode from `Automatic` to `Manual`; the service remained `Running`.
+4. The drift-detection noop reported `enable changed 'manual' to 'true' (noop)` and returned exit code `0`; `SplunkForwarder` remained `Running` and `Manual` after the noop.
+5. A repairing apply restored `Automatic` startup and returned exit code `2`; `SplunkForwarder` remained `Running`.
+6. A final noop returned exit code `0` with no corrective events.
+7. Final managed state was `Sysmon64` `Running`/`Automatic`, `SplunkForwarder` `Running`/`Automatic`, and Puppet Agent `Stopped`/`Disabled`.
+8. Splunk verification confirmed that current Sysmon telemetry continued after the drift and repair test.
+
+Puppet MSI source provenance remains outstanding and must be recorded before promotion to `win11-01`.
 
 ## First functional catalog boundary
 
