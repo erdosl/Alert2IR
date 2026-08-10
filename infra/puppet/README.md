@@ -47,7 +47,20 @@ The validated `win11-02` canary evidence is:
 | Service start mode | `Disabled` |
 | Service account | `LocalSystem` |
 
-The MSI process exit status was not captured: `$LASTEXITCODE` was inspected only after a later `hostname` invocation. The validated hash, signature, and version identify the tested artifact, but its actual download or source location is not recorded in this repository. Record that source provenance before promotion to `win11-01`.
+The validated bootstrap artifact was acquired over HTTPS from `artifacts-puppetcore.puppet.com` at `/v1/download` with these request parameters:
+
+| Parameter | Value |
+| --- | --- |
+| `version` | `8.20.0` |
+| `os_name` | `windows` |
+| `os_version` | `latest` |
+| `os_arch` | `x64` |
+
+The request used HTTP Basic authentication with the literal username `forge-key` and a Puppet Forge API key supplied interactively as the password. Never record the API key, credentials, Authorization header, or shell/session secrets.
+
+Puppet version `8.20.0` was explicitly requested and pinned. The exact resulting `puppet-agent-8.20.0-x64.msi` bytes were validated on `win11-02`, and the recorded SHA-256 and Authenticode signature were independently verified. This provenance is sufficient to promote the same artifact bytes to `win11-01`; any different artifact must be verified separately.
+
+The MSI process exit status was not captured: `$LASTEXITCODE` was inspected only after a later `hostname` invocation.
 
 ## Observed Windows Puppet settings
 
@@ -145,8 +158,6 @@ The observed validation sequence was:
 6. A final noop returned exit code `0` with no corrective events.
 7. Final managed state was `Sysmon64` `Running`/`Automatic`, `SplunkForwarder` `Running`/`Automatic`, and Puppet Agent `Stopped`/`Disabled`.
 8. Splunk verification confirmed that current Sysmon telemetry continued after the drift and repair test.
-
-Puppet MSI source provenance remains outstanding and must be recorded before promotion to `win11-01`.
 
 ## First functional catalog boundary
 
