@@ -2,7 +2,7 @@
 
 ## Status
 
-This document describes the planned architecture. No Alert2IR application, API, datastore, detection content, or investigation backend is implemented in this bootstrap repository. The Puppet tree is structural and intentionally performs no configuration.
+This document describes the planned architecture. No Alert2IR application, API, datastore, detection content, or investigation backend is implemented in this bootstrap repository. The first functional Puppet catalog manages only the running and startup state of already-installed Sysmon and Splunk Universal Forwarder services on the Windows endpoints.
 
 ## Conceptual flow
 
@@ -57,4 +57,3 @@ The initial strategy is:
 Python and FastAPI are planned for the core application, PostgreSQL for persistence, and Docker Compose for application/service composition. Puppet owns desired-state configuration; Packer may later own reproducible machine-image construction. These responsibilities are decisions, not evidence that any component is currently deployed.
 
 No Kubernetes or speculative queues, caches, or distributed workers are planned without a demonstrated requirement.
-

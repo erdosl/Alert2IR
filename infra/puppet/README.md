@@ -1,14 +1,14 @@
 # Puppet Environment
 
-This directory establishes roles/profiles and Hiera conventions for the Alert2IR lab. It is intentionally inert: the classes contain no resources, and `site.pp` performs no node classification yet.
+This directory establishes roles/profiles and Hiera conventions for the Alert2IR lab. Its first functional catalog manages only the running and startup state of already-installed Sysmon and Splunk Universal Forwarder services on the two Windows endpoints.
 
-Actual package installation, Sysmon and Splunk Universal Forwarder management, firewall and network changes, user creation, Docker configuration, and Velociraptor deployment belong to later workstreams and require review and testing before they are added.
+Package installation, telemetry configuration, firewall and network changes, user creation, Docker configuration, and Velociraptor deployment remain outside this initial functional catalog and require separate reviewed and tested follow-up work.
 
 ## Layout
 
-- `manifests/site.pp` — eventual node classification entry point
-- `site-modules/role` — node-purpose classes
-- `site-modules/profile` — reusable configuration classes
+- `manifests/site.pp` — explicit node classification entry point
+- `modules/role` — node-purpose classes
+- `modules/profile` — reusable configuration classes
 - `data/common.yaml` and `data/nodes/` — Hiera data, currently empty
 
 Never store secrets or credentials in Hiera or elsewhere in the repository. Use an approved secret-management approach when a demonstrated requirement exists.
@@ -92,7 +92,7 @@ The override was runtime-tested on `win11-02` and resolved to `win11-02`. Supply
 - `environment.conf`
 - `hiera.yaml`
 - `manifests/`
-- `site-modules/`
+- `modules/`
 - `data/`
 
 Record the Git commit ID and the staged artifact hash as execution evidence. The Windows endpoints do not require Git or Codex, and this document does not prescribe the artifact transport. A final staging environment name and path have not yet been runtime-tested and are therefore not specified. If a temporary WS02-specific Puppet environment name is needed in later examples, use a Puppet-valid name such as `alert2ir_ws02`.
