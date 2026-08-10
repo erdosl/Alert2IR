@@ -10,6 +10,12 @@ Sysmon provides endpoint evidence for investigation. Its configuration is not th
 
 The identical schemas captured from both laboratory endpoints report standalone Sysmon 15.21 and configuration schema version `4.91`. Private inventory artifacts remain outside Git.
 
+## Puppet staging boundary
+
+The WS02 Puppet catalog stages the canonical profile at `C:\ProgramData\Alert2IR\Sysmon\alert2ir-sysmon.xml`. Artifact assembly obtains both the Puppet environment and `config/sysmon/alert2ir-sysmon.xml` from the same reviewed Git commit; the module-files copy exists only in the generated deployment artifact.
+
+This managed file is a deployment artifact, not evidence that Sysmon's active configuration matches it. File changes do not invoke `Sysmon64.exe -c` and have no service reload or restart relationship. Active-configuration drift detection and application remain deferred.
+
 ## Global settings
 
 - `HashAlgorithms` is `SHA256`, providing a widely supported, collision-resistant file identity without the added cost and volume of calculating several hashes.

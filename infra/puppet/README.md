@@ -1,6 +1,6 @@
 # Puppet Environment
 
-This directory establishes roles/profiles and Hiera conventions for the Alert2IR lab. Its first functional catalog manages only the running and startup state of already-installed Sysmon and Splunk Universal Forwarder services on the two Windows endpoints.
+This directory establishes roles/profiles and Hiera conventions for the Alert2IR lab. The first functional catalog manages the running and startup state of already-installed Sysmon and Splunk Universal Forwarder services on the two Windows endpoints. The second narrow convergence slice additionally stages the project-owned Sysmon XML bytes without applying them to Sysmon's active configuration.
 
 Package installation, telemetry configuration, firewall and network changes, user creation, Docker configuration, and Velociraptor deployment remain outside this initial functional catalog and require separate reviewed and tested follow-up work.
 
@@ -100,7 +100,13 @@ The override was runtime-tested on `win11-02` and resolved to `win11-02`. Supply
 
 ## Code delivery and directory environment
 
-`dev01` remains the development and administration system. Code executed on an endpoint must originate from a reviewed Git revision. Stage the repository's `infra/puppet` directory as a Puppet directory environment while preserving:
+`dev01` remains the development and administration system. Code executed on an endpoint must originate from a reviewed Git revision. Build the WS02 directory-environment ZIP with:
+
+```bash
+tools/puppet/build-ws02-puppet-artifact.sh <reviewed-git-ref> [output-directory]
+```
+
+The builder materializes `infra/puppet` from the resolved commit, not from the working tree, and preserves these paths at the extracted environment root:
 
 - `environment.conf`
 - `hiera.yaml`
@@ -108,7 +114,15 @@ The override was runtime-tested on `win11-02` and resolved to `win11-02`. Supply
 - `modules/`
 - `data/`
 
-Record the Git commit ID and the staged artifact hash as execution evidence. The Windows endpoints do not require Git or Codex, and this document does not prescribe the artifact transport. A final staging environment name and path have not yet been runtime-tested and are therefore not specified. If a temporary WS02-specific Puppet environment name is needed in later examples, use a Puppet-valid name such as `alert2ir_ws02`.
+During artifact assembly, the builder reads the canonical `config/sysmon/alert2ir-sysmon.xml` from that same commit and writes it only inside the temporary environment as `modules/profile/files/sysmon/alert2ir-sysmon.xml`. There is no second Git-tracked copy. The resulting file is available to the catalog as `puppet:///modules/profile/sysmon/alert2ir-sysmon.xml`.
+
+Record the reported Git commit ID, artifact SHA-256, and staged Sysmon XML SHA-256 as execution evidence. The Windows endpoints do not require Git or Codex, and this document does not prescribe the artifact transport. A final staging environment name and path have not yet been runtime-tested and are therefore not specified. If a temporary WS02-specific Puppet environment name is needed in later examples, use a Puppet-valid name such as `alert2ir_ws02`.
+
+## Staged Sysmon configuration boundary
+
+The second narrow WS02 convergence slice creates `C:\ProgramData\Alert2IR` and `C:\ProgramData\Alert2IR\Sysmon`, then manages the canonical XML bytes at `C:\ProgramData\Alert2IR\Sysmon\alert2ir-sysmon.xml`. It does not manage owner, group, mode, or Windows ACL policy, and it does not purge, recurse over, or otherwise manage unrelated files in either directory.
+
+Staging the XML is not convergence of Sysmon's active configuration. No file relationship invokes `Sysmon64.exe -c`, reloads or restarts `Sysmon64`, or changes the Sysmon Operational channel. Active-configuration drift detection and conditional application remain explicitly deferred. Validate file deployment on `win11-02` first; only the exact same reviewed artifact bytes may then be promoted to `win11-01`.
 
 ## Validation workflow
 
@@ -171,7 +185,7 @@ Final managed state on `win11-01` was `Sysmon64` `Running`/`Automatic`, `SplunkF
 
 The first functional Windows endpoint Puppet slice is therefore validated across the `win11-02` canary and the `win11-01` promotion. This demonstrates reproducibility of the same Puppet 8.20.0 runtime artifact, the same Git-derived Puppet catalog artifact, and the same desired service state on both Windows endpoints. `win11-02` performed the deliberate harmless startup-mode drift test; `win11-01` did not repeat it because promotion tested reproducibility of the already-validated runtime and catalog.
 
-This conclusion is limited to managing `Sysmon64` as `Running`/`Automatic` and `SplunkForwarder` as `Running`/`Automatic`. It does not validate future Puppet configuration or claim implementation of Sysmon XML management, Splunk inputs or outputs management, package lifecycle management, networking, or time synchronization, and it does not complete WS02.
+This conclusion is limited to the first slice managing `Sysmon64` as `Running`/`Automatic` and `SplunkForwarder` as `Running`/`Automatic`. It does not validate the later staged-file slice, claim convergence of Sysmon's active configuration, or claim implementation of Splunk inputs or outputs management, package lifecycle management, networking, or time synchronization, and it does not complete WS02.
 
 ## First functional catalog boundary
 
