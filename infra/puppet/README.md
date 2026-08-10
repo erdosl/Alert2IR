@@ -159,9 +159,23 @@ The observed validation sequence was:
 7. Final managed state was `Sysmon64` `Running`/`Automatic`, `SplunkForwarder` `Running`/`Automatic`, and Puppet Agent `Stopped`/`Disabled`.
 8. Splunk verification confirmed that current Sysmon telemetry continued after the drift and repair test.
 
+### Validated win11-01 promotion and cross-endpoint reproducibility
+
+The exact `alert2ir_ws02-646fa6bb310b.zip` catalog artifact bytes validated on `win11-02` were promoted unchanged to `win11-01`. The artifact corresponds to functional catalog commit `646fa6bb310bcf95a384f21b2d03ad8ca027bc23` and has SHA-256 `2b5af50b337e9dfde287d8f5f6e6c33630b73ddf4741a3a75c94fd7a6a198ade`.
+
+Both endpoints use Puppet `8.20.0` from the same `puppet-agent-8.20.0-x64.msi` bytes, with SHA-256 `40358285884F7496AC6477DB4FEC08025392DB00BD1D553713AD2A70CAB84142`. On both endpoints, the Puppet Agent Windows service remains `Stopped`, `Disabled`, and configured to run as `LocalSystem`.
+
+The `win11-01` promotion explicitly used standalone identity `--certname win11-01`. The promotion noop compiled successfully, returned exit code `0`, and reported no corrective noop events. The enforcing apply compiled successfully, returned exit code `0`, and made no changes. The final noop compiled successfully, returned exit code `0`, and reported no corrective noop events.
+
+Final managed state on `win11-01` was `Sysmon64` `Running`/`Automatic`, `SplunkForwarder` `Running`/`Automatic`, and Puppet Agent `Stopped`/`Disabled`. Splunk verification after promotion confirmed that expected active Sysmon event classes continued to arrive; transient event counts are validation observations, not desired state.
+
+The first functional Windows endpoint Puppet slice is therefore validated across the `win11-02` canary and the `win11-01` promotion. This demonstrates reproducibility of the same Puppet 8.20.0 runtime artifact, the same Git-derived Puppet catalog artifact, and the same desired service state on both Windows endpoints. `win11-02` performed the deliberate harmless startup-mode drift test; `win11-01` did not repeat it because promotion tested reproducibility of the already-validated runtime and catalog.
+
+This conclusion is limited to managing `Sysmon64` as `Running`/`Automatic` and `SplunkForwarder` as `Running`/`Automatic`. It does not validate future Puppet configuration or claim implementation of Sysmon XML management, Splunk inputs or outputs management, package lifecycle management, networking, or time synchronization, and it does not complete WS02.
+
 ## First functional catalog boundary
 
-The first functional WS02 catalog will manage selected desired state for already-installed telemetry components. Observed endpoint state is evidence to classify and review; it does not automatically define desired state.
+The first functional WS02 catalog manages selected desired state for already-installed telemetry components. Observed endpoint state is evidence to classify and review; it does not automatically define desired state.
 
 The following remain explicitly outside that first catalog:
 
