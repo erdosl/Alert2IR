@@ -101,3 +101,9 @@ Migrations are an explicit operator action and never run during application star
 WS05 Slice 3 implements the application-facing `ProcessingRepository` for PostgreSQL with Psycopg and an explicit snapshot-version-1 mapping. Each save uses one short transaction, writes one completed aggregate, lets PostgreSQL assign `created_at`, and validates the returned `ProcessingRecord` before commit. Retrieval reconstructs the immutable canonical alert, decision, incident, request, and investigation result graph by value through the existing domain constructors; unsupported snapshot versions fail explicitly.
 
 The adapter opens one connection per save or get operation and does not introduce pooling, generic CRUD, or a unit of work. FastAPI and request-path composition do not use this repository yet; processing-ID generation, API response changes, public retrieval, and persistence-failure HTTP behavior remain future WS05 work.
+
+## WS05 persistence Slice 4 boundary
+
+WS05 Slice 4 adds a persistence-aware application service that first invokes the separately pure and testable `AlertOrchestrator`, then assigns an application-generated processing UUID and saves the accepted canonical alert with its completed orchestration result through `ProcessingRepository`. UUID generation occurs only after successful orchestration. Both successful `no_action` and `investigate` results are persistence candidates; investigated results are saved only after routing and backend execution finish.
+
+Validation, policy, routing, and backend failures propagate without generating a processing UUID or calling the repository. Persistence failures propagate after UUID generation and one save attempt, with no retry. FastAPI and runtime composition do not use this service yet, so the current `/v1/alerts` request path is not durable.
