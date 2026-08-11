@@ -47,3 +47,13 @@ An `InvestigationResult` identifies the backend, completed capabilities, and evi
 ## Slice 3 deferrals
 
 Slice 3 does not implement Velociraptor, commercial backends, backend priority, failover, fan-out, dynamic discovery, backend health checking, orchestration, a FastAPI alert route, persistence, or Splunk or Sigma integration.
+
+## Slice 4 boundary
+
+Slice 4 adds the in-memory `AlertOrchestrator` application service. The decision gates all investigation work: `no_action` returns without creating an incident, requesting an investigation plan, selecting a backend, or executing one. For `investigate`, the service creates an incident, obtains an investigation request from an injected request factory, selects a capable backend, and executes it. Routing and backend errors propagate explicitly.
+
+`OrchestrationResult` represents the coherent in-memory decision and, when investigation occurs, its incident, request, and backend result. Request planning is injected because a permanent mapping from alerts and decisions to desired outcomes, capabilities, and targets has not been designed.
+
+## Slice 4 deferrals
+
+Slice 4 does not implement production request-planning policy, a FastAPI alert endpoint, persistence, retries or recovery, background workers, durable idempotency, Splunk or Sigma integration, Velociraptor, or backend priority or failover.
