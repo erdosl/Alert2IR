@@ -35,3 +35,15 @@ An `InvestigationRequest` states a desired outcome, required capabilities, and e
 ## Slice 2 deferrals
 
 Slice 2 does not implement backend capability advertisement, backend selection or routing, unsupported-capability execution behavior, MockBackend, orchestration, a FastAPI alert endpoint, persistence, correlation, sophisticated risk scoring, incident lifecycle, Splunk or Sigma integration, or Velociraptor.
+
+## Slice 3 boundary
+
+Slice 3 adds vendor-neutral backend capability advertisement, explicit backend selection, and a deterministic, stateless MockBackend. A backend is eligible only when it alone supports every capability required by an investigation request. Zero eligible backends fail explicitly as unsupported. Multiple eligible backends fail explicitly as ambiguous because priority and tie-breaking policy have not been designed.
+
+Capability identifiers remain open strings. `process.list` remains a demonstrated identifier, not a frozen taxonomy. MockBackend preserves requested capability order and produces one stable evidence reference per requested capability without using time, randomness, host state, or mutable counters.
+
+An `InvestigationResult` identifies the backend, completed capabilities, and evidence references. It does not define execution lifecycle or persistence semantics.
+
+## Slice 3 deferrals
+
+Slice 3 does not implement Velociraptor, commercial backends, backend priority, failover, fan-out, dynamic discovery, backend health checking, orchestration, a FastAPI alert route, persistence, or Splunk or Sigma integration.
