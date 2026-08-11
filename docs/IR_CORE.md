@@ -2,11 +2,11 @@
 
 ## Purpose
 
-WS03 established the minimal Docker Compose application/runtime substrate intended for `ir-core`. WS05 Slice 2 extends it with the PostgreSQL persistence substrate and explicit migrations.
+WS03 established the minimal Docker Compose application/runtime substrate intended for `ir-core`. WS05 completes its PostgreSQL persistence substrate, explicit migrations, and durable completed-processing request path.
 
 ## Current implementation boundary
 
-WS03 established and validated the minimal Docker runtime substrate on `ir-core`. WS04 subsequently validated the typed, in-memory Alert2IR core API on the same host, including `GET /healthz` and `POST /v1/alerts`. WS05 adds an internal-only PostgreSQL service, a named data volume, explicit Alembic migrations, and durable completed-processing writes on successful alert requests. Exact-artifact `ir-core` validation and WS05 closure remain pending, and real integrations remain future work.
+WS03 established and validated the minimal Docker runtime substrate on `ir-core`. WS04 subsequently validated the typed, in-memory Alert2IR core API on the same host, including `GET /healthz` and `POST /v1/alerts`. WS05 adds an internal-only PostgreSQL service, a named data volume, explicit Alembic migrations, and durable completed-processing writes on successful alert requests. The exact committed WS05 artifact has been validated and deliberately cleaned up on `ir-core`; the validation was not a permanent deployment. Real integrations remain future work.
 
 ## Runtime model
 
@@ -33,6 +33,18 @@ Final teardown removed the application container and Compose default network. No
 ## WS04 core API validation
 
 WS04 exact-artifact validation used commit `e56bec56dfa4f08efb129cbd239d33fcf58c0fda`. The typed API reached healthy state on the existing WS03 substrate and passed `/healthz`, canonical HIGH investigate and LOW no-action flows, schema rejection, OpenAPI, restart, full recreation, and loopback-only publication checks. It retained the same single-service, non-root, no-volume, no-database runtime boundary. Final teardown removed the application container and automatic Compose network, so this validation does not represent a permanent deployment.
+
+## WS05 persistence runtime validation and closure
+
+Exact validation ran on `ir-core` from Git commit `6f9ae1b14bb033ced620023d82460cd5553607b4` (`feat: persist alert processing via PostgreSQL`), not a development working tree. The `dev01` archive `/tmp/alert2ir-ws05-6f9ae1b14bb0.tar` had SHA-256 `6391dd2ba69b52a8f47aa02fd08c540aad8d7720a9c4705d3660dfe019523c1d`, which independently matched on `ir-core` before extraction. Core was rebuilt with `--no-cache` as `alert2ir-ws05-6f9ae1b14bb0-core`, image ID `sha256:88c207629997b3457f8bcc99a2d9626e336f3d09720933e235a6a89d8ffd35f4`; the supporting image was `postgres:18.4-bookworm`. Core ran as `uid=999(alert2ir) gid=999(alert2ir)`, and both services reached healthy state.
+
+The fresh `postgres_data` volume contained no application table before the operator-run `alembic upgrade head`. That command created `processing_records` and `alembic_version` at `0001_processing_records`; its immediate repetition was a successful already-current invocation. Exact HTTP and PostgreSQL checks established durable LOW `no_action` processing ID `b59f6814-e8dd-45a6-a195-2651e403cefe` and HIGH `investigate` ID `d0adadbd-84e1-4289-a213-8067e180ed7d`. The HIGH row retained the expected MockBackend `process.list` request/result graph and `mock:process.list` evidence; both rows retained their canonical detection identity and source provenance.
+
+Core recreation preserved both rows. An ordinary `docker compose down` removed containers and the automatic network while retaining `postgres_data`; PostgreSQL restart, explicit repeat migration, and core startup preserved both records again. Core publication was exactly `127.0.0.1:8000:8000`; host TCP/5432 was not published, and the only runtime services were `core` and `postgres`. `/openapi.json` preserved the typed canonical request, a UUID `processing_id` in successful responses, no `created_at`, 409 `ApiErrorResponse`, and description-only 500 documentation. Schema inspection confirmed no vendor payload, Splunk-specific data, incident state/owner/acknowledgement/closure, retry or idempotency state, or independent component IDs.
+
+With only PostgreSQL stopped, `/healthz` remained liveness-only and returned exact HTTP 200 `{"status":"ok"}`; a valid POST returned HTTP 500. PostgreSQL restart returned it to health, after which processing ID `45524943-b3e5-416f-a9e1-4eb660e01f2a` persisted successfully. This does not demonstrate application retry or interrupted-work recovery.
+
+The temporary project was deliberately destroyed after validation with its retained volume, locally built core image, temporary `.env`, transferred archive, and extracted directory. No validation-specific container, network, volume, image, credential file, or artifact directory remains on `ir-core`; this was not a permanent service deployment. This final destructive cleanup is distinct from normal `docker compose down`, which preserves `postgres_data`.
 
 ## Run and revalidate
 
@@ -71,13 +83,15 @@ docker compose down --volumes
 ## Current runtime deferrals
 
 - Public processing read, list, update, or delete APIs
-- Retries, durable idempotency, and recovery state
-- Mutable incident lifecycle
+- Retries, durable idempotency, execution recovery/resume, correlation, and retention/deletion policy
+- Mutable incident lifecycle, backup/disaster recovery, HA/replication, database readiness, and production concurrency/scalability
 - Live Splunk integration and real investigation backends
 - Puppet ownership of Docker
 - Reverse proxy or TLS termination
 - Kubernetes, queues, workers, or caches
 - External API exposure
+
+The alert route is `async def` but directly executes synchronous orchestration and Psycopg, blocking the process event loop during that operation. A future effectful backend could complete before PostgreSQL persistence subsequently fails, leaving an external effect without a durable Alert2IR record. A database commit may also succeed before a client fails to receive or observe the HTTP response. WS05 records these consistency and acknowledgement windows but does not introduce retries, queues, sagas, distributed transactions, event sourcing, idempotency, or client reconciliation; they are not current MockBackend failures.
 
 ## Host administration boundary
 

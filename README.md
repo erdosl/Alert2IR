@@ -15,7 +15,7 @@ Detection source
 
 Splunk is the first real detection source, Sigma is the canonical detection-as-code format, and Velociraptor will be the first real investigation backend. A mock backend will keep the core workflow testable without a live lab or commercial products.
 
-This repository is in its early implementation stage. A minimal typed Alert2IR core and FastAPI workflow using the deterministic MockBackend has been validated on `ir-core`. PostgreSQL composition, migrations, and durable completed-processing storage are implemented. `POST /v1/alerts` now persists successful `no_action` and `investigate` processing and returns a `processing_id`; exact-artifact runtime validation and WS05 closure remain pending. Real source and investigation integrations remain future work.
+This repository is in its early implementation stage. A minimal typed Alert2IR core and FastAPI workflow using the deterministic MockBackend has been validated on `ir-core`. WS05 persistence is complete: PostgreSQL composition, explicit migrations, and durable completed-processing storage support successful `no_action` and `investigate` requests, which return a `processing_id`. The exact Git artifact was validated on `ir-core` and deliberately removed afterward; this did not create a permanent deployment. The current persistence and lifecycle boundaries, including their explicit limitations, are recorded in [the IR-Core runtime document](docs/IR_CORE.md) and [core design record](docs/CORE.md). Real source and investigation integrations remain future work.
 
 See [the project definition](docs/PROJECT.md), [planned architecture](docs/ARCHITECTURE.md), and [roadmap](docs/ROADMAP.md).
 
