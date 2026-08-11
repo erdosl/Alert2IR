@@ -95,3 +95,9 @@ The planned transaction boundary is orchestration first, followed by one short p
 WS05 Slice 2 adds the PostgreSQL storage substrate and a forward-only Alembic baseline for the completed processing aggregate. The `processing_records` table uses one application-supplied UUID primary key, a database-assigned `created_at`, relational scalar fields, and constrained JSONB value snapshots. Database checks enforce the current severity and decision vocabularies, non-blank scalar values, JSON array shapes, and complete `no_action` or `investigate` records. No component object gains independent identity, and no lookup indexes or source-level uniqueness are introduced.
 
 Migrations are an explicit operator action and never run during application startup. PostgreSQL repository save/get behavior, domain serialization, runtime persistence wiring, processing identifiers in the API, public retrieval, and persistence-failure HTTP behavior remain later WS05 slices.
+
+## WS05 persistence Slice 3 boundary
+
+WS05 Slice 3 implements the application-facing `ProcessingRepository` for PostgreSQL with Psycopg and an explicit snapshot-version-1 mapping. Each save uses one short transaction, writes one completed aggregate, lets PostgreSQL assign `created_at`, and validates the returned `ProcessingRecord` before commit. Retrieval reconstructs the immutable canonical alert, decision, incident, request, and investigation result graph by value through the existing domain constructors; unsupported snapshot versions fail explicitly.
+
+The adapter opens one connection per save or get operation and does not introduce pooling, generic CRUD, or a unit of work. FastAPI and request-path composition do not use this repository yet; processing-ID generation, API response changes, public retrieval, and persistence-failure HTTP behavior remain future WS05 work.
