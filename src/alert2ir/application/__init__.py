@@ -5,5 +5,12 @@ from alert2ir.application.orchestrator import (
     DecisionPolicy,
     OrchestrationResult,
 )
+from alert2ir.application.persistence import ProcessingRecord, ProcessingRepository
 
-__all__ = ["AlertOrchestrator", "DecisionPolicy", "OrchestrationResult"]
+__all__ = [
+    "AlertOrchestrator",
+    "DecisionPolicy",
+    "OrchestrationResult",
+    "ProcessingRecord",
+    "ProcessingRepository",
+]
