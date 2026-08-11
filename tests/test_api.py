@@ -1,7 +1,7 @@
 from copy import deepcopy
 import unittest
 
-from fastapi.testclient import TestClient
+import httpx2
 
 from alert2ir.api import create_app
 from alert2ir.application import AlertOrchestrator
@@ -38,7 +38,7 @@ def make_request(
 def make_client(
     backends: tuple[MockBackend, ...] | None = None,
     capabilities: tuple[str, ...] = ("process.list",),
-) -> TestClient:
+) -> httpx2.AsyncClient:
     configured_backends = backends or (
         MockBackend("mock", frozenset({"process.list"})),
     )
@@ -51,18 +51,24 @@ def make_client(
         router=BackendRouter(configured_backends),
         request_factory=request_factory,
     )
-    return TestClient(create_app(orchestrator))
+    transport = httpx2.ASGITransport(app=create_app(orchestrator))
+    return httpx2.AsyncClient(
+        transport=transport,
+        base_url="http://testserver",
+    )
 
 
-class ApiEndpointTests(unittest.TestCase):
-    def test_health_endpoint_is_unchanged(self) -> None:
-        response = make_client().get("/healthz")
+class ApiEndpointTests(unittest.IsolatedAsyncioTestCase):
+    async def test_health_endpoint_is_unchanged(self) -> None:
+        async with make_client() as client:
+            response = await client.get("/healthz")
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"status": "ok"})
 
-    def test_typed_investigate_flow(self) -> None:
-        response = make_client().post("/v1/alerts", json=make_payload("high"))
+    async def test_typed_investigate_flow(self) -> None:
+        async with make_client() as client:
+            response = await client.post("/v1/alerts", json=make_payload("high"))
 
         self.assertEqual(response.status_code, 200)
         body = response.json()
@@ -93,8 +99,9 @@ class ApiEndpointTests(unittest.TestCase):
             },
         )
 
-    def test_typed_no_action_flow(self) -> None:
-        response = make_client().post("/v1/alerts", json=make_payload("low"))
+    async def test_typed_no_action_flow(self) -> None:
+        async with make_client() as client:
+            response = await client.post("/v1/alerts", json=make_payload("low"))
 
         self.assertEqual(response.status_code, 200)
         body = response.json()
@@ -103,43 +110,48 @@ class ApiEndpointTests(unittest.TestCase):
         self.assertIsNone(body["investigation_request"])
         self.assertIsNone(body["investigation_result"])
 
-    def test_source_specific_extra_field_is_rejected(self) -> None:
+    async def test_source_specific_extra_field_is_rejected(self) -> None:
         payload = make_payload()
         payload["source_only_debug_field"] = "must not cross boundary"
 
-        response = make_client().post("/v1/alerts", json=payload)
+        async with make_client() as client:
+            response = await client.post("/v1/alerts", json=payload)
 
         self.assertEqual(response.status_code, 422)
 
-    def test_naive_timestamp_is_rejected(self) -> None:
+    async def test_naive_timestamp_is_rejected(self) -> None:
         payload = make_payload("low")
         payload["detected_at"] = "2026-08-11T09:30:00"
 
-        response = make_client().post("/v1/alerts", json=payload)
+        async with make_client() as client:
+            response = await client.post("/v1/alerts", json=payload)
 
         self.assertEqual(response.status_code, 422)
 
-    def test_timezone_aware_timestamp_is_accepted(self) -> None:
-        response = make_client().post("/v1/alerts", json=make_payload("low"))
+    async def test_timezone_aware_timestamp_is_accepted(self) -> None:
+        async with make_client() as client:
+            response = await client.post("/v1/alerts", json=make_payload("low"))
 
         self.assertEqual(response.status_code, 200)
 
-    def test_representative_whitespace_strings_are_rejected(self) -> None:
+    async def test_representative_whitespace_strings_are_rejected(self) -> None:
         for path in (("detection", "identifier"), ("source", "source")):
             with self.subTest(path=path):
                 payload = deepcopy(make_payload())
                 nested = payload[path[0]]
                 nested[path[1]] = " \t"
 
-                response = make_client().post("/v1/alerts", json=payload)
+                async with make_client() as client:
+                    response = await client.post("/v1/alerts", json=payload)
 
                 self.assertEqual(response.status_code, 422)
 
-    def test_unsupported_capabilities_map_to_conflict(self) -> None:
-        response = make_client(capabilities=("file.hash",)).post(
-            "/v1/alerts",
-            json=make_payload(),
-        )
+    async def test_unsupported_capabilities_map_to_conflict(self) -> None:
+        async with make_client(capabilities=("file.hash",)) as client:
+            response = await client.post(
+                "/v1/alerts",
+                json=make_payload(),
+            )
 
         self.assertEqual(response.status_code, 409)
         self.assertEqual(
@@ -152,16 +164,17 @@ class ApiEndpointTests(unittest.TestCase):
             },
         )
 
-    def test_ambiguous_routing_maps_to_internal_error(self) -> None:
+    async def test_ambiguous_routing_maps_to_internal_error(self) -> None:
         backends = (
             MockBackend("mock-a", frozenset({"process.list"})),
             MockBackend("mock-b", frozenset({"process.list"})),
         )
 
-        response = make_client(backends=backends).post(
-            "/v1/alerts",
-            json=make_payload(),
-        )
+        async with make_client(backends=backends) as client:
+            response = await client.post(
+                "/v1/alerts",
+                json=make_payload(),
+            )
 
         self.assertEqual(response.status_code, 500)
         self.assertEqual(
@@ -174,8 +187,10 @@ class ApiEndpointTests(unittest.TestCase):
             },
         )
 
-    def test_openapi_documents_typed_boundary_and_errors(self) -> None:
-        document = make_client().get("/openapi.json").json()
+    async def test_openapi_documents_typed_boundary_and_errors(self) -> None:
+        async with make_client() as client:
+            response = await client.get("/openapi.json")
+        document = response.json()
 
         self.assertIn("/healthz", document["paths"])
         self.assertIn("/v1/alerts", document["paths"])
