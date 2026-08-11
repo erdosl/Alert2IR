@@ -8,12 +8,24 @@ from alert2ir.core.models import (
     Severity,
     SourceProvenance,
 )
+from alert2ir.core.workflow import (
+    BaselineSeverityPolicy,
+    Decision,
+    DecisionOutcome,
+    Incident,
+    InvestigationRequest,
+)
 
 __all__ = [
+    "BaselineSeverityPolicy",
     "CanonicalAlert",
+    "Decision",
+    "DecisionOutcome",
     "DetectionIdentity",
     "Entity",
     "EvidenceReference",
+    "Incident",
+    "InvestigationRequest",
     "Severity",
     "SourceProvenance",
 ]

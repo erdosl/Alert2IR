@@ -23,3 +23,15 @@ These are current WS04 design choices, not immutable project-wide standards:
 Slice 1 does not implement decision or policy behavior, risk scoring, incident representation, investigation requests, backend capabilities, MockBackend, an alert API route, PostgreSQL, Splunk or Sigma integration, Velociraptor, raw vendor payload retention, or generic vendor-extension metadata.
 
 The canonical model may be refined before real source or backend integration if evidence from WS08 or WS09 demonstrates a need.
+
+## Slice 2 boundary
+
+Slice 2 adds vendor-neutral decision, incident, and investigation-request representations. Decisions have either an `investigate` or `no_action` outcome and retain source provenance with an explainable reason.
+
+The initial `baseline-severity-v1` policy is a current WS04 application choice. It deterministically maps `low` and `medium` severity to `no_action`, and `high` and `critical` severity to `investigate`. An incident can represent only an `investigate` decision, and its alert and decision must have matching source provenance.
+
+An `InvestigationRequest` states a desired outcome, required capabilities, and entity targets without naming a backend. Capability identifiers remain open strings. `process.list` is the first demonstrated identifier only; it is not an exhaustive or permanent capability taxonomy.
+
+## Slice 2 deferrals
+
+Slice 2 does not implement backend capability advertisement, backend selection or routing, unsupported-capability execution behavior, MockBackend, orchestration, a FastAPI alert endpoint, persistence, correlation, sophisticated risk scoring, incident lifecycle, Splunk or Sigma integration, or Velociraptor.
