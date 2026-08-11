@@ -6,7 +6,7 @@ WS03 establishes the minimal Docker Compose application/runtime substrate intend
 
 ## Current implementation boundary
 
-The repository contains a minimal containerized FastAPI scaffold. Runtime validation on `ir-core` remains pending until the reviewed Git artifact is committed and deployed. This repository-edit task does not deploy or validate the service on `ir-core`.
+The repository contains a minimal containerized FastAPI scaffold validated on `ir-core`. Its only Alert2IR-defined application behavior is `GET /healthz`; Alert2IR domain behavior and integrations remain future work.
 
 ## Runtime model
 
@@ -14,9 +14,23 @@ Docker Compose defines one application service, `core`. The process listens on T
 
 The application runs as a dedicated non-root container user. It has no persistence, supporting services, bind mounts, named volumes, custom networks, or external API exposure.
 
-## Intended validation procedure
+## WS03 runtime validation
 
-After the reviewed artifact is committed and made available on `ir-core`, validate it from the repository root on that host:
+Validation used Git commit `fb6b956bdcd5bc8534af2ec3b4538fa9d39da8d1` (`feat: add minimal IR-Core runtime scaffold`). The runtime input was `/tmp/alert2ir-ws03-fb6b956bdcd5.tar`, created directly from that commit with `git archive`. Its SHA-256 was `579c0914df1cc157394f46cfb831c342dacde6fd4118bf61490192eb4b33231c`; independent hashes on `dev01` and `ir-core` matched before extraction.
+
+The physical target identified itself as `ir-core` at host-only IPv4 address `192.168.56.63`. The observed host platform was Ubuntu 24.04.4 LTS x86_64 with Docker Engine 29.7.2 and Docker Compose v5.4.0. Docker and SSH were already enabled host/bootstrap capabilities; validation did not install, configure, or place them under Puppet management.
+
+`docker compose config` succeeded and rendered the intended single `core` service. The image built successfully as `fb6b956bdcd5-core:latest`, with observed image ID `sha256:3ba1d7afac1a26326dd213ec75289871bcbab77d9fc6969750a8cdd5dfc09716`. The running process had `uid=999(alert2ir)` and `gid=999(alert2ir)`, confirming non-root execution.
+
+The service reached `healthy`. `GET /healthz` returned HTTP 200 with JSON exactly equal to `{"status":"ok"}`. Docker published container TCP/8000 only as `127.0.0.1:8000`; no TCP/8000 listener appeared on wildcard IPv4, the host-only or NAT address, or IPv6 wildcard.
+
+After `docker compose restart core`, the service returned to `healthy` and the exact health response passed again. A full `docker compose down` followed by `docker compose up -d` recreated the service without mutable container state; health and loopback-only publication passed again. While active, the project used one application container, the normal implicit Compose default network, no named volumes, no database, and no supporting services.
+
+Final teardown removed the application container and Compose default network. No project volumes remained and TCP/8000 no longer listened. The built image and isolated validation artifact directory were left in place after validation; neither is required for runtime operation. Runtime validation changed no host packages, Docker daemon, SSH, firewall, Puppet configuration, or repository files.
+
+## Run and revalidate
+
+On the intended Docker runtime host, run these commands from the root of a checkout or artifact containing the reviewed repository content:
 
 ```bash
 docker compose config
@@ -28,7 +42,7 @@ docker compose restart core
 docker compose down
 ```
 
-Successful runtime validation has not yet occurred as part of this repository-edit task. Record observed runtime results separately when deployment is authorized.
+After startup, `core` should become healthy and `/healthz` should return HTTP 200 with `{"status":"ok"}`. The service is published only on host loopback. `docker compose down` removes the runtime container and automatic Compose network; no persistent volume is required.
 
 ## Explicit non-goals for this slice
 
