@@ -89,3 +89,9 @@ The processing UUID is storage identity and is distinct from detection identity 
 The application-facing repository contract is deliberately limited to saving one completed aggregate under a caller-supplied processing UUID and retrieving it by that UUID. A deterministic in-memory implementation assigns `created_at` through an injected clock and rejects duplicate processing UUIDs. PostgreSQL schema and access, SQL serialization, migrations, runtime wiring, public retrieval, and persistence-failure HTTP behavior remain later WS05 slices.
 
 The planned transaction boundary is orchestration first, followed by one short persistence operation for the completed aggregate. A database transaction will not span backend execution, including when later backends perform external work.
+
+## WS05 persistence Slice 2 boundary
+
+WS05 Slice 2 adds the PostgreSQL storage substrate and a forward-only Alembic baseline for the completed processing aggregate. The `processing_records` table uses one application-supplied UUID primary key, a database-assigned `created_at`, relational scalar fields, and constrained JSONB value snapshots. Database checks enforce the current severity and decision vocabularies, non-blank scalar values, JSON array shapes, and complete `no_action` or `investigate` records. No component object gains independent identity, and no lookup indexes or source-level uniqueness are introduced.
+
+Migrations are an explicit operator action and never run during application startup. PostgreSQL repository save/get behavior, domain serialization, runtime persistence wiring, processing identifiers in the API, public retrieval, and persistence-failure HTTP behavior remain later WS05 slices.

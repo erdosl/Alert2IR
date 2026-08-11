@@ -11,6 +11,8 @@ RUN pip install --no-cache-dir --requirement requirements.txt \
     && useradd --system --gid alert2ir --no-create-home alert2ir
 
 COPY src/alert2ir ./alert2ir
+COPY alembic.ini .
+COPY migrations ./migrations
 
 USER alert2ir
 

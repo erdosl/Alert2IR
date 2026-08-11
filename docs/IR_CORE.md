@@ -2,19 +2,17 @@
 
 ## Purpose
 
-WS03 establishes the minimal Docker Compose application/runtime substrate intended for `ir-core`.
+WS03 established the minimal Docker Compose application/runtime substrate intended for `ir-core`. WS05 Slice 2 extends it with the PostgreSQL persistence substrate and explicit migrations.
 
 ## Current implementation boundary
 
-WS03 established and validated the minimal Docker runtime substrate on `ir-core`. WS04 subsequently validated the typed, in-memory Alert2IR core API on the same host, including `GET /healthz` and `POST /v1/alerts`. The runtime remains stateless and loopback-only; the validation container and automatic Compose network were torn down afterward.
-
-Persistence and real integrations remain future work.
+WS03 established and validated the minimal Docker runtime substrate on `ir-core`. WS04 subsequently validated the typed, in-memory Alert2IR core API on the same host, including `GET /healthz` and `POST /v1/alerts`. WS05 Slice 2 adds an internal-only PostgreSQL service, a named data volume, and an explicit Alembic migration baseline. Request processing remains in-memory until a later WS05 slice wires the application repository, and real integrations remain future work.
 
 ## Runtime model
 
 Docker Compose defines one application service, `core`. The process listens on TCP/8000 inside the container, while Compose publishes it only on host loopback at `127.0.0.1:8000`. `GET /healthz` returns `{"status":"ok"}` with HTTP status 200 and is also used by the container healthcheck.
 
-The application runs as a dedicated non-root container user. It has no persistence, supporting services, bind mounts, named volumes, custom networks, or external API exposure.
+The application runs as a dedicated non-root container user. PostgreSQL is a supporting Compose service on the default network with no published host port, and `postgres_data` is its named data volume. The application API retains loopback-only publication and has no external exposure.
 
 ## WS03 runtime validation
 
@@ -48,7 +46,25 @@ docker compose restart core
 docker compose down
 ```
 
-After startup, `core` should become healthy and `/healthz` should return HTTP 200 with `{"status":"ok"}`. The service is published only on host loopback. `docker compose down` removes the runtime container and automatic Compose network; no persistent volume is required.
+After startup, `core` should become healthy and `/healthz` should return HTTP 200 with `{"status":"ok"}`. The service is published only on host loopback. PostgreSQL requires the explicit environment and migration procedure below.
+
+## PostgreSQL substrate and explicit migrations
+
+Copy `.env.example` to a local, Git-ignored `.env` and replace every placeholder. `POSTGRES_PASSWORD` and the password embedded in `ALERT2IR_DATABASE_URL` must correspond; URL-encode the URL password when required. PostgreSQL TCP/5432 is available only on the Compose network and is not published on the host. The `postgres_data` named volume contains PostgreSQL state.
+
+From the repository root, initialize or advance the database explicitly before starting the application:
+
+```bash
+docker compose up -d --wait postgres
+docker compose run --rm core alembic upgrade head
+docker compose up -d core
+```
+
+The application does not run migrations at startup and does not yet read or write processing records during requests. `docker compose down` removes containers and the default network while preserving `postgres_data`. Intentional destruction is a separate operation:
+
+```bash
+docker compose down --volumes
+```
 
 ## Explicit non-goals for this slice
 
