@@ -15,7 +15,7 @@ Detection source
 
 Splunk is the first real detection source, Sigma is the canonical detection-as-code format, and Velociraptor will be the first real investigation backend. A mock backend will keep the core workflow testable without a live lab or commercial products.
 
-This repository is in its early bootstrap stage. It records project decisions, lab scope, the roadmap, and a validated narrow Puppet environment for Windows telemetry service state and canonical Sysmon configuration staging. A minimal containerized FastAPI runtime scaffold exists and has been validated on `ir-core`, but the Alert2IR domain workflow and integrations remain unimplemented.
+This repository is in its early implementation stage. A minimal typed, in-memory Alert2IR core and FastAPI workflow now exists using the deterministic MockBackend. The runtime substrate was previously validated on `ir-core`; validation of the new domain API, persistence, and real source and investigation integrations remain future work.
 
 See [the project definition](docs/PROJECT.md), [planned architecture](docs/ARCHITECTURE.md), and [roadmap](docs/ROADMAP.md).
 

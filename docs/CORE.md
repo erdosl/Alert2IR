@@ -57,3 +57,13 @@ Slice 4 adds the in-memory `AlertOrchestrator` application service. The decision
 ## Slice 4 deferrals
 
 Slice 4 does not implement production request-planning policy, a FastAPI alert endpoint, persistence, retries or recovery, background workers, durable idempotency, Splunk or Sigma integration, Velociraptor, or backend priority or failover.
+
+## Slice 5 boundary
+
+Slice 5 adds `POST /v1/alerts` as the typed canonical-core HTTP boundary. Strict request schemas reject unknown source-specific fields, convert explicitly to the domain model, and return a typed orchestration response. Raw source ingestion and adapter dispatch remain outside this route. Ordinary FastAPI request-validation failures remain HTTP 422; unsupported capabilities map to HTTP 409, and ambiguous backend routing maps to HTTP 500 without choosing a backend.
+
+The module-level WS04 runtime composes `BaselineSeverityPolicy`, one deterministic MockBackend, and a narrow request factory for `process.list`. This is an initial WS04 application choice, not a permanent request-planning standard.
+
+## Slice 5 deferrals
+
+Slice 5 does not implement PostgreSQL, durable lifecycle, live Splunk or Sigma integration, Velociraptor, authentication, TLS or external exposure, background jobs, or CI.

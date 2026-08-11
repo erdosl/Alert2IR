@@ -6,7 +6,7 @@ WS03 establishes the minimal Docker Compose application/runtime substrate intend
 
 ## Current implementation boundary
 
-The repository contains a minimal containerized FastAPI scaffold validated on `ir-core`. Its only Alert2IR-defined application behavior is `GET /healthz`; Alert2IR domain behavior and integrations remain future work.
+WS03 validated a minimal containerized FastAPI scaffold on `ir-core` whose only Alert2IR-defined application behavior was `GET /healthz`. The repository now also contains the typed, in-memory domain API added during WS04, but that API has not yet passed a separate runtime validation on `ir-core`; persistence and real integrations remain future work.
 
 ## Runtime model
 
