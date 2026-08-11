@@ -6,7 +6,9 @@ WS03 establishes the minimal Docker Compose application/runtime substrate intend
 
 ## Current implementation boundary
 
-WS03 validated a minimal containerized FastAPI scaffold on `ir-core` whose only Alert2IR-defined application behavior was `GET /healthz`. The repository now also contains the typed, in-memory domain API added during WS04, but that API has not yet passed a separate runtime validation on `ir-core`; persistence and real integrations remain future work.
+WS03 established and validated the minimal Docker runtime substrate on `ir-core`. WS04 subsequently validated the typed, in-memory Alert2IR core API on the same host, including `GET /healthz` and `POST /v1/alerts`. The runtime remains stateless and loopback-only; the validation container and automatic Compose network were torn down afterward.
+
+Persistence and real integrations remain future work.
 
 ## Runtime model
 
@@ -27,6 +29,10 @@ The service reached `healthy`. `GET /healthz` returned HTTP 200 with JSON exactl
 After `docker compose restart core`, the service returned to `healthy` and the exact health response passed again. A full `docker compose down` followed by `docker compose up -d` recreated the service without mutable container state; health and loopback-only publication passed again. While active, the project used one application container, the normal implicit Compose default network, no named volumes, no database, and no supporting services.
 
 Final teardown removed the application container and Compose default network. No project volumes remained and TCP/8000 no longer listened. The built image and isolated validation artifact directory were left in place after validation; neither is required for runtime operation. Runtime validation changed no host packages, Docker daemon, SSH, firewall, Puppet configuration, or repository files.
+
+## WS04 core API validation
+
+WS04 exact-artifact validation used commit `e56bec56dfa4f08efb129cbd239d33fcf58c0fda`. The typed API reached healthy state on the existing WS03 substrate and passed `/healthz`, canonical HIGH investigate and LOW no-action flows, schema rejection, OpenAPI, restart, full recreation, and loopback-only publication checks. It retained the same single-service, non-root, no-volume, no-database runtime boundary. Final teardown removed the application container and automatic Compose network, so this validation does not represent a permanent deployment.
 
 ## Run and revalidate
 

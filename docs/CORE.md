@@ -67,3 +67,15 @@ The module-level WS04 runtime composes `BaselineSeverityPolicy`, one determinist
 ## Slice 5 deferrals
 
 Slice 5 does not implement PostgreSQL, durable lifecycle, live Splunk or Sigma integration, Velociraptor, authentication, TLS or external exposure, background jobs, or CI.
+
+## WS04 runtime validation and closure
+
+Exact-artifact validation used commit `e56bec56dfa4f08efb129cbd239d33fcf58c0fda` (`feat: expose typed Alert2IR core API`). The input was `/tmp/alert2ir-ws04-e56bec56dfa4.tar`, created from that commit with `git archive`; its SHA-256 was `a53ec40170b7b6564f68f5b7abbecf357032a6a741026d5c813637c41f8ee05e`, and independent hashes on `dev01` and `ir-core` matched before extraction. The physical target identified itself as `ir-core` at host-only IPv4 `192.168.56.63`, with Docker Engine 29.7.2 and Docker Compose v5.4.0.
+
+The exact image built successfully as `e56bec56dfa4-core:latest` with image ID `sha256:bf1573e523259e3c719998e5e63d76fcf2a22788ebe43dbc7e236005aca943f0`. It contained FastAPI 0.139.2, Pydantic 2.13.4, and Uvicorn 0.51.0 and ran non-root as `uid=999(alert2ir)` and `gid=999(alert2ir)`. The single `core` service became healthy; `GET /healthz` returned HTTP 200 with `{"status":"ok"}`.
+
+A HIGH canonical alert returned HTTP 200 and traversed `baseline-severity-v1`, an Incident, an InvestigationRequest for `process.list`, and MockBackend, preserving source provenance and returning deterministic `mock:process.list` evidence. A LOW alert returned HTTP 200 with `no_action` and no incident, request, or result. An extra source-specific field and a naive `detected_at` were each rejected with HTTP 422. OpenAPI exposed `/healthz` and the typed `/v1/alerts` request and documented 200, 409, 500, and FastAPI's default 422 behavior.
+
+Publication remained only on `127.0.0.1:8000`. Restart and full down/up recreation returned the service to healthy and repeated the health and orchestration checks without mutable state. The active boundary was one application container, the automatic Compose default network, no named volumes, no database, and no supporting service. Final teardown removed the container and network, left no volumes, and stopped TCP/8000; the built image and isolated artifact directory were retained but are not required for runtime.
+
+This completes the documented WS04 in-memory core/API boundary. `baseline-severity-v1`, the current request factory, `process.list`, and MockBackend remain initial WS04 application, test, and runtime choices rather than immutable policy, planning, capability-taxonomy, or real-backend standards. PostgreSQL, migrations, and durable lifecycle; GitHub Actions; live Splunk ingestion, Sigma execution, and current telemetry mapping; Velociraptor, Atomic Red Team, and commercial or other real backends; production authentication, TLS, and external exposure; queues, workers, caches, and Kubernetes; and comprehensive entity, capability, risk, policy, and request-planning models remain deferred to later workstreams or demonstrated need.

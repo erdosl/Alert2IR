@@ -5,8 +5,8 @@ Workstreams describe coherent areas of work. Their numbering communicates a usef
 1. **01 Baseline & Architecture** — repository conventions, project boundaries, ADRs, lab record, and scope.
 2. **02 Windows Endpoint Reproducibility** — completed: repeatable endpoint prerequisites and telemetry configuration.
 3. **03 Docker / IR-Core** — completed: minimal application/service composition validated on the runtime host.
-4. **04 Alert2IR Core** — in progress: API, canonical alert normalization, decisions, incidents, and backend contracts.
-5. **05 Persistence** — PostgreSQL data model, migrations, and lifecycle behavior.
+4. **04 Alert2IR Core** — completed: API, canonical alert normalization, decisions, incidents, and backend contracts.
+5. **05 Persistence** — next: PostgreSQL data model, migrations, and lifecycle behavior.
 6. **06 Puppet** — implement tested desired-state roles and profiles.
 7. **07 Attack Simulation** — controlled Atomic Red Team scenarios and ground truth.
 8. **08 Sigma + Splunk** — detection-as-code content and validated Splunk execution.
@@ -20,7 +20,9 @@ Workstreams describe coherent areas of work. Their numbering communicates a usef
 
 WS02 is complete. Both Windows endpoints run Sysmon 15.21 and Splunk Universal Forwarder 10.4.2 and forward Sysmon Operational telemetry to Splunk. The validated Puppet boundary uses deliberate standalone `puppet apply` to manage `Sysmon64` and `SplunkForwarder` running/automatic state and stage canonical Sysmon XML bytes. Staging is not active Sysmon semantic convergence, and Puppet does not own complete Splunk local configuration, endpoint networking, or lab-administration bootstrap. Remaining configuration-management candidates are deferred, non-blocking, and documented in the Puppet environment documentation.
 
-WS03 is complete. Its Docker Compose runtime is one containerized FastAPI `core` service, validated on `ir-core` with a deterministic health endpoint, non-root execution, loopback-only publication, and successful restart and recreation. Persistence and supporting services are intentionally outside this slice. WS04 is in progress with its first canonical-alert and source-adapter slice.
+WS03 is complete. Its Docker Compose runtime is one containerized FastAPI `core` service, validated on `ir-core` with a deterministic health endpoint, non-root execution, loopback-only publication, and successful restart and recreation. Persistence and supporting services are intentionally outside this slice.
+
+WS04 is complete. It provides a vendor-neutral canonical normalization contract, an explainable deterministic policy, incident and investigation representations, capability-based backend selection, a deterministic MockBackend, in-memory orchestration, and typed `POST /v1/alerts`. The exact reviewed artifact was validated on `ir-core`; persistence, live integrations, and production-hardening concerns remain in their later workstreams.
 
 ## Milestone A — Public MVP
 
