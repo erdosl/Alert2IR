@@ -8,7 +8,7 @@ from alert2ir.api.schemas import (
     ApiErrorResponse,
     CanonicalAlertRequest,
 )
-from alert2ir.application import AlertOrchestrator
+from alert2ir.application import PersistentAlertProcessor
 from alert2ir.backends import AmbiguousBackendError, UnsupportedCapabilitiesError
 
 
@@ -16,7 +16,7 @@ def _error_response(status_code: int, error: ApiErrorResponse) -> JSONResponse:
     return JSONResponse(status_code=status_code, content=error.model_dump(mode="json"))
 
 
-def create_app(orchestrator: AlertOrchestrator) -> FastAPI:
+def create_app(processor: PersistentAlertProcessor) -> FastAPI:
     app = FastAPI()
 
     @app.get("/healthz")
@@ -28,14 +28,19 @@ def create_app(orchestrator: AlertOrchestrator) -> FastAPI:
         response_model=AlertProcessingResponse,
         responses={
             409: {"model": ApiErrorResponse},
-            500: {"model": ApiErrorResponse},
+            500: {
+                "description": (
+                    "Internal processing failure, including ambiguous backend "
+                    "routing or persistence failure."
+                )
+            },
         },
     )
     async def process_alert(
         request: CanonicalAlertRequest,
     ) -> AlertProcessingResponse | JSONResponse:
         try:
-            result = orchestrator.process(request.to_domain())
+            record = processor.process(request.to_domain())
         except UnsupportedCapabilitiesError as error:
             return _error_response(
                 409,
@@ -57,6 +62,6 @@ def create_app(orchestrator: AlertOrchestrator) -> FastAPI:
                 ),
             )
 
-        return AlertProcessingResponse.from_application(result)
+        return AlertProcessingResponse.from_application(record)
 
     return app

@@ -6,11 +6,13 @@ WS03 established the minimal Docker Compose application/runtime substrate intend
 
 ## Current implementation boundary
 
-WS03 established and validated the minimal Docker runtime substrate on `ir-core`. WS04 subsequently validated the typed, in-memory Alert2IR core API on the same host, including `GET /healthz` and `POST /v1/alerts`. WS05 Slice 2 adds an internal-only PostgreSQL service, a named data volume, and an explicit Alembic migration baseline. Request processing remains in-memory until a later WS05 slice wires the application repository, and real integrations remain future work.
+WS03 established and validated the minimal Docker runtime substrate on `ir-core`. WS04 subsequently validated the typed, in-memory Alert2IR core API on the same host, including `GET /healthz` and `POST /v1/alerts`. WS05 adds an internal-only PostgreSQL service, a named data volume, explicit Alembic migrations, and durable completed-processing writes on successful alert requests. Exact-artifact `ir-core` validation and WS05 closure remain pending, and real integrations remain future work.
 
 ## Runtime model
 
-Docker Compose defines one application service, `core`. The process listens on TCP/8000 inside the container, while Compose publishes it only on host loopback at `127.0.0.1:8000`. `GET /healthz` returns `{"status":"ok"}` with HTTP status 200 and is also used by the container healthcheck.
+Docker Compose defines the `core` application and its supporting `postgres` service. The application listens on TCP/8000 inside the container, while Compose publishes it only on host loopback at `127.0.0.1:8000`. Successful `POST /v1/alerts` calls persist completed `no_action` and `investigate` aggregates and return a `processing_id`. The route directly invokes synchronous orchestration and PostgreSQL persistence from `async def`, blocking the process event loop during that work; this is an accepted WS05 limitation, not a scalability claim.
+
+`GET /healthz` returns `{"status":"ok"}` with HTTP status 200 and is used by the container healthcheck. It is liveness-only and does not query PostgreSQL, so it can remain successful during a database outage while durable alert requests fail with HTTP 500.
 
 The application runs as a dedicated non-root container user. PostgreSQL is a supporting Compose service on the default network with no published host port, and `postgres_data` is its named data volume. The application API retains loopback-only publication and has no external exposure.
 
@@ -60,23 +62,21 @@ docker compose run --rm core alembic upgrade head
 docker compose up -d core
 ```
 
-The application does not run migrations at startup and does not yet read or write processing records during requests. `docker compose down` removes containers and the default network while preserving `postgres_data`. Intentional destruction is a separate operation:
+The application does not run migrations at startup. Completed processing is orchestrated first and then written in one short transaction; no PostgreSQL transaction spans backend execution. Persistence failure does not return a successful alert response. Public read, list, update, and delete processing APIs, retries, durable idempotency, recovery, and mutable incident lifecycle remain deferred. `docker compose down` removes containers and the default network while preserving `postgres_data`. Intentional destruction is a separate operation:
 
 ```bash
 docker compose down --volumes
 ```
 
-## Explicit non-goals for this slice
+## Current runtime deferrals
 
-- PostgreSQL or other persistence
-- Splunk integration
-- Alert2IR domain workflow
-- Investigation backends
+- Public processing read, list, update, or delete APIs
+- Retries, durable idempotency, and recovery state
+- Mutable incident lifecycle
+- Live Splunk integration and real investigation backends
 - Puppet ownership of Docker
 - Reverse proxy or TLS termination
-- Kubernetes
-- Queues or caches
-- Persistent volumes
+- Kubernetes, queues, workers, or caches
 - External API exposure
 
 ## Host administration boundary

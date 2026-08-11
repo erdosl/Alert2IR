@@ -1,12 +1,19 @@
 from copy import deepcopy
+from datetime import datetime, timezone
 import unittest
+from uuid import UUID
 
 import httpx2
 
 from alert2ir.api import create_app
-from alert2ir.application import AlertOrchestrator
+from alert2ir.application import AlertOrchestrator, PersistentAlertProcessor
 from alert2ir.backends import BackendRouter, MockBackend
 from alert2ir.core import BaselineSeverityPolicy, Incident, InvestigationRequest
+from alert2ir.persistence import InMemoryProcessingRepository
+
+
+PROCESSING_ID = UUID("5afaf9ce-3df8-43d3-bac8-1b875211dcc4")
+CREATED_AT = datetime(2026, 8, 11, 19, 0, tzinfo=timezone.utc)
 
 
 def make_payload(severity: str = "high") -> dict[str, object]:
@@ -38,6 +45,8 @@ def make_request(
 def make_client(
     backends: tuple[MockBackend, ...] | None = None,
     capabilities: tuple[str, ...] = ("process.list",),
+    repository=None,
+    raise_app_exceptions: bool = True,
 ) -> httpx2.AsyncClient:
     configured_backends = backends or (
         MockBackend("mock", frozenset({"process.list"})),
@@ -51,7 +60,18 @@ def make_client(
         router=BackendRouter(configured_backends),
         request_factory=request_factory,
     )
-    transport = httpx2.ASGITransport(app=create_app(orchestrator))
+    configured_repository = repository or InMemoryProcessingRepository(
+        lambda: CREATED_AT
+    )
+    processor = PersistentAlertProcessor(
+        orchestrator,
+        configured_repository,
+        lambda: PROCESSING_ID,
+    )
+    transport = httpx2.ASGITransport(
+        app=create_app(processor),
+        raise_app_exceptions=raise_app_exceptions,
+    )
     return httpx2.AsyncClient(
         transport=transport,
         base_url="http://testserver",
@@ -67,11 +87,13 @@ class ApiEndpointTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.json(), {"status": "ok"})
 
     async def test_typed_investigate_flow(self) -> None:
-        async with make_client() as client:
+        repository = InMemoryProcessingRepository(lambda: CREATED_AT)
+        async with make_client(repository=repository) as client:
             response = await client.post("/v1/alerts", json=make_payload("high"))
 
         self.assertEqual(response.status_code, 200)
         body = response.json()
+        self.assertEqual(body["processing_id"], str(PROCESSING_ID))
         self.assertEqual(body["decision"]["outcome"], "investigate")
         self.assertEqual(body["decision"]["policy_id"], "baseline-severity-v1")
         self.assertEqual(
@@ -88,6 +110,8 @@ class ApiEndpointTests(unittest.IsolatedAsyncioTestCase):
                 "targets": [{"kind": "host", "value": "workstation-7"}],
             },
         )
+        self.assertEqual(repository.get(PROCESSING_ID).processing_id, PROCESSING_ID)
+        self.assertEqual(repository.get(PROCESSING_ID).result.investigation_result.backend, "mock")
         self.assertEqual(
             body["investigation_result"],
             {
@@ -100,15 +124,35 @@ class ApiEndpointTests(unittest.IsolatedAsyncioTestCase):
         )
 
     async def test_typed_no_action_flow(self) -> None:
-        async with make_client() as client:
+        repository = InMemoryProcessingRepository(lambda: CREATED_AT)
+        async with make_client(repository=repository) as client:
             response = await client.post("/v1/alerts", json=make_payload("low"))
 
         self.assertEqual(response.status_code, 200)
         body = response.json()
+        self.assertEqual(body["processing_id"], str(PROCESSING_ID))
         self.assertEqual(body["decision"]["outcome"], "no_action")
         self.assertIsNone(body["incident"])
         self.assertIsNone(body["investigation_request"])
         self.assertIsNone(body["investigation_result"])
+        self.assertEqual(repository.get(PROCESSING_ID).processing_id, PROCESSING_ID)
+        self.assertEqual(repository.get(PROCESSING_ID).result.decision.outcome.value, "no_action")
+
+    async def test_persistence_failure_returns_internal_error(self) -> None:
+        class FailingRepository:
+            def save(self, processing_id, alert, result):
+                raise RuntimeError("distinctive persistence failure")
+
+            def get(self, processing_id):
+                raise AssertionError("get is not expected")
+
+        async with make_client(
+            repository=FailingRepository(),
+            raise_app_exceptions=False,
+        ) as client:
+            response = await client.post("/v1/alerts", json=make_payload("low"))
+
+        self.assertEqual(response.status_code, 500)
 
     async def test_source_specific_extra_field_is_rejected(self) -> None:
         payload = make_payload()
@@ -198,13 +242,22 @@ class ApiEndpointTests(unittest.IsolatedAsyncioTestCase):
         request_schema = operation["requestBody"]["content"]["application/json"]["schema"]
         self.assertTrue(request_schema)
         self.assertTrue(operation["responses"]["200"]["content"]["application/json"]["schema"])
-        self.assertIn("409", operation["responses"])
-        self.assertIn("500", operation["responses"])
+        response_409 = operation["responses"]["409"]
+        self.assertEqual(
+            response_409["content"]["application/json"]["schema"]["$ref"],
+            "#/components/schemas/ApiErrorResponse",
+        )
+        response_500 = operation["responses"]["500"]
+        self.assertNotIn("content", response_500)
+        self.assertNotIn("ApiErrorResponse", str(response_500))
         canonical_schema = document["components"]["schemas"]["CanonicalAlertRequest"]
         self.assertEqual(
             set(canonical_schema["properties"]),
             {"detection", "detected_at", "source", "entities", "severity", "evidence"},
         )
+        response_schema = document["components"]["schemas"]["AlertProcessingResponse"]
+        self.assertEqual(response_schema["properties"]["processing_id"]["format"], "uuid")
+        self.assertNotIn("created_at", response_schema["properties"])
 
 
 if __name__ == "__main__":

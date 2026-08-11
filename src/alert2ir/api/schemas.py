@@ -2,10 +2,11 @@
 
 from datetime import datetime
 from typing import Annotated, Self
+from uuid import UUID
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, field_validator
 
-from alert2ir.application import OrchestrationResult
+from alert2ir.application import ProcessingRecord
 from alert2ir.backends.base import InvestigationResult
 from alert2ir.core.models import (
     CanonicalAlert,
@@ -180,14 +181,17 @@ class InvestigationResultResponse(ApiModel):
 
 
 class AlertProcessingResponse(ApiModel):
+    processing_id: UUID
     decision: DecisionResponse
     incident: IncidentResponse | None
     investigation_request: InvestigationRequestResponse | None
     investigation_result: InvestigationResultResponse | None
 
     @classmethod
-    def from_application(cls, value: OrchestrationResult) -> Self:
+    def from_application(cls, record: ProcessingRecord) -> Self:
+        value = record.result
         return cls(
+            processing_id=record.processing_id,
             decision=DecisionResponse.from_domain(value.decision),
             incident=(
                 IncidentResponse.from_domain(value.incident)
