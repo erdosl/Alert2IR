@@ -2,7 +2,7 @@
 
 This directory establishes roles/profiles and Hiera conventions for the Alert2IR lab. The first functional catalog manages the running and startup state of already-installed Sysmon and Splunk Universal Forwarder services on the two Windows endpoints. The second narrow convergence slice additionally stages the project-owned Sysmon XML bytes without applying them to Sysmon's active configuration.
 
-Package installation, telemetry configuration, firewall and network changes, user creation, Docker configuration, and Velociraptor deployment remain outside this initial functional catalog and require separate reviewed and tested follow-up work.
+Package installation, active Sysmon configuration, complete Splunk local configuration ownership, firewall and network changes, user creation, Docker configuration, and Velociraptor deployment remain outside this intentionally narrow catalog. They are not prerequisites for WS02 closure.
 
 ## Layout
 
@@ -205,7 +205,7 @@ Final managed state on `win11-01` was `Sysmon64` `Running`/`Automatic`, `SplunkF
 
 The first functional Windows endpoint Puppet slice is therefore validated across the `win11-02` canary and the `win11-01` promotion. This demonstrates reproducibility of the same Puppet 8.20.0 runtime artifact, the same Git-derived Puppet catalog artifact, and the same desired service state on both Windows endpoints. `win11-02` performed the deliberate harmless startup-mode drift test; `win11-01` did not repeat it because promotion tested reproducibility of the already-validated runtime and catalog.
 
-That first-slice conclusion is limited to managing `Sysmon64` as `Running`/`Automatic` and `SplunkForwarder` as `Running`/`Automatic`. Its validation did not cover the staged-file slice documented below, claim convergence of Sysmon's active configuration, or claim implementation of Splunk inputs or outputs management, package lifecycle management, networking, or time synchronization, and it did not complete WS02.
+That first-slice conclusion is limited to managing `Sysmon64` as `Running`/`Automatic` and `SplunkForwarder` as `Running`/`Automatic`. Its validation did not cover the staged-file slice documented below or claim convergence of Sysmon's active configuration, implementation of Splunk inputs or outputs management, package lifecycle management, networking, or time synchronization.
 
 ### Validated staged Sysmon configuration slice
 
@@ -244,7 +244,9 @@ The second narrow Puppet slice is validated across both Windows endpoints. The c
 
 Puppet Agent `Stopped`/`Disabled` remains the accepted WS02 execution and control model; it is not a resource newly managed by this slice.
 
-The following remain out of scope or unresolved: active Sysmon configuration convergence; normalized active-configuration comparison; conditional `Sysmon64.exe -c` execution; Sysmon Operational channel ownership; Splunk `inputs.conf` and `outputs.conf` ownership; Event Log Readers membership management; package and installer lifecycle; networking; hostname; time synchronization; unrelated Windows hardening; and later workstreams. This validation does not complete WS02 as a whole.
+Together, the two validated slices satisfy the documented WS02 boundary and WS02 is complete. Active Sysmon semantic convergence was investigated and deferred because `Sysmon64.exe -c` is not a trustworthy full semantic comparator; no heuristic comparator is implemented. Other non-blocking deferred enhancements are Sysmon Operational channel ownership, safe ownership or migration of Splunk `inputs.conf` and `outputs.conf`, Event Log Readers membership management, package and installer lifecycle, time-sync desired state if a timing problem is demonstrated, and deeper rebuild automation.
+
+Puppet Server, Puppet CA/enrollment, scheduled Puppet Agent convergence, Windows networking, VirtualBox vNIC ownership, and SSH/key/firewall lab administration are explicit WS02 non-goals. The current catalog does not own the complete Splunk local configuration files.
 
 ## First functional catalog boundary
 

@@ -2,7 +2,7 @@
 
 ## Status
 
-This document describes the planned architecture. No Alert2IR application, API, datastore, detection content, or investigation backend is implemented in this bootstrap repository. The first functional Puppet catalog manages only the running and startup state of already-installed Sysmon and Splunk Universal Forwarder services on the Windows endpoints.
+This document describes the planned architecture. No Alert2IR application, API, datastore, detection content, or investigation backend is implemented in this bootstrap repository. The validated Windows Puppet catalog uses deliberate standalone `puppet apply` to manage the running and startup state of already-installed Sysmon and Splunk Universal Forwarder services and to stage the project-owned canonical Sysmon XML on both endpoints. Staging owns file bytes only: it does not apply or compare Sysmon's active configuration, reload the service, own the Sysmon Operational channel, or manage complete Splunk local configuration.
 
 ## Conceptual flow
 
