@@ -248,6 +248,119 @@ Together, the two validated slices satisfy the documented WS02 boundary and WS02
 
 Puppet Server, Puppet CA/enrollment, scheduled Puppet Agent convergence, Windows networking, VirtualBox vNIC ownership, and SSH/key/firewall lab administration are explicit WS02 non-goals. The current catalog does not own the complete Splunk local configuration files.
 
+## WS06 tested roles/profiles validation
+
+WS06 added deterministic repository contracts around the existing roles/profiles implementation without changing its manifests or ownership. The exact validated implementation provenance is:
+
+| Item | Validated value |
+| --- | --- |
+| Git commit | `8227653814dd25e938ee7ff04849d11968285ca5` |
+| Commit message | `test: add Puppet desired-state contracts` |
+| Artifact | `alert2ir_ws02-8227653814dd.zip` |
+| Artifact SHA-256 | `a13e4b9a5afcab7c8d6a5a8ee69ca36c82f35d40eff944d0f1cbc432b8e028d6` |
+| Canonical and staged XML SHA-256 | `71b792bfdbe3e3fc0ede56a6b9dd680c0a708c06130f54d1fa5b9c15267b9932` |
+| Endpoint Puppet runtime | `8.20.0` |
+
+The artifact was built once from the reviewed commit. `dev01` calculated the artifact SHA-256 above, `win11-02` independently calculated the same value before canary extraction, and `win11-01` independently calculated the same value before promotion extraction. The ZIP was neither rebuilt nor modified between endpoints. `win11-02` remained the canary, and `win11-01` received the unchanged promoted bytes.
+
+### Repository contract layer
+
+[`tests/test_puppet_contract.py`](../../tests/test_puppet_contract.py) uses only the Python standard library to establish repository contracts for:
+
+- exact `role::windows_endpoint` composition and its resource-free role body;
+- the intentionally empty `profile::base`;
+- the Sysmon directories, staged file, file source, explicit parent relationships, and service state;
+- Splunk Universal Forwarder service-only ownership;
+- absence of packages, execs, and notification, subscription, or refresh relationships;
+- exact `site.pp` classification of `win11-01` and `win11-02`;
+- intentionally empty Git-tracked Hiera data;
+- deterministic construction of the Git-derived Puppet ZIP;
+- exact canonical Sysmon bytes in the artifact; and
+- exclusion of private and unrelated repository content from the artifact.
+
+These are repository contract tests, not a Puppet parser, catalog compiler, provider test, or substitute for endpoint convergence validation. Compilation and application with the endpoint-installed Puppet 8.20.0 runtime provide the real Puppet validation layer.
+
+### Frozen desired-state boundary
+
+`role::windows_endpoint` composes `profile::base`, `profile::sysmon`, and `profile::splunk_forwarder`; the role owns no direct resources. `profile::base` remains resource-free.
+
+`profile::sysmon` owns only:
+
+- directory `C:/ProgramData/Alert2IR`;
+- directory `C:/ProgramData/Alert2IR/Sysmon`;
+- exact staged file `C:/ProgramData/Alert2IR/Sysmon/alert2ir-sysmon.xml` from `puppet:///modules/profile/sysmon/alert2ir-sysmon.xml`;
+- `Sysmon64` running; and
+- `Sysmon64` automatic.
+
+`profile::splunk_forwarder` owns only:
+
+- `SplunkForwarder` running; and
+- `SplunkForwarder` automatic.
+
+WS06 does not install or upgrade Sysmon, apply or reload active Sysmon configuration, compare the staged XML with active Sysmon configuration, or own the Sysmon Operational channel. It does not install or upgrade Splunk Universal Forwarder, own `inputs.conf` or `outputs.conf`, or restart either telemetry service because the staged XML changes. It does not manage Puppet Agent service state, introduce Puppet Server or its CA, create scheduled agent convergence, or introduce a port-8140 control plane, PuppetDB, Puppetfile/r10k, Forge modules, PDK, or RSpec-Puppet. It does not manage firewall, SSH, users, endpoint hostname or IP configuration, general Windows packages, Docker, or later Alert2IR workstreams.
+
+The staged XML SHA-256 proves only equality between the project-owned canonical bytes and the managed staged file. It is not evidence that Sysmon's active configuration equals that file.
+
+### Standalone validation commands
+
+WS06 retained deliberate standalone `puppet apply` with the endpoint-installed Puppet 8.20.0 runtime. Puppet Agent remained stopped and disabled; no agent/server enrollment or Puppet Server relationship was introduced.
+
+Before every Puppet invocation, the operator independently guarded physical identity with:
+
+```powershell
+$env:COMPUTERNAME
+
+Get-NetIPAddress -AddressFamily IPv4 |
+  Where-Object { $_.IPAddress -like '192.168.56.*' } |
+  Select-Object IPAddress, InterfaceAlias
+```
+
+The canary identity was `win11-02` / `WIN11-02` / `192.168.56.62` / `Ethernet`. Its enforcing command was:
+
+```powershell
+& 'C:\Program Files\Puppet Labs\Puppet\bin\puppet.bat' apply `
+  'C:\Windows\Temp\Alert2IR-WS06-8227653814dd\environment\manifests\site.pp' `
+  --modulepath='C:\Windows\Temp\Alert2IR-WS06-8227653814dd\environment\modules' `
+  --hiera_config='C:\Windows\Temp\Alert2IR-WS06-8227653814dd\environment\hiera.yaml' `
+  --certname=win11-02 `
+  --detailed-exitcodes
+```
+
+The noop used the same command with `--noop` in addition to `--detailed-exitcodes`.
+
+The promotion identity was `win11-01` / `WIN11-01` / `192.168.56.60` / `Ethernet`. Its enforcing command was:
+
+```powershell
+& 'C:\Program Files\Puppet Labs\Puppet\bin\puppet.bat' apply `
+  'C:\Windows\Temp\Alert2IR-WS06-8227653814dd\environment\manifests\site.pp' `
+  --modulepath='C:\Windows\Temp\Alert2IR-WS06-8227653814dd\environment\modules' `
+  --hiera_config='C:\Windows\Temp\Alert2IR-WS06-8227653814dd\environment\hiera.yaml' `
+  --certname=win11-01 `
+  --detailed-exitcodes
+```
+
+Its noop likewise added `--noop`. These paths were endpoint-local temporary extraction paths used only during validation; they no longer exist.
+
+### Endpoint results and cleanup
+
+Both endpoints produced the same result sequence:
+
+| Endpoint | Noop | First enforcing apply | Second enforcing apply |
+| --- | --- | --- | --- |
+| `win11-02` | exit `0`; no corrective resource events | exit `0`; no corrective resource events | exit `0`; no corrective resource events |
+| `win11-01` | exit `0`; no corrective resource events | exit `0`; no corrective resource events | exit `0`; no corrective resource events |
+
+No deliberate drift was introduced during WS06. WS02 had already demonstrated corrective service and staged-file drift detection and repair. WS06 instead proved that the exact now-tested roles/profiles artifact was already converged and that repeated enforcing application was idempotent on both endpoints.
+
+Final state on both endpoints was:
+
+- `Sysmon64`: `Running` / `Automatic`;
+- `SplunkForwarder`: `Running` / `Automatic`;
+- Puppet Agent: `Stopped` / `Disabled`; and
+- `C:\ProgramData\Alert2IR\Sysmon\alert2ir-sysmon.xml`: present with canonical SHA-256 `71b792bfdbe3e3fc0ede56a6b9dd680c0a708c06130f54d1fa5b9c15267b9932`.
+
+After evidence was recorded, `C:\Windows\Temp\Alert2IR-WS06-8227653814dd` was removed from both endpoints and the temporary artifact output directory was removed from `dev01`. Cleanup did not remove or alter the Puppet-managed staged XML, manually change either telemetry service, or change Puppet Agent state. No credentials or private Hiera values entered Git.
+
 ## First functional catalog boundary
 
 The first functional WS02 catalog manages selected desired state for already-installed telemetry components. Observed endpoint state is evidence to classify and review; it does not automatically define desired state.
