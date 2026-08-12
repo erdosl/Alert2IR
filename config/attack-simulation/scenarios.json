@@ -1,0 +1,204 @@
+{
+  "schema_version": 1,
+  "atomic_source": {
+    "repository": "https://github.com/redcanaryco/atomic-red-team",
+    "commit": "1ba1dd8d9ce6f74700f7aec2e60de5632f667f03"
+  },
+  "scenarios": [
+    {
+      "scenario_id": "alert2ir.ws07.windows.process-discovery-tasklist.v1",
+      "technique_id": "T1057",
+      "atomic_guid": "c5806a4f-62b8-4900-980b-c7ec004e9908",
+      "atomic_test_name": "Process Discovery - tasklist",
+      "definition": {
+        "path": "atomics/T1057/T1057.yaml",
+        "sha256": "dc79938deab7d7f04c7cc35f5031f21a1af4cfe8fa85b17ccdb8191a2384bff5"
+      },
+      "platform": "windows",
+      "executor": {
+        "name": "command_prompt",
+        "executable": "C:\\Windows\\System32\\cmd.exe",
+        "elevation_required": false,
+        "command_template": "tasklist",
+        "cleanup_command_template": null
+      },
+      "inputs": {},
+      "prerequisites": {
+        "required": false,
+        "acquisition_allowed": false
+      },
+      "effects": {
+        "persistent_host_effect": false,
+        "temporary_effects": []
+      },
+      "pre_state": [],
+      "cleanup": {
+        "required": false,
+        "independent_verification": "No persistent host effect is expected."
+      },
+      "post_cleanup": [],
+      "safety": {
+        "requires_network": false,
+        "downloads": false,
+        "credentials": false,
+        "external_target": false,
+        "reboot_required": false,
+        "logoff_required": false,
+        "security_control_change": false,
+        "service_change": false,
+        "account_change": false,
+        "firewall_change": false,
+        "scheduled_task_change": false,
+        "registry_change": false
+      },
+      "expected_telemetry": [
+        {
+          "channel": "Microsoft-Windows-Sysmon/Operational",
+          "event_id": 1,
+          "category": "process_creation",
+          "expectation": "expected"
+        }
+      ]
+    },
+    {
+      "scenario_id": "alert2ir.ws07.windows.powershell-command.v1",
+      "technique_id": "T1059.001",
+      "atomic_guid": "a538de64-1c74-46ed-aa60-b995ed302598",
+      "atomic_test_name": "PowerShell Command Execution",
+      "definition": {
+        "path": "atomics/T1059.001/T1059.001.yaml",
+        "sha256": "9b02ed22b78f97873617aa4b9d4dcca3eb9e7ca8d5ed72a21e90baf7e8935fb7"
+      },
+      "platform": "windows",
+      "executor": {
+        "name": "command_prompt",
+        "executable": "C:\\Windows\\System32\\cmd.exe",
+        "elevation_required": false,
+        "command_template": "powershell.exe -e  #{obfuscated_code}",
+        "cleanup_command_template": null
+      },
+      "inputs": {
+        "obfuscated_code": "JgAgACgAZwBjAG0AIAAoACcAaQBlAHsAMAB9ACcAIAAtAGYAIAAnAHgAJwApACkAIAAoACIAVwByACIAKwAiAGkAdAAiACsAIgBlAC0ASAAiACsAIgBvAHMAdAAgACcASAAiACsAIgBlAGwAIgArACIAbABvACwAIABmAHIAIgArACIAbwBtACAAUAAiACsAIgBvAHcAIgArACIAZQByAFMAIgArACIAaAAiACsAIgBlAGwAbAAhACcAIgApAA=="
+      },
+      "prerequisites": {
+        "required": false,
+        "acquisition_allowed": false
+      },
+      "effects": {
+        "persistent_host_effect": false,
+        "temporary_effects": []
+      },
+      "pre_state": [],
+      "cleanup": {
+        "required": false,
+        "independent_verification": "No persistent host effect is expected."
+      },
+      "post_cleanup": [],
+      "safety": {
+        "requires_network": false,
+        "downloads": false,
+        "credentials": false,
+        "external_target": false,
+        "reboot_required": false,
+        "logoff_required": false,
+        "security_control_change": false,
+        "service_change": false,
+        "account_change": false,
+        "firewall_change": false,
+        "scheduled_task_change": false,
+        "registry_change": false
+      },
+      "expected_telemetry": [
+        {
+          "channel": "Microsoft-Windows-Sysmon/Operational",
+          "event_id": 1,
+          "category": "process_creation",
+          "expectation": "expected"
+        },
+        {
+          "channel": "Microsoft-Windows-PowerShell/Operational",
+          "event_id": null,
+          "category": "powershell_operational_activity",
+          "expectation": "non_guaranteed",
+          "reason": "Comprehensive Script Block Logging is not established on the endpoints."
+        }
+      ]
+    },
+    {
+      "scenario_id": "alert2ir.ws07.windows.cmd-file-write.v1",
+      "technique_id": "T1059.003",
+      "atomic_guid": "127b4afe-2346-4192-815c-69042bec570e",
+      "atomic_test_name": "Writes text to a file and displays it.",
+      "definition": {
+        "path": "atomics/T1059.003/T1059.003.yaml",
+        "sha256": "5318d81746f483458ea2f906f64223a2a4e9506fded9df509f53986391ad572c"
+      },
+      "platform": "windows",
+      "executor": {
+        "name": "command_prompt",
+        "executable": "C:\\Windows\\System32\\cmd.exe",
+        "elevation_required": false,
+        "command_template": "echo \"#{message}\" > \"#{file_contents_path}\" & type \"#{file_contents_path}\"",
+        "cleanup_command_template": "del \"#{file_contents_path}\" >nul 2>&1"
+      },
+      "inputs": {
+        "file_contents_path": "C:\\Windows\\Temp\\Alert2IR-WS07-${run_id}.bin",
+        "message": "Alert2IR WS07 ground truth ${run_id}"
+      },
+      "prerequisites": {
+        "required": false,
+        "acquisition_allowed": false
+      },
+      "effects": {
+        "persistent_host_effect": false,
+        "temporary_effects": [
+          "Create exactly the resolved file_contents_path until reviewed cleanup removes it."
+        ]
+      },
+      "pre_state": [
+        "The resolved file_contents_path must not exist."
+      ],
+      "cleanup": {
+        "required": true,
+        "independent_verification": "The resolved file_contents_path must not exist after cleanup."
+      },
+      "post_cleanup": [
+        "The resolved file_contents_path must not exist."
+      ],
+      "safety": {
+        "requires_network": false,
+        "downloads": false,
+        "credentials": false,
+        "external_target": false,
+        "reboot_required": false,
+        "logoff_required": false,
+        "security_control_change": false,
+        "service_change": false,
+        "account_change": false,
+        "firewall_change": false,
+        "scheduled_task_change": false,
+        "registry_change": false
+      },
+      "expected_telemetry": [
+        {
+          "channel": "Microsoft-Windows-Sysmon/Operational",
+          "event_id": 1,
+          "category": "process_creation",
+          "expectation": "expected"
+        },
+        {
+          "channel": "Microsoft-Windows-Sysmon/Operational",
+          "event_id": 11,
+          "category": "file_create",
+          "expectation": "expected"
+        },
+        {
+          "channel": "Microsoft-Windows-Sysmon/Operational",
+          "event_id": 26,
+          "category": "file_delete_detected",
+          "expectation": "expected"
+        }
+      ]
+    }
+  ]
+}
