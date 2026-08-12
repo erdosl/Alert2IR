@@ -32,6 +32,11 @@ POWERSHELL_DECODED_SCRIPT = (
     '("Wr"+"it"+"e-H"+"ost \'H"+"el"+"lo, fr"+"om P"+"ow"+"erS"+"h"+'
     '"ell!\'")'
 )
+EXPECTED_WS07_CANARY_RECORDS = {
+    "45e78645-170d-4f2c-b158-32fdc89bec8d.json",
+    "2c752432-9aa7-4a4d-bdb5-4ffacd2698b7.json",
+    "34b43f09-1023-4c5c-8609-03c410bb28a3.json",
+}
 
 APPROVED_ENDPOINTS = {
     ("win11-02", "WIN11-02", "192.168.56.62", "Ethernet"),
@@ -859,6 +864,18 @@ class GroundTruthRecordContractTests(unittest.TestCase):
 
     def setUp(self) -> None:
         self.record = valid_ground_truth_record(self.manifest)
+
+    def test_repository_ground_truth_records_satisfy_contract(self) -> None:
+        record_directory = REPOSITORY_ROOT / "validation" / "attack-simulation"
+        record_paths = sorted(record_directory.glob("*.json"))
+        actual_record_names = {record_path.name for record_path in record_paths}
+        self.assertTrue(EXPECTED_WS07_CANARY_RECORDS <= actual_record_names)
+        for record_path in record_paths:
+            with self.subTest(record=record_path.name):
+                with record_path.open(encoding="utf-8") as record_file:
+                    record = json.load(record_file)
+                validate_ground_truth_record(record, self.manifest)
+                self.assertEqual(record_path.stem, record["run_id"])
 
     def test_valid_record_and_elevated_actual_context_are_accepted(self) -> None:
         scenario = self.manifest["scenarios"][0]

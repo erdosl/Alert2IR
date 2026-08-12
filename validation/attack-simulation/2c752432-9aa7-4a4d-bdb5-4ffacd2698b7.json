@@ -1,0 +1,85 @@
+{
+  "schema_version": 1,
+  "run_id": "2c752432-9aa7-4a4d-bdb5-4ffacd2698b7",
+  "scenario_id": "alert2ir.ws07.windows.powershell-command.v1",
+  "alert2ir_commit": "2be9f04eac3c7314753793dd5e7c6651f382f815",
+  "operator_role": "lab-admin",
+  "endpoint": {
+    "inventory_name": "win11-02",
+    "computer_name": "WIN11-02",
+    "host_only_ipv4": "192.168.56.62",
+    "interface": "Ethernet"
+  },
+  "source_provenance": {
+    "technique_id": "T1059.001",
+    "atomic_guid": "a538de64-1c74-46ed-aa60-b995ed302598",
+    "atomic_commit": "1ba1dd8d9ce6f74700f7aec2e60de5632f667f03",
+    "definition_path": "atomics/T1059.001/T1059.001.yaml",
+    "definition_sha256": "9b02ed22b78f97873617aa4b9d4dcca3eb9e7ca8d5ed72a21e90baf7e8935fb7"
+  },
+  "execution": {
+    "executable": "C:\\Windows\\System32\\cmd.exe",
+    "executor": "command_prompt",
+    "actual_elevated": true,
+    "inputs": {
+      "obfuscated_code": "JgAgACgAZwBjAG0AIAAoACcAaQBlAHsAMAB9ACcAIAAtAGYAIAAnAHgAJwApACkAIAAoACIAVwByACIAKwAiAGkAdAAiACsAIgBlAC0ASAAiACsAIgBvAHMAdAAgACcASAAiACsAIgBlAGwAIgArACIAbABvACwAIABmAHIAIgArACIAbwBtACAAUAAiACsAIgBvAHcAIgArACIAZQByAFMAIgArACIAaAAiACsAIgBlAGwAbAAhACcAIgApAA=="
+    },
+    "command": "powershell.exe -e  JgAgACgAZwBjAG0AIAAoACcAaQBlAHsAMAB9ACcAIAAtAGYAIAAnAHgAJwApACkAIAAoACIAVwByACIAKwAiAGkAdAAiACsAIgBlAC0ASAAiACsAIgBvAHMAdAAgACcASAAiACsAIgBlAGwAIgArACIAbABvACwAIABmAHIAIgArACIAbwBtACAAUAAiACsAIgBvAHcAIgArACIAZQByAFMAIgArACIAaAAiACsAIgBlAGwAbAAhACcAIgApAA==",
+    "start_utc": "2026-08-12T20:28:40.8674576Z",
+    "end_utc": "2026-08-12T20:28:41.6975049Z",
+    "exit_code": 0,
+    "result": "succeeded"
+  },
+  "prerequisite": {
+    "status": "not_required",
+    "details": "The committed scenario declares no prerequisites and no acquisition was performed."
+  },
+  "clock_evidence": {
+    "dev01_before_utc": "2026-08-12T20:27:35.263004235Z",
+    "endpoint_utc": "2026-08-12T20:27:35.7249860Z",
+    "dev01_after_utc": "2026-08-12T20:27:35.825732254Z"
+  },
+  "preflight": {
+    "status": "passed",
+    "checks": [
+      "Physical identity was WIN11-02 at 192.168.56.62 on Ethernet in the elevated administration context.",
+      "Defender was healthy; Sysmon64 and SplunkForwarder were running and automatic; puppet was stopped and disabled.",
+      "Sysmon and PowerShell Operational channels were enabled, effective PowerShell policy was Restricted, and no Alert2IR-WS07-*.bin residue existed.",
+      "The pre-execution local record-ID watermarks were Sysmon 1300763 and PowerShell Operational 3197.",
+      "CBS RebootPending and Windows Update RebootRequired were false.",
+      "Pre-existing PendingFileRenameOperations contained 24 architect-reviewed Windows print-driver rename entries. Architect accepted them as unrelated to this WS07 scenario set. The value was not modified and no reboot was performed."
+    ]
+  },
+  "cleanup": {
+    "required": false,
+    "command": null,
+    "result": "not_required",
+    "independently_verified": false
+  },
+  "post_state_verification": {
+    "status": "not_applicable",
+    "details": "No cleanup or post-state verification is required for this no-persistent-effect scenario."
+  },
+  "telemetry_window": {
+    "start_utc": "2026-08-12T20:27:47.4375090Z",
+    "end_utc": "2026-08-12T20:29:29.2796655Z"
+  },
+  "telemetry_observations": [
+    {
+      "state": "observed",
+      "channel": "Microsoft-Windows-Sysmon/Operational",
+      "event_id": 1,
+      "record_id": 1300904,
+      "timestamp_utc": "2026-08-12T20:28:41.4392803Z"
+    },
+    {
+      "state": "missing_expected",
+      "channel": "Microsoft-Windows-PowerShell/Operational",
+      "event_id": null
+    }
+  ],
+  "deviations": [
+    "Pre-existing PendingFileRenameOperations contained 24 architect-reviewed Windows print-driver rename entries. Architect accepted them as unrelated to this WS07 scenario set. The value was not modified and no reboot was performed.",
+    "No attributable Microsoft-Windows-PowerShell/Operational event occurred within the execution window; this scenario's PowerShell Operational activity expectation is non-guaranteed."
+  ]
+}

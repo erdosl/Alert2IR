@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "run_id": "45e78645-170d-4f2c-b158-32fdc89bec8d",
+  "scenario_id": "alert2ir.ws07.windows.process-discovery-tasklist.v1",
+  "alert2ir_commit": "2be9f04eac3c7314753793dd5e7c6651f382f815",
+  "operator_role": "lab-admin",
+  "endpoint": {
+    "inventory_name": "win11-02",
+    "computer_name": "WIN11-02",
+    "host_only_ipv4": "192.168.56.62",
+    "interface": "Ethernet"
+  },
+  "source_provenance": {
+    "technique_id": "T1057",
+    "atomic_guid": "c5806a4f-62b8-4900-980b-c7ec004e9908",
+    "atomic_commit": "1ba1dd8d9ce6f74700f7aec2e60de5632f667f03",
+    "definition_path": "atomics/T1057/T1057.yaml",
+    "definition_sha256": "dc79938deab7d7f04c7cc35f5031f21a1af4cfe8fa85b17ccdb8191a2384bff5"
+  },
+  "execution": {
+    "executable": "C:\\Windows\\System32\\cmd.exe",
+    "executor": "command_prompt",
+    "actual_elevated": true,
+    "inputs": {},
+    "command": "tasklist",
+    "start_utc": "2026-08-12T20:26:12.6608926Z",
+    "end_utc": "2026-08-12T20:26:12.8754688Z",
+    "exit_code": 0,
+    "result": "succeeded"
+  },
+  "prerequisite": {
+    "status": "not_required",
+    "details": "The committed scenario declares no prerequisites and no acquisition was performed."
+  },
+  "clock_evidence": {
+    "dev01_before_utc": "2026-08-12T20:25:43.453780043Z",
+    "endpoint_utc": "2026-08-12T20:25:43.9399073Z",
+    "dev01_after_utc": "2026-08-12T20:25:44.038820458Z"
+  },
+  "preflight": {
+    "status": "passed",
+    "checks": [
+      "Physical identity was WIN11-02 at 192.168.56.62 on Ethernet in the elevated administration context.",
+      "Defender was healthy; Sysmon64 and SplunkForwarder were running and automatic; puppet was stopped and disabled.",
+      "Sysmon and PowerShell Operational channels were enabled, effective PowerShell policy was Restricted, and no Alert2IR-WS07-*.bin residue existed.",
+      "The pre-execution local record-ID watermarks were Sysmon 1300437 and PowerShell Operational 3143.",
+      "CBS RebootPending and Windows Update RebootRequired were false.",
+      "Pre-existing PendingFileRenameOperations contained 24 architect-reviewed Windows print-driver rename entries. Architect accepted them as unrelated to this WS07 scenario set. The value was not modified and no reboot was performed."
+    ]
+  },
+  "cleanup": {
+    "required": false,
+    "command": null,
+    "result": "not_required",
+    "independently_verified": false
+  },
+  "post_state_verification": {
+    "status": "not_applicable",
+    "details": "No cleanup or post-state verification is required for this no-persistent-effect scenario."
+  },
+  "telemetry_window": {
+    "start_utc": "2026-08-12T20:25:52.2038632Z",
+    "end_utc": "2026-08-12T20:27:05.3315760Z"
+  },
+  "telemetry_observations": [
+    {
+      "state": "observed",
+      "channel": "Microsoft-Windows-Sysmon/Operational",
+      "event_id": 1,
+      "record_id": 1300570,
+      "timestamp_utc": "2026-08-12T20:26:12.7059226Z"
+    }
+  ],
+  "deviations": [
+    "Pre-existing PendingFileRenameOperations contained 24 architect-reviewed Windows print-driver rename entries. Architect accepted them as unrelated to this WS07 scenario set. The value was not modified and no reboot was performed."
+  ]
+}
