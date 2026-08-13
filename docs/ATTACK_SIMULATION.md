@@ -4,7 +4,7 @@
 
 WS07 is complete. It defines a deliberately small set of controlled Atomic Red Team-derived scenarios, validates them once on the owned canary, and preserves a vendor-neutral ground-truth contract. Broad ATT&CK coverage was not a WS07 goal or completion criterion. Security testing remained limited to the owned lab in [`LAB_SCOPE.md`](LAB_SCOPE.md).
 
-WS07 does not implement Sigma rules, Splunk searches or detections, Alert2IR alerts or decisions, incidents, investigations, or Velociraptor collection. Sigma and validated Splunk execution remain in WS08; investigation-backend work remains in WS09.
+WS07 does not implement Sigma rules, Splunk searches or detections, Alert2IR alerts or decisions, incidents, investigations, or Velociraptor collection. Sigma and validated Splunk execution were completed later in WS08; they remain outside the WS07 boundary. Investigation-backend work remains in WS09.
 
 ## Implementation provenance
 
@@ -208,7 +208,7 @@ The exact `config/attack-simulation/scenarios.json` bytes were extracted from th
 
 WS07 is complete because exactly three minimum scenarios were pinned with reproducible source GUIDs, Atomic commit, definition paths and hashes, commands, and project inputs; none required prerequisite acquisition or an external target; one exact committed scenario artifact was used; canary identity and actual elevation were recorded; all three processes exited `0`; every required Sysmon expectation was observed; the non-guaranteed PowerShell Operational absence was recorded honestly; file cleanup succeeded and was independently verified; no WS07 residue remained; sanitized ground truth is committed and contract-tested; no raw/private evidence entered Git; a redundant second-host execution was unnecessary; and no detection implementation was pulled forward. Large ATT&CK coverage is not a completion criterion.
 
-WS07 did not create Sigma rules or SPL searches, run Splunk searches, validate Splunk detections, add Splunk sourcetype mappings or correlation searches, create Alert2IR canonical alerts from the simulations, invoke Alert2IR orchestration, run Velociraptor, or implement investigation workflows. WS08 owns Sigma + Splunk detection-as-code content and validated Splunk execution. WS09 retains investigation-backend and collection work.
+WS07 did not create Sigma rules or SPL searches, run Splunk searches, validate Splunk detections, add Splunk sourcetype mappings or correlation searches, create Alert2IR canonical alerts from the simulations, invoke Alert2IR orchestration, run Velociraptor, or implement investigation workflows. WS08 subsequently completed Sigma + Splunk detection-as-code content and validated Splunk execution without changing this WS07 scope. WS09 retains investigation-backend and collection work.
 
 ## Current telemetry limitations
 
@@ -217,4 +217,4 @@ WS07 did not create Sigma rules or SPL searches, run Splunk searches, validate S
 - The staged Sysmon XML proves staged-file bytes only, not active configuration equality.
 - Windows Time is not an assumed control; each execution requires measured clock evidence.
 
-These are ground-truth constraints, not authorization to change instrumentation. WS08 will consume WS07 ground truth when it implements Sigma and Splunk detection content.
+These are ground-truth constraints, not authorization to change instrumentation. WS08 subsequently consumed this ground truth without changing instrumentation.

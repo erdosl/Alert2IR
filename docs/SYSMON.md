@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Sysmon provides endpoint evidence for investigation. Its configuration is not the Alert2IR detection layer: Sigma and Splunk will later own detection logic. This initial profile collects useful host activity without embedding signatures, ATT&CK-specific matching, or endpoint identities.
+Sysmon provides endpoint evidence for investigation. Its configuration is not the Alert2IR detection layer: Sigma is the canonical detection-as-code model, and Splunk is the first concrete execution target. This initial profile collects useful host activity without embedding signatures, ATT&CK-specific matching, or endpoint identities.
 
 ## Ownership
 
