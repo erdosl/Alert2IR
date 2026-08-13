@@ -1,0 +1,15 @@
+name: Alert2IR Splunk XML Sysmon process creation
+priority: 20
+allowed_backends:
+  - splunk
+transformations:
+  - id: alert2ir_splunk_xml_sysmon_process_creation
+    type: add_condition
+    conditions:
+      source: XmlWinEventLog:Microsoft-Windows-Sysmon/Operational
+      sourcetype: XmlWinEventLog
+      EventCode: 1
+    rule_conditions:
+      - type: logsource
+        product: windows
+        category: process_creation

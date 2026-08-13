@@ -1,0 +1,17 @@
+title: Alert2IR Synthetic Process Creation Translation Fixture
+id: ec165c80-6a75-4c63-a824-e3449a3867ea
+status: test
+description: Exercises the Alert2IR Windows process-creation translation boundary.
+author: Alert2IR
+date: 2026-08-13
+logsource:
+  product: windows
+  category: process_creation
+detection:
+  selection:
+    Image|endswith: '\Alert2IRFixture.exe'
+    CommandLine|contains: '--alert2ir-fixture-mode'
+  condition: selection
+falsepositives:
+  - Test fixture only
+level: informational
