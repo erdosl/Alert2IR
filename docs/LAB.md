@@ -146,7 +146,7 @@ The server is planned for `ir-core` (`192.168.56.63`) as a native generated Debi
 
 Discovery recorded `ir-core` as Ubuntu 24.04.4 LTS on `amd64`, with 1 vCPU, 3.8 GiB RAM, 3.8 GiB swap, and approximately 38 GiB free on the root filesystem. This is accepted only for the narrow WS09 lab proof: one server, one connected endpoint, and one process-list collection. It is not a production-sizing claim.
 
-### Intended network bindings and firewall checkpoints
+### Intended network bindings and accepted lab exposure
 
 | Surface | Intended binding | Boundary |
 | --- | --- | --- |
@@ -156,9 +156,48 @@ Discovery recorded `ir-core` as Ubuntu 24.04.4 LTS on `amd64`, with 1 vCPU, 3.8 
 | Monitoring, if emitted by generated configuration | `127.0.0.1:8003` | Loopback-only; no monitoring stack is introduced |
 | Existing Alert2IR core | `127.0.0.1:8000` | Unchanged |
 
-The `8443` and `8001` bindings are approved intentions, not live validation facts. Bootstrap must inspect the exact generated configuration and verify actual listeners. If v0.77.2 cannot bind the API exactly to `192.168.56.63`, bootstrap must stop for architect review and must not broaden the listener to `0.0.0.0`. The GUI must remain loopback-only. GUI or SSH forwarding is operator convenience, not a WS09 product requirement. No Velociraptor surface may be exposed to a public or Internet network.
+The `8443` and `8001` bindings are approved intentions, not live validation facts. Bootstrap must inspect the exact generated configuration and verify actual listeners. The native frontend and API must bind only to `192.168.56.63`, not `0.0.0.0` or the NAT address `10.0.2.15`, unless separately reviewed. If v0.77.2 cannot provide the exact approved bindings, bootstrap must stop for architect review rather than broaden them. The GUI must remain loopback-only. No Velociraptor surface may be exposed to a public or Internet network.
 
-UFW is currently active. Discovery could not read the existing UFW rules without elevation, so bootstrap must inspect the existing rule set before making any firewall change. Later frontend access should be limited to source `win11-02` (`192.168.56.62`) on TCP/8443. No broad TCP/8001 allow rule is approved. The Alert2IR container-to-host API path and its actual Compose source subnet and interface must be established in the later runtime slice before any API firewall allowance is designed.
+#### Firewall ground truth and lab-scoped acceptance
+
+Privileged inspection established the following current `ir-core` facts:
+
+| Item | Observed or configured value |
+| --- | --- |
+| UFW runtime state | inactive |
+| Saved UFW user rules | none |
+| `/etc/default/ufw` `IPV6` | `yes` |
+| `/etc/default/ufw` `DEFAULT_INPUT_POLICY` | `"DROP"` |
+| `/etc/default/ufw` `DEFAULT_OUTPUT_POLICY` | `"ACCEPT"` |
+| `/etc/default/ufw` `DEFAULT_FORWARD_POLICY` | `"DROP"` |
+| Live IPv4 `INPUT` policy | `ACCEPT` |
+| Live IPv6 `INPUT` policy | `ACCEPT` |
+
+Because UFW is inactive, its configured defaults are not currently enforcing host-input filtering. Observed nftables/iptables content consisted of Docker NAT and forwarding rules and did not provide a native host-input restriction for the planned Velociraptor listeners. `ir-core` must not be described as presently protected by UFW, and Docker forwarding rules do not provide the intended Velociraptor input boundary.
+
+For this owned, isolated WS09 lab environment, the architect accepts the absence of an `ir-core` host firewall for the initial Velociraptor proof. UFW activation and UFW rule creation are not required for WS09. Puppet firewall ownership and generic firewall tooling are not introduced. This is a lab-scoped acceptance, not a production security recommendation, a production deployment claim, a general Alert2IR firewall policy, or a precedent requiring removal of firewalls elsewhere. No compensating nftables, iptables, reverse-proxy, VPN, service-mesh, or other firewall infrastructure is introduced.
+
+Without a host `INPUT` firewall, TCP/8443 and TCP/8001 may be reachable by other routable systems on the host-only `192.168.56.0/24` network. That reachability is explicitly accepted for this owned lab environment. WS09 functional scope nevertheless remains exactly one enrolled endpoint, `win11-02`; no other host may be enrolled or used merely because a listener is network-reachable. Useful API access still requires Velociraptor certificate authentication and the separately reviewed API authorization policy.
+
+#### GUI TLS and protocol-security boundary
+
+WS09 introduces no public CA certificate, Let's Encrypt integration, custom certificate lifecycle, reverse proxy, TLS termination proxy, or new web-security infrastructure. The Velociraptor GUI remains loopback-only at `127.0.0.1:8889` and retains Velociraptor's generated self-signed/internal TLS behavior. Bootstrap must not set `GUI.use_plain_http: true` or spend WS09 effort replacing the generated certificate. Browser certificate warnings are acceptable in this owned lab. GUI use is optional operator convenience and is not required to prove the Alert2IR backend; SSH forwarding may be used if convenient but is not a WS09 product requirement. A public or otherwise browser-trusted certificate is not required. WS09 avoids custom TLS infrastructure while preserving the protocol behavior Velociraptor itself expects.
+
+This browser-facing convenience decision does not remove Velociraptor's frontend or API protocol security. The client path remains:
+
+```text
+win11-02
+-> https://192.168.56.63:8443/
+-> generated Velociraptor server/client trust
+```
+
+`Client.use_self_signed_ssl = true` remains required; the frontend must not be changed to clear-text HTTP. The API remains certificate-authenticated gRPC on `192.168.56.63:8001`, not clear text or unauthenticated transport. The later API identity, effective-ACL validation, and authorization checkpoint remain required.
+
+### WS09 required proof and explicit non-goals
+
+The WS09 roadmap-required proof is one Velociraptor server, one `win11-02` client, frontend connectivity, a certificate-authenticated API, one `process.list` collection, exact target mapping, and validation evidence.
+
+A host firewall, UFW, custom GUI TLS, a public CA, a reverse proxy, TLS lifecycle automation, Puppet firewall ownership, a generic network-hardening framework, a second endpoint, production HA, backup/DR, and a monitoring stack are explicitly not required. This slice introduces no infrastructure or tooling polish for those non-goals.
 
 ### External runtime state and sensitive material
 
@@ -211,6 +250,6 @@ The candidate WS09 timeout is 60 seconds. It is a lab-validation bound only, not
 
 ### Teardown, reproducibility, and deferrals
 
-Future bootstrap must be reproducible from the approved release artifacts and hashes while generating all environment-specific configuration, credentials, packages, identities, and datastore state outside Git. Future teardown must deliberately account for only WS09-created service/package state, endpoint client state, generated material, datastore state, and any narrowly approved firewall change. Sanitized validation facts and the exact non-secret client-ID mapping may remain documented; teardown does not create a backup or disaster-recovery design.
+Future bootstrap must be reproducible from the approved release artifacts and hashes while generating all environment-specific configuration, credentials, packages, identities, and datastore state outside Git. Future teardown must deliberately account for only WS09-created service/package state, endpoint client state, generated material, and datastore state. Sanitized validation facts and the exact non-secret client-ID mapping may remain documented; teardown does not create a backup or disaster-recovery design.
 
-This bootstrap does not deploy Velociraptor in a container, add it to Alert2IR Compose, assign it to Puppet, enroll a second endpoint, add custom artifacts or capabilities, add public exposure, or introduce a reverse proxy, VPN, service mesh, general secret-management system, monitoring stack, backup/DR design, HA, retries or recovery, queues or workers, backend priority, failover, fan-out, or Splunk ingestion. Live adapter composition, dependency selection, API firewall design, and collection execution remain deferred to separately reviewed runtime work after bootstrap validation.
+This bootstrap does not deploy Velociraptor in a container, add it to Alert2IR Compose, assign it to Puppet, enroll a second endpoint, add custom artifacts or capabilities, add public exposure, or introduce a reverse proxy, VPN, service mesh, general secret-management system, monitoring stack, backup/DR design, HA, retries or recovery, queues or workers, backend priority, failover, fan-out, or Splunk ingestion. Live adapter composition, dependency selection, and collection execution remain deferred to separately reviewed runtime work after bootstrap validation.
