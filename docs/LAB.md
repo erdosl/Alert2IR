@@ -123,12 +123,14 @@ WS08 also did not add a Splunk-to-Alert2IR source adapter or ingestion path, mod
 
 ### Status
 
-This section is **APPROVED DESIGN / NOT YET DEPLOYED**. It records the minimum bootstrap contract and does not describe current lab state. WS09 remains incomplete:
+This section records the approved design and observed partial B1 implementation state. WS09 remains incomplete:
 
-- **NOT YET INSTALLED**
+- **PACKAGE INSTALLED; SERVICE INTENTIONALLY INACTIVE/DISABLED PENDING B1 REVALIDATION**
 - **NOT YET ENROLLED**
 - **NOT YET API-VALIDATED**
 - **NO LIVE VELOCIRAPTOR COLLECTION HAS RUN**
+
+B1 server activation is not yet complete because service re-enable plus final reachability and identity revalidation has not run.
 
 ### Approved release, placement, and proof boundary
 
@@ -142,9 +144,64 @@ This section is **APPROVED DESIGN / NOT YET DEPLOYED**. It records the minimum b
 | MSI SHA-256 | `7965d63d7c7434db425dba9dc7430f3e12c60e914017da9ac3617d0f3c9991e9` |
 | GPG verification fingerprint | `0572 F28B 4EF1 9A04 3F4C BBE0 B22A 7FB1 9CB6 CFA1` |
 
-The server is planned for `ir-core` (`192.168.56.63`) as a native generated Debian package and systemd service. Velociraptor is not part of Alert2IR Compose and is not owned by Puppet. The sole initial endpoint is `win11-02` (`192.168.56.62`); `win11-01` is outside this deployment slice. The only initial capability is `process.list`, privately realized by the backend with `Windows.System.Pslist`. No custom artifact or additional investigation capability is approved.
+The server package is installed on `ir-core` (`192.168.56.63`) under the approved native generated Debian package and systemd deployment model. Velociraptor is not part of Alert2IR Compose and is not owned by Puppet. The sole initial endpoint is `win11-02` (`192.168.56.62`); `win11-01` is outside this deployment slice. The only initial capability is `process.list`, privately realized by the backend with `Windows.System.Pslist`. No custom artifact or additional investigation capability is approved.
 
 Discovery recorded `ir-core` as Ubuntu 24.04.4 LTS on `amd64`, with 1 vCPU, 3.8 GiB RAM, 3.8 GiB swap, and approximately 38 GiB free on the root filesystem. This is accepted only for the narrow WS09 lab proof: one server, one connected endpoint, and one process-list collection. It is not a production-sizing claim.
+
+### Server configuration provenance and package realization
+
+The three sanitized configuration identities are:
+
+| Configuration stage | SHA-256 | Size | Provenance role |
+| --- | --- | ---: | --- |
+| Prepared source `server.config.yaml` | `88dc03cf978efa7bed86c74d5a36dc880ceeccc674d23cac63ecd7098a873a19` | 12714 bytes | Direct output of the reviewed `config generate` step; package-generation input provenance |
+| Debian-package payload `server.config.yaml` | `0f8118bc192b0549c2370915a349b3e5e70a2113bc6e30274f1df98d361230bf` | 12806 bytes | Package-realized installation provenance |
+| Installed `/etc/velociraptor/server.config.yaml` | `0f8118bc192b0549c2370915a349b3e5e70a2113bc6e30274f1df98d361230bf` | 12806 bytes | Installed-file identity |
+
+The installed config bytes equal the Debian package payload config bytes. The configuration transformation therefore occurred during the reviewed `velociraptor 0.77.2 debian server` package-generation step, not during `dpkg` installation or `postinst`.
+
+The sanitized semantic comparison established exactly one meaningful difference:
+
+```text
+prepared:        Frontend.run_as_user = unset / null
+package-realized: Frontend.run_as_user = velociraptor
+```
+
+All previously approved values for `Client.server_urls`, `Client.use_self_signed_ssl`, `Frontend.hostname`, `Frontend.bind_address`, `Frontend.bind_port`, `API.hostname`, `API.bind_address`, `API.bind_port`, `GUI.bind_address`, `GUI.bind_port`, `Datastore.location`, and `Datastore.filestore_directory` remained identical. No private configuration values are recorded here.
+
+The narrow reproducibility rule is:
+
+```text
+prepared server config = package-generation input provenance
+Debian payload server config = package-realized installation provenance
+installed server config = Debian payload bytes
+```
+
+For this exact reviewed package, `0f8118bc192b0549c2370915a349b3e5e70a2113bc6e30274f1df98d361230bf` is the required installed-config SHA-256. The prepared-source hash `88dc03cf978efa7bed86c74d5a36dc880ceeccc674d23cac63ecd7098a873a19` remains the expected pre-package source-configuration identity and must not be used as the installed-file gate.
+
+`Frontend.run_as_user = velociraptor` is accepted as the expected v0.77.2 native Debian-package realization. It aligns with the package-created `velociraptor` system account, the systemd service running as user and group `velociraptor`, and the selected low-privilege native-service deployment model. It changes neither Alert2IR domain semantics nor Puppet ownership.
+
+### B1 observed installation state
+
+| Item | Observed fact |
+| --- | --- |
+| Installed package | `velociraptor-server` `0.77.2` `amd64` |
+| Installed binary | `/usr/local/bin/velociraptor` |
+| Installed binary SHA-256 | `6c4c23c466d892788ff56ddcd3a31f844e4c0d797ade454c5e2625eb9e427077`; exact pinned upstream Linux binary |
+| systemd unit | `velociraptor_server.service` |
+| Service user and group | `velociraptor:velociraptor` |
+| Current containment | Package installed; service intentionally inactive and disabled pending B1 revalidation |
+
+Before deliberate containment, the first service start demonstrated exactly these listeners:
+
+```text
+192.168.56.63:8443
+192.168.56.63:8001
+127.0.0.1:8889
+127.0.0.1:8003
+```
+
+No approved Velociraptor surface was observed on `0.0.0.0`, `10.0.2.15`, or `[::]`. When the obsolete prepared-source-config hash gate failed against the package-realized installed config, the service was deliberately stopped and disabled. That hash mismatch is resolved package provenance, not a package defect or continuing B1 blocker. The service remains inactive and disabled until final B1 re-enable, reachability, and identity revalidation.
 
 ### Intended network bindings and accepted lab exposure
 
@@ -156,7 +213,7 @@ Discovery recorded `ir-core` as Ubuntu 24.04.4 LTS on `amd64`, with 1 vCPU, 3.8 
 | Monitoring, if emitted by generated configuration | `127.0.0.1:8003` | Loopback-only; no monitoring stack is introduced |
 | Existing Alert2IR core | `127.0.0.1:8000` | Unchanged |
 
-The `8443` and `8001` bindings are approved intentions, not live validation facts. Bootstrap must inspect the exact generated configuration and verify actual listeners. The native frontend and API must bind only to `192.168.56.63`, not `0.0.0.0` or the NAT address `10.0.2.15`, unless separately reviewed. If v0.77.2 cannot provide the exact approved bindings, bootstrap must stop for architect review rather than broaden them. The GUI must remain loopback-only. No Velociraptor surface may be exposed to a public or Internet network.
+The approved bindings were observed on first start before deliberate containment, but they are not current live listeners while the service is intentionally inactive. Final B1 revalidation must verify them again after the separately authorized re-enable. The native frontend and API must bind only to `192.168.56.63`, not `0.0.0.0` or the NAT address `10.0.2.15`, unless separately reviewed. If v0.77.2 cannot provide the exact approved bindings, bootstrap must stop for architect review rather than broaden them. The GUI must remain loopback-only. No Velociraptor surface may be exposed to a public or Internet network.
 
 #### Firewall ground truth and lab-scoped acceptance
 
@@ -234,7 +291,7 @@ For the owned WS09 lab and `win11-02` only, an unsigned repacked MSI remains acc
 
 #### Phase A observation
 
-The first Phase A attempt matched the exact approved MSI SHA-256 and passed the detached GPG-signature check. Package-level `Get-AuthenticodeSignature` returned `NotSigned`, and execution correctly stopped under the then-current gate. No server configuration, Debian package, client configuration, or repacked MSI had been generated.
+The first Phase A attempt matched the exact approved MSI SHA-256 and passed the detached GPG-signature check. Package-level `Get-AuthenticodeSignature` returned `NotSigned`, and execution correctly stopped under the then-current gate. At that stop, no server configuration, Debian package, client configuration, or repacked MSI had been generated.
 
 ### API identity and pre-collection checkpoint
 
