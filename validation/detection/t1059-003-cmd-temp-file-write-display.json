@@ -1,0 +1,75 @@
+{
+  "schema": "alert2ir-detection-validation-v1",
+  "rule": {
+    "id": "f769367f-7f3c-4ea4-8e68-fc39f93fd0a8",
+    "path": "detections/sigma/windows/cmd-temp-file-write-display.yml",
+    "sha256": "536c6f397b05a66cda884f669ad95a9b43b41dea92ae4d3f3f5c5c9175270049",
+    "git_blob": "890722a1bb2ed5fd9783a7426cfd2efbed3e0009",
+    "canonical_commit": "19ad59060ccca96fc3205f39f26831da67fd8ba3"
+  },
+  "translation": {
+    "sigma_specification": "2.1.0",
+    "sigma_cli_version": "3.1.0",
+    "pysigma_version": "1.5.0",
+    "splunk_backend_package": "pysigma-backend-splunk",
+    "splunk_backend_version": "2.1.0",
+    "backend": "splunk",
+    "format": "default",
+    "pipeline_path": "config/sigma/pipelines/alert2ir-splunk-xml-sysmon.yml",
+    "pipeline_sha256": "49b5511d9418c44844f0f4cbf5ce3802f1e9982b76ec932b771d0c8da2f68ac3",
+    "generated_spl": "source=\"XmlWinEventLog:Microsoft-Windows-Sysmon/Operational\" sourcetype=\"XmlWinEventLog\" EventCode=1 Image=\"*\\\\cmd.exe\" CommandLine=\"*echo*\" CommandLine=\"*type*\" CommandLine=\"*\\\\Windows\\\\Temp\\\\*\"\n",
+    "generated_spl_sha256": "dbb2bf19acd7f859d93144030fb975e5269b57cc75861bcbd06467cd49aaada2"
+  },
+  "execution": {
+    "validation_repository_head": "9312f681919a3d05f05e85cb52d8981e61a80584",
+    "splunk_version": "10.4.1",
+    "splunk_build": "5a009d941268",
+    "sysmon_addon_version": "5.0.1",
+    "index": "main",
+    "source": "XmlWinEventLog:Microsoft-Windows-Sysmon/Operational",
+    "sourcetype": "XmlWinEventLog",
+    "host": "win11-02",
+    "validation_window": {
+      "earliest_epoch": 1786566760,
+      "latest_epoch": 1786566761,
+      "start_utc": "2026-08-12T20:32:40Z",
+      "end_utc": "2026-08-12T20:32:41Z"
+    },
+    "executed_spl": "index=main earliest=1786566760 latest=1786566761 source=\"XmlWinEventLog:Microsoft-Windows-Sysmon/Operational\" sourcetype=\"XmlWinEventLog\" EventCode=1 Image=\"*\\\\cmd.exe\" CommandLine=\"*echo*\" CommandLine=\"*type*\" CommandLine=\"*\\\\Windows\\\\Temp\\\\*\" | table _time RecordID EventID EventCode host source sourcetype Computer Image ParentImage CommandLine",
+    "executed_spl_sha256": "8f22ebd2ceedb8196be80d920b650544875308b40255402be6054c4947c52485",
+    "result_count": 2
+  },
+  "ground_truth": {
+    "ws07_run_id": "34b43f09-1023-4c5c-8609-03c410bb28a3",
+    "expected_event_code": 1,
+    "expected_record_id": 1301448,
+    "expected_time_created": "2026-08-12T20:32:40.3421030Z",
+    "splunk_time": "2026-08-12T20:32:40.342Z",
+    "splunk_minus_ws07_seconds": -0.0001030,
+    "expected_present": true,
+    "validation_status": "pass_with_additional_matches"
+  },
+  "matches": [
+    {
+      "record_id": 1301448,
+      "time": "2026-08-12T20:32:40.342Z",
+      "host": "win11-02",
+      "computer": "win11-02",
+      "event_code": 1,
+      "image": "C:\\Windows\\System32\\cmd.exe",
+      "parent_image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      "command_line_summary": "cmd.exe /c writing with echo to the reviewed Windows Temp target and displaying it with type",
+      "relationship": "expected_primary"
+    },
+    {
+      "record_id": 1301440,
+      "time": "2026-08-12T20:32:40.045Z",
+      "host": "win11-02",
+      "event_code": 1,
+      "image": "C:\\Windows\\System32\\cmd.exe",
+      "parent_image": "C:\\Windows\\System32\\OpenSSH\\sshd.exe",
+      "command_line_summary": "SSH-launched cmd.exe wrapper invoking PowerShell; embedded command contains echo, type, and the Windows Temp target",
+      "relationship": "related_wrapper"
+    }
+  ]
+}

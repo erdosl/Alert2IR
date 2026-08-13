@@ -1,0 +1,66 @@
+{
+  "schema": "alert2ir-detection-validation-v1",
+  "rule": {
+    "id": "aebe017f-0dc6-4cae-8f07-6dc611963471",
+    "path": "detections/sigma/windows/powershell-encoded-command.yml",
+    "sha256": "beaab8d1f66724ef6fcd83777b2fcea4db011bc030020e2db635a591c7f2d867",
+    "git_blob": "884ea79fb8a887c5a22818b64d25ce6a4f5d1538",
+    "canonical_commit": "19ad59060ccca96fc3205f39f26831da67fd8ba3"
+  },
+  "translation": {
+    "sigma_specification": "2.1.0",
+    "sigma_cli_version": "3.1.0",
+    "pysigma_version": "1.5.0",
+    "splunk_backend_package": "pysigma-backend-splunk",
+    "splunk_backend_version": "2.1.0",
+    "backend": "splunk",
+    "format": "default",
+    "pipeline_path": "config/sigma/pipelines/alert2ir-splunk-xml-sysmon.yml",
+    "pipeline_sha256": "49b5511d9418c44844f0f4cbf5ce3802f1e9982b76ec932b771d0c8da2f68ac3",
+    "generated_spl": "source=\"XmlWinEventLog:Microsoft-Windows-Sysmon/Operational\" sourcetype=\"XmlWinEventLog\" EventCode=1 Image=\"*\\\\powershell.exe\" CommandLine IN (\"*-e *\", \"*-enc *\", \"*-encodedcommand*\")\n",
+    "generated_spl_sha256": "03131a7c10c552507e64c4c2c81e228d6a303f8e03df22f86799b63546676725"
+  },
+  "execution": {
+    "validation_repository_head": "9312f681919a3d05f05e85cb52d8981e61a80584",
+    "splunk_version": "10.4.1",
+    "splunk_build": "5a009d941268",
+    "sysmon_addon_version": "5.0.1",
+    "index": "main",
+    "source": "XmlWinEventLog:Microsoft-Windows-Sysmon/Operational",
+    "sourcetype": "XmlWinEventLog",
+    "host": "win11-02",
+    "validation_window": {
+      "earliest_epoch": 1786566521,
+      "latest_epoch": 1786566522,
+      "start_utc": "2026-08-12T20:28:41Z",
+      "end_utc": "2026-08-12T20:28:42Z"
+    },
+    "executed_spl": "index=main earliest=1786566521 latest=1786566522 source=\"XmlWinEventLog:Microsoft-Windows-Sysmon/Operational\" sourcetype=\"XmlWinEventLog\" EventCode=1 Image=\"*\\\\powershell.exe\" CommandLine IN (\"*-e *\", \"*-enc *\", \"*-encodedcommand*\") | table _time RecordID EventID EventCode host source sourcetype Computer Image ParentImage CommandLine",
+    "executed_spl_sha256": "8770d070a4321e2f542d575809ce190365d7e9a0dd55ea854cccf93fd59c47b6",
+    "result_count": 1
+  },
+  "ground_truth": {
+    "ws07_run_id": "2c752432-9aa7-4a4d-bdb5-4ffacd2698b7",
+    "expected_event_code": 1,
+    "expected_record_id": 1300904,
+    "expected_time_created": "2026-08-12T20:28:41.4392803Z",
+    "splunk_time": "2026-08-12T20:28:41.439Z",
+    "splunk_minus_ws07_seconds": -0.0002803,
+    "expected_present": true,
+    "validation_status": "pass"
+  },
+  "matches": [
+    {
+      "record_id": 1300904,
+      "time": "2026-08-12T20:28:41.439Z",
+      "host": "win11-02",
+      "computer": "win11-02",
+      "event_code": 1,
+      "image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      "parent_image": "C:\\Windows\\System32\\cmd.exe",
+      "command_line_summary": "powershell.exe  -e  <Base64 payload redacted>",
+      "matched_switch": "-e",
+      "relationship": "expected_primary"
+    }
+  ]
+}
