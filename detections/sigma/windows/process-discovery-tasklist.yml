@@ -1,0 +1,21 @@
+title: Process Discovery via Tasklist
+id: 78441abe-99b0-4e6e-bd85-d52748e59d0e
+status: experimental
+description: Detects execution of tasklist.exe for Windows process discovery.
+references:
+  - https://attack.mitre.org/techniques/T1057/
+author: Alert2IR
+date: 2026-08-13
+logsource:
+  product: windows
+  category: process_creation
+detection:
+  selection:
+    Image|endswith: '\tasklist.exe'
+  condition: selection
+falsepositives:
+  - Legitimate administrative or system-inventory activity
+level: low
+tags:
+  - attack.discovery
+  - attack.t1057

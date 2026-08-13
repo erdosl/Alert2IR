@@ -1,0 +1,26 @@
+title: Command Shell Temporary File Write and Display
+id: f769367f-7f3c-4ea4-8e68-fc39f93fd0a8
+status: experimental
+description: Detects cmd.exe commands that echo content to a Windows temporary path and display it with type.
+references:
+  - https://attack.mitre.org/techniques/T1059/003/
+author: Alert2IR
+date: 2026-08-13
+logsource:
+  product: windows
+  category: process_creation
+detection:
+  selection_image:
+    Image|endswith: '\cmd.exe'
+  selection_behavior:
+    CommandLine|contains|all:
+      - 'echo'
+      - 'type'
+      - '\Windows\Temp\'
+  condition: selection_image and selection_behavior
+falsepositives:
+  - Legitimate command or batch scripts that use Windows temporary files
+level: low
+tags:
+  - attack.execution
+  - attack.t1059.003
