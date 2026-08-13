@@ -181,15 +181,21 @@ Official hashes, release identifiers, the GPG fingerprint, sanitized validation 
 
 Bootstrap may enroll only `win11-02` (`192.168.56.62`). After enrollment, the mapping must bind the exact Alert2IR host value `win11-02` to the exact observed Velociraptor `C.<client-id>`. No client ID is assumed in advance. Runtime hostname search, DNS lookup, normalization, and fuzzy matching remain prohibited.
 
-For the owned WS09 lab and `win11-02` only, an unsigned repacked MSI is acceptable. This exception does not mean that the repacked package is trusted or signed, and no code-signing certificate will be introduced or procured for WS09. Future bootstrap validation must:
+#### Official release MSI provenance
 
-- verify the official downloaded MSI against the approved SHA-256;
-- verify the official MSI's expected Authenticode signature before repacking;
-- record the repacked lab MSI's SHA-256;
-- install it only on `win11-02`; and
-- verify that the installed Velociraptor executable retains the expected valid Authenticode signature.
+Before repacking, the exact official MSI must pass the architect-pinned SHA-256 check and the Velociraptor detached GPG-signature check using the pinned fingerprint. For v0.77.2, package-level Windows Authenticode is not a required acceptance gate, and the official v0.77.2 MSI must not be described as Authenticode-signed.
 
-The repacked MSI itself must not be described as retaining the official MSI signature.
+#### Embedded executable trust
+
+Before repacking, validation must inspect the `Velociraptor.exe` embedded in the verified official MSI without installing the product. The executable must have valid Windows Authenticode status and the expected signer identity consistent with the upstream Velociraptor release, currently documented upstream as `Rapid7 LLC`; its SHA-256 must be recorded. The exact extraction and inspection command is deferred to the separately reviewed Phase A resume.
+
+#### Repacked lab MSI
+
+For the owned WS09 lab and `win11-02` only, an unsigned repacked MSI remains acceptable. Repacking does not make the resulting MSI trusted or signed, and no code-signing certificate will be introduced or procured for WS09. Bootstrap validation must record the repacked MSI's SHA-256. Before installation, it must verify that the embedded `Velociraptor.exe` is the same previously verified executable by exact SHA-256 identity and still validates under Windows Authenticode. Installation remains limited to `win11-02`, and the installed `Velociraptor.exe` must receive an independent Authenticode verification afterward.
+
+#### Phase A observation
+
+The first Phase A attempt matched the exact approved MSI SHA-256 and passed the detached GPG-signature check. Package-level `Get-AuthenticodeSignature` returned `NotSigned`, and execution correctly stopped under the then-current gate. No server configuration, Debian package, client configuration, or repacked MSI had been generated.
 
 ### API identity and pre-collection checkpoint
 
