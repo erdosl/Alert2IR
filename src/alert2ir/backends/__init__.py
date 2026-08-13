@@ -7,6 +7,13 @@ from alert2ir.backends.router import (
     BackendRouter,
     UnsupportedCapabilitiesError,
 )
+from alert2ir.backends.velociraptor import (
+    VelociraptorBackend,
+    VelociraptorCollectionClient,
+    VelociraptorCollectionError,
+    VelociraptorConfigurationError,
+    VelociraptorTargetError,
+)
 
 __all__ = [
     "AmbiguousBackendError",
@@ -15,4 +22,9 @@ __all__ = [
     "InvestigationResult",
     "MockBackend",
     "UnsupportedCapabilitiesError",
+    "VelociraptorBackend",
+    "VelociraptorCollectionClient",
+    "VelociraptorCollectionError",
+    "VelociraptorConfigurationError",
+    "VelociraptorTargetError",
 ]
