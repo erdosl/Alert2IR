@@ -123,14 +123,14 @@ WS08 also did not add a Splunk-to-Alert2IR source adapter or ingestion path, mod
 
 ### Status
 
-This section records the approved design and observed partial B1 implementation state. WS09 remains incomplete:
+This section records the approved design and observed implementation state. WS09 remains incomplete:
 
-- **PACKAGE INSTALLED; SERVICE INTENTIONALLY INACTIVE/DISABLED PENDING B1 REVALIDATION**
+- **B1 — NATIVE VELOCIRAPTOR SERVER ACTIVATION AND VALIDATION: COMPLETE**
 - **NOT YET ENROLLED**
 - **NOT YET API-VALIDATED**
 - **NO LIVE VELOCIRAPTOR COLLECTION HAS RUN**
 
-B1 server activation is not yet complete because service re-enable plus final reachability and identity revalidation has not run.
+Alert2IR runtime composition remains the deterministic `MockBackend`.
 
 ### Approved release, placement, and proof boundary
 
@@ -140,6 +140,8 @@ B1 server activation is not yet complete because service re-enable plus final re
 | Release commit recorded by discovery | `c0c9dd609140139efcb37c47e2afa79ed57e6c84` |
 | Linux AMD64 artifact | `velociraptor-v0.77.2-linux-amd64` |
 | Linux SHA-256 | `6c4c23c466d892788ff56ddcd3a31f844e4c0d797ade454c5e2625eb9e427077` |
+| Generated Debian package | `velociraptor-server-0.77.2.amd64.deb` |
+| Generated Debian package SHA-256 | `e0ee2902ec134032f03e85366a614187aac8c74c430d4fb6975746b71b8f0326` |
 | Windows AMD64 MSI | `velociraptor-v0.77.2-windows-amd64.msi` |
 | MSI SHA-256 | `7965d63d7c7434db425dba9dc7430f3e12c60e914017da9ac3617d0f3c9991e9` |
 | GPG verification fingerprint | `0572 F28B 4EF1 9A04 3F4C BBE0 B22A 7FB1 9CB6 CFA1` |
@@ -181,27 +183,97 @@ For this exact reviewed package, `0f8118bc192b0549c2370915a349b3e5e70a2113bc6e30
 
 `Frontend.run_as_user = velociraptor` is accepted as the expected v0.77.2 native Debian-package realization. It aligns with the package-created `velociraptor` system account, the systemd service running as user and group `velociraptor`, and the selected low-privilege native-service deployment model. It changes neither Alert2IR domain semantics nor Puppet ownership.
 
-### B1 observed installation state
+Final B1 validation after the successful service re-enable reconfirmed `/etc/velociraptor/server.config.yaml` at the same package-realized SHA-256. The installed file is mode `0600`, owned by `velociraptor:velociraptor`, and is 12806 bytes. No configuration contents or private material are recorded.
+
+### B1 completed server validation
 
 | Item | Observed fact |
 | --- | --- |
-| Installed package | `velociraptor-server` `0.77.2` `amd64` |
+| Installed package | `velociraptor-server` |
+| Package status | `install ok installed` |
+| Package version | `0.77.2` |
+| Package architecture | `amd64` |
 | Installed binary | `/usr/local/bin/velociraptor` |
 | Installed binary SHA-256 | `6c4c23c466d892788ff56ddcd3a31f844e4c0d797ade454c5e2625eb9e427077`; exact pinned upstream Linux binary |
+| Binary mode, owner/group, and size | `0755`, `root:root`, 85616152 bytes |
+| Binary capabilities | `cap_net_bind_service,cap_sys_resource=eip` |
+| Binary version provenance | version `0.77.2`; commit `c0c9dd609`; system `linux`; architecture `amd64` |
 | systemd unit | `velociraptor_server.service` |
-| Service user and group | `velociraptor:velociraptor` |
-| Current containment | Package installed; service intentionally inactive and disabled pending B1 revalidation |
+| Service state | active and enabled |
+| Service user and group | user `velociraptor`; group `velociraptor` |
+| Executable, configuration, and mode | `/usr/local/bin/velociraptor`; `/etc/velociraptor/server.config.yaml`; `frontend` |
 
-Before deliberate containment, the first service start demonstrated exactly these listeners:
+The installed package remains the exact reviewed Phase A package; final B1 validation did not reinstall it.
+
+The observed process command was:
 
 ```text
-192.168.56.63:8443
-192.168.56.63:8001
-127.0.0.1:8889
-127.0.0.1:8003
+/usr/local/bin/velociraptor --config /etc/velociraptor/server.config.yaml frontend
 ```
 
-No approved Velociraptor surface was observed on `0.0.0.0`, `10.0.2.15`, or `[::]`. When the obsolete prepared-source-config hash gate failed against the package-realized installed config, the service was deliberately stopped and disabled. That hash mismatch is resolved package provenance, not a package defect or continuing B1 blocker. The service remains inactive and disabled until final B1 re-enable, reachability, and identity revalidation.
+Runtime-ephemeral process IDs are not canonical evidence.
+
+#### Final listener and local reachability validation
+
+Final B1 validation established exactly these listener bindings:
+
+| Surface | Validated listener | Interpretation |
+| --- | --- | --- |
+| Client frontend | `192.168.56.63:8443` | Host-only `ir-core` address |
+| gRPC API | `192.168.56.63:8001` | Host-only `ir-core` address |
+| GUI | `127.0.0.1:8889` | Loopback-only |
+| Monitoring | `127.0.0.1:8003` | Loopback-only |
+
+No approved service was observed bound to `0.0.0.0` or `[::]`. The `0.0.0.0:*` remote-peer column displayed by `ss` was not interpreted as a local listener address. Local address-specific TCP validation produced:
+
+| Address | Result |
+| --- | --- |
+| `192.168.56.63:8443` | reachable |
+| `192.168.56.63:8001` | reachable |
+| `127.0.0.1:8889` | reachable |
+| `127.0.0.1:8003` | reachable |
+| `10.0.2.15:8443` | not reachable |
+| `10.0.2.15:8001` | not reachable |
+| `10.0.2.15:8889` | not reachable |
+| `10.0.2.15:8003` | not reachable |
+
+These are lab validation observations, not general network guarantees.
+
+From `win11-02`, source address `192.168.56.62`, TCP/8443 and TCP/8001 on `192.168.56.63` were reachable; TCP/8889 and TCP/8003 were not reachable. TCP/8001 reachability does not establish authenticated API access. Certificate and effective-ACL validation remain B3 responsibilities.
+
+At B1 closure, `win11-02` had zero Velociraptor services, no `C:\Program Files\Velociraptor` directory, and zero Velociraptor uninstall registrations. B1 therefore neither installed nor enrolled the endpoint, and no client ID is claimed.
+
+No host firewall was enabled or modified during B1. Frontend/API reachability across the owned host-only lab network remains an accepted WS09 lab limitation; listener containment passed independently of firewalling. GUI and monitoring remain loopback-only, and no custom TLS infrastructure is introduced.
+
+#### B1 chronology
+
+1. The reviewed server package was installed.
+2. First start established the intended listeners and service identity.
+3. The obsolete pre-package-config hash gate caused deliberate service containment for architect review; this was not a server failure.
+4. Diagnosis established the Debian-package transformation `Frontend.run_as_user = velociraptor`.
+5. Git documented and accepted the package-realized config identity.
+6. The service was re-enabled.
+7. Final package, binary, config, process, listener, local-network, and `win11-02` reachability validation passed.
+8. B1 completed.
+
+### B2 next-slice boundary
+
+The next WS09 slice is **B2 — `win11-02` client installation and enrollment**. It is not yet complete. Its planned proof boundary remains:
+
+```text
+repacked MSI transfer
+-> exact MSI SHA verification
+-> administrative extraction
+-> exact embedded Velociraptor.exe SHA equality
+-> valid Rapid7 LLC Authenticode
+-> MSI installation
+-> service verification
+-> first enrollment
+-> observe exact C.<client-id>
+-> STOP
+```
+
+The expected repacked MSI SHA-256 is `9e3dd27587bba3116f5af81ce761b084cb94ced0fec360444cbf8f98b61ffe82`. The previously verified official embedded `Velociraptor.exe` identity remains SHA-256 `686E4F5888FDD66D07ACE3B6C1CBD7D2DD0D8D5FB4D3B5D905A7DF3341DFB86F`, version `0.77.2.0`, signed by `Rapid7 LLC`.
 
 ### Intended network bindings and accepted lab exposure
 
@@ -213,7 +285,7 @@ No approved Velociraptor surface was observed on `0.0.0.0`, `10.0.2.15`, or `[::
 | Monitoring, if emitted by generated configuration | `127.0.0.1:8003` | Loopback-only; no monitoring stack is introduced |
 | Existing Alert2IR core | `127.0.0.1:8000` | Unchanged |
 
-The approved bindings were observed on first start before deliberate containment, but they are not current live listeners while the service is intentionally inactive. Final B1 revalidation must verify them again after the separately authorized re-enable. The native frontend and API must bind only to `192.168.56.63`, not `0.0.0.0` or the NAT address `10.0.2.15`, unless separately reviewed. If v0.77.2 cannot provide the exact approved bindings, bootstrap must stop for architect review rather than broaden them. The GUI must remain loopback-only. No Velociraptor surface may be exposed to a public or Internet network.
+Final B1 revalidation confirmed these exact bindings. The native frontend and API must remain bound only to `192.168.56.63`, not `0.0.0.0` or the NAT address `10.0.2.15`, unless separately reviewed. The GUI and monitoring surfaces remain loopback-only. No Velociraptor surface may be exposed to a public or Internet network.
 
 #### Firewall ground truth and lab-scoped acceptance
 
