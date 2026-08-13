@@ -8,6 +8,12 @@ WS08 completed the initial detection layer. Sigma is the canonical detection-as-
 
 The initial WS09 backend contract retains the open-string `process.list` capability and specializes it for Velociraptor without changing the canonical request or result models. This first operation requires exactly one `host` target, resolves its value by exact match through an injected host-to-client-ID mapping, and privately maps the capability to Velociraptor process collection. A successful call returns the existing `InvestigationResult` with one opaque `collection` evidence reference. `desired_outcome` remains descriptive and does not select backend behavior. This contract does not change runtime composition or establish a deployed Velociraptor server, client library, or live collection workflow.
 
+## WS09 planned Velociraptor lab realization
+
+This is **APPROVED DESIGN / NOT YET DEPLOYED**. A native Velociraptor service is planned on `ir-core`, using a generated Debian package and systemd rather than Alert2IR Compose or Puppet ownership. One client on `win11-02` is the complete initial endpoint scope. The client frontend is limited to the host-only endpoint path; the API is intended for the Alert2IR runtime and uses certificate authentication; and the GUI remains loopback-only and operator-only. Generated credentials, configuration, packages, and datastore content remain external runtime state and must not be committed. No public or Internet exposure is permitted.
+
+Alert2IR runtime composition remains the deterministic MockBackend and has not yet changed. Velociraptor is **NOT YET INSTALLED**, `win11-02` is **NOT YET ENROLLED**, the API is **NOT YET API-VALIDATED**, and **NO LIVE VELOCIRAPTOR COLLECTION HAS RUN**. WS09 remains incomplete.
+
 ## Conceptual flow
 
 ```text
