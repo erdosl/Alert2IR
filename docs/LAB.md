@@ -128,8 +128,7 @@ This section records the approved design and observed implementation state. WS09
 - **B1 HISTORICAL FUNCTIONAL VALIDATION: COMPLETE**
 - **RETIRED SERVER/CLIENT DEPLOYMENT TEARDOWN: COMPLETE**
 - **FRESH-PKI ARTIFACT GENERATION: COMPLETE**
-- **FRESH DEPLOYMENT: NOT YET PERFORMED**
-- **FRESH B1 VALIDATION: NOT YET PERFORMED**
+- **FRESH B1 SERVER VALIDATION: COMPLETE**
 - **FRESH B2 ENROLLMENT VALIDATION: NOT YET PERFORMED**
 - **B3: NOT YET PERFORMED**
 - **NO LIVE VELOCIRAPTOR COLLECTION HAS RUN**
@@ -211,13 +210,109 @@ No nonce value, nonce fingerprint, PEM body, private key, full server configurat
 
 #### Deployment boundary and next action
 
-The generated artifacts are accepted provenance inputs for the resumed WS09 proof, but generation does **not** establish a deployed B1 server or an enrolled B2 client. The next separately authorized action is fresh B1 server installation and activation on `ir-core`. It is not client installation, B3, API-credential generation, ACL work, or collection execution.
+At this artifact-generation checkpoint, the generated artifacts were accepted provenance inputs for the resumed WS09 proof, but generation did **not** establish a deployed B1 server or an enrolled B2 client. The next separately authorized action at that checkpoint was fresh B1 server installation and activation on `ir-core`. That action was subsequently authorized and completed as recorded in the fresh B1 checkpoint below; artifact generation itself still does not prove deployment.
 
 This checkpoint introduces no change to `win11-01`, `ir-core` capacity, the accepted host-firewall boundary, custom browser TLS, a reverse proxy, containerized Velociraptor, Puppet ownership, retry or recovery behavior, backend priority, failover, fan-out, Splunk ingestion, Alert2IR runtime composition, B3-and-later work, or WS10-and-later work. It introduces no Vault, SOPS, HSM, cloud secret manager, general PKI framework, or additional secret-management tooling.
 
+### Fresh B1 server-validation checkpoint
+
+This checkpoint is **FRESH B1 COMPLETE / FRESH B2 NOT YET PERFORMED**. The exact reviewed fresh server package is installed and validated on `ir-core`; `win11-02` remains completely undeployed. WS09 remains incomplete, and no live Velociraptor collection has run.
+
+#### Installed package, binary, and configuration identities
+
+| Item | Validated identity |
+| --- | --- |
+| Fresh Debian package | `velociraptor-server-0.77.2.amd64.deb`; SHA-256 `e7afff45864c2dc600dc53656df6b95583ae74c99868dc0f6c56cdc130de03b1`; 30485672 bytes |
+| Installed package | `velociraptor-server`; `install ok installed`; version `0.77.2`; architecture `amd64` |
+| Installed binary | `/usr/local/bin/velociraptor`; SHA-256 `6c4c23c466d892788ff56ddcd3a31f844e4c0d797ade454c5e2625eb9e427077`; 85616152 bytes; mode `0755`; `root:root` |
+| Installed binary capabilities | `cap_net_bind_service,cap_sys_resource=eip` |
+| Installed package-realized server configuration | `/etc/velociraptor/server.config.yaml`; SHA-256 `1d1711837a92e1c9f16ee3f890abae94a27fbc140407f5d95d33025fd0ca2a21`; 12814 bytes; mode `0600`; `velociraptor:velociraptor` |
+| Prepared fresh server configuration | SHA-256 `cb0b51234713c09d0139a81d05033faf66eea76666feb5464399375e23f2f9d7`; 12722 bytes |
+
+The installed configuration exactly equals the fresh Debian-package payload identity, not the prepared generation-input identity. This is the expected v0.77.2 package realization described in the artifact-generation checkpoint. No server-configuration contents or private material are recorded.
+
+#### Service and runtime validation
+
+| Item | Validated state |
+| --- | --- |
+| Unit | `velociraptor_server.service` |
+| Service state | active and enabled |
+| Service user/group | `velociraptor:velociraptor` |
+| Runtime | Velociraptor `0.77.2`; commit `c0c9dd609` |
+
+The validated logical command is:
+
+```text
+/usr/local/bin/velociraptor \
+  --config /etc/velociraptor/server.config.yaml \
+  frontend
+```
+
+No transient process ID is canonical provenance.
+
+#### Listener and bind validation
+
+| Surface | Validated local listener |
+| --- | --- |
+| Frontend | `192.168.56.63:8443` |
+| gRPC API | `192.168.56.63:8001` |
+| GUI | `127.0.0.1:8889` |
+| Monitoring | `127.0.0.1:8003` |
+
+WS09 local binds were validated absent on `0.0.0.0`, `[::]`, and the NAT-side address `10.0.2.15`. A remote-peer wildcard column such as `0.0.0.0:*` in `ss` output was not interpreted as a local listener bind.
+
+#### Network validation
+
+| Source | Target | Result |
+| --- | --- | --- |
+| `ir-core` | `192.168.56.63:8443` | reachable |
+| `ir-core` | `192.168.56.63:8001` | reachable |
+| `ir-core` | `127.0.0.1:8889` | reachable |
+| `ir-core` | `127.0.0.1:8003` | reachable |
+| `ir-core` | `10.0.2.15:8443` | not reachable |
+| `ir-core` | `10.0.2.15:8001` | not reachable |
+| `ir-core` | `10.0.2.15:8889` | not reachable |
+| `ir-core` | `10.0.2.15:8003` | not reachable |
+| `win11-02` | `192.168.56.63:8443` | reachable |
+| `win11-02` | `192.168.56.63:8001` | reachable |
+| `win11-02` | `192.168.56.63:8889` | not reachable |
+| `win11-02` | `192.168.56.63:8003` | not reachable |
+
+These results preserve the accepted owned-lab exposure model. They introduce no firewall or TLS-hardening change.
+
+#### Datastore realization
+
+`/opt/velociraptor` exists as a directory owned by `velociraptor:velociraptor` with mode `0755`. No datastore contents are documented.
+
+#### Fresh B1 completion and client boundary
+
+Fresh B1 is complete because the exact reviewed package was installed; the installed binary identity passed; the installed configuration equaled the fresh package-realized configuration; the service was active and enabled under the low-privilege `velociraptor` identity; the runtime release, exact listener containment, and datastore path passed; local and `win11-02` network checks passed; `win11-02` remained undeployed; and Git remained canonical and clean.
+
+After fresh B1 validation, `win11-02` still has no Velociraptor service, process, MSI registration, install directory, WS09 staging, client ID, or mapping. Fresh B1 therefore does **not** establish B2 completion, client enrollment, a usable live backend, an API identity, or proven collection capability.
+
+#### Fresh B2 next-slice boundary
+
+The next separately authorized WS09 slice is fresh B2: `win11-02` client installation and first enrollment. Its initial gates are:
+
+1. Recheck the fresh repacked MSI provenance.
+2. Administratively extract the repacked MSI and prove the embedded `Velociraptor.exe` SHA-256, version, Authenticode status, and signer without installing the product.
+3. Confirm that extraction did not install the product.
+4. Install the exact validated MSI.
+5. Validate the service, executable, and configuration.
+6. Validate frontend reachability and first enrollment.
+7. Record the exact observed `C.<client-id>` and evaluate this exact mapping candidate:
+
+   ```text
+   "win11-02" -> "C.<observed-id>"
+   ```
+
+None of these fresh B2 actions has occurred. Fresh B2 includes no B3 action, API identity, credential, ACL, or collection.
+
+This checkpoint changes none of `win11-01`, `ir-core` capacity, the host firewall, Windows Firewall, Defender, Sysmon, Splunk Forwarder, Puppet, custom TLS, reverse-proxy behavior, container ownership, organization scope, GUI users, API identities or credentials, ACLs, collection state, retry or recovery behavior, backend priority, failover, fan-out, Splunk ingestion, Alert2IR runtime composition, or WS10-and-later work.
+
 ### WS09 trust-material exposure and rebootstrap decision
 
-The following subsections preserve the retired deployment and remediation-decision chronology. Statements about containment, installation, or generated artifacts in that chronology describe the observed state at the cited historical checkpoint; the current state is the fresh-PKI checkpoint above.
+The following subsections preserve the retired deployment and remediation-decision chronology. Statements about containment, installation, or generated artifacts in that chronology describe the observed state at the cited historical checkpoint; the current state is the fresh B1 checkpoint above.
 
 #### Sanitized exposure chronology and containment
 
