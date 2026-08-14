@@ -651,7 +651,56 @@ class PyVelociraptorCollectionTests(ConcreteClientTestCase):
         self.assertEqual(self.scheduling_query_count(query), 1)
         sleep.assert_called_once()
 
-    def test_running_then_finished_polls_without_real_sleep(self) -> None:
+    def test_each_v0772_nonterminal_state_polls_same_flow_until_finished(
+        self,
+    ) -> None:
+        nonterminal_states = (
+            "UNSET",
+            "RUNNING",
+            "WAITING",
+            "IN_PROGRESS",
+            "UNRESPONSIVE",
+        )
+
+        for state in nonterminal_states:
+            with self.subTest(state=state):
+                client = self.make_client()
+                self.patch_channel()
+                query = self.enterContext(
+                    patch.object(
+                        client,
+                        "_run_query",
+                        side_effect=[
+                            [scheduling_row()],
+                            [flow_row(state=state)],
+                            [flow_row(state="FINISHED")],
+                        ],
+                    )
+                )
+                sleep = self.enterContext(
+                    patch.object(velociraptor_module.time, "sleep")
+                )
+
+                result = client.collect(
+                    client_id="C.TESTCLIENT",
+                    artifact="Windows.Test.Artifact",
+                    timeout_seconds=5,
+                )
+
+                self.assertEqual(result, "F.TESTFLOW")
+                self.assertEqual(query.call_count, 3)
+                self.assertEqual(self.scheduling_query_count(query), 1)
+                self.assertEqual(
+                    query.call_args_list[1].args[1],
+                    query.call_args_list[2].args[1],
+                )
+                self.assertIn(
+                    'flow_id="F.TESTFLOW"',
+                    query.call_args_list[2].args[1],
+                )
+                sleep.assert_called_once()
+
+    def test_waiting_then_finished_regresses_first_live_e2e_failure(self) -> None:
         client = self.make_client()
         self.patch_channel()
         query = self.enterContext(
@@ -660,7 +709,7 @@ class PyVelociraptorCollectionTests(ConcreteClientTestCase):
                 "_run_query",
                 side_effect=[
                     [scheduling_row()],
-                    [flow_row(state="RUNNING")],
+                    [flow_row(state="WAITING")],
                     [flow_row(state="FINISHED")],
                 ],
             )
@@ -676,36 +725,48 @@ class PyVelociraptorCollectionTests(ConcreteClientTestCase):
         self.assertEqual(result, "F.TESTFLOW")
         self.assertEqual(query.call_count, 3)
         self.assertEqual(self.scheduling_query_count(query), 1)
+        self.assertEqual(
+            query.call_args_list[1].args[1],
+            query.call_args_list[2].args[1],
+        )
         sleep.assert_called_once()
 
-    def test_remote_error_and_failed_states_do_not_reschedule(self) -> None:
-        for state in ("ERROR", "FAILED"):
-            with self.subTest(state=state):
-                client = self.make_client()
-                _, channel, *_ = self.patch_channel()
-                query = self.enterContext(
-                    patch.object(
-                        client,
-                        "_run_query",
-                        side_effect=[
-                            [scheduling_row()],
-                            [flow_row(state=state)],
-                        ],
-                    )
-                )
+    def test_remote_error_state_does_not_reschedule(self) -> None:
+        client = self.make_client()
+        _, channel, *_ = self.patch_channel()
+        query = self.enterContext(
+            patch.object(
+                client,
+                "_run_query",
+                side_effect=[
+                    [scheduling_row()],
+                    [flow_row(state="ERROR")],
+                ],
+            )
+        )
 
-                with self.assertRaises(VelociraptorCollectionError):
-                    client.collect(
-                        client_id="C.TESTCLIENT",
-                        artifact="Windows.Test.Artifact",
-                        timeout_seconds=5,
-                    )
+        with self.assertRaises(VelociraptorCollectionError):
+            client.collect(
+                client_id="C.TESTCLIENT",
+                artifact="Windows.Test.Artifact",
+                timeout_seconds=5,
+            )
 
-                self.assertEqual(self.scheduling_query_count(query), 1)
-                channel.close.assert_called_once_with()
+        self.assertEqual(self.scheduling_query_count(query), 1)
+        channel.close.assert_called_once_with()
 
     def test_malformed_or_unknown_flow_state_is_rejected(self) -> None:
-        for state in (None, "", " ", "finished", "COMPLETE", 7):
+        for state in (
+            None,
+            "",
+            " ",
+            "finished",
+            "COMPLETE",
+            "FAILED",
+            7,
+            [],
+            {},
+        ):
             with self.subTest(state=state):
                 client = self.make_client()
                 self.patch_channel()
@@ -787,6 +848,37 @@ class PyVelociraptorCollectionTests(ConcreteClientTestCase):
                 client,
                 "_run_query",
                 side_effect=[[scheduling_row()], []],
+            )
+        )
+        clock = FakeClock()
+        self.enterContext(
+            patch.object(velociraptor_module.time, "monotonic", clock.monotonic)
+        )
+        self.enterContext(patch.object(velociraptor_module.time, "sleep", clock.sleep))
+
+        with self.assertRaises(VelociraptorCollectionError):
+            client.collect(
+                client_id="C.TESTCLIENT",
+                artifact="Windows.Test.Artifact",
+                timeout_seconds=0.5,
+            )
+
+        self.assertEqual(query.call_count, 2)
+        self.assertEqual(self.scheduling_query_count(query), 1)
+        self.assertEqual(clock.sleeps, [0.5])
+        channel.close.assert_called_once_with()
+
+    def test_nonterminal_state_remains_bounded_by_local_deadline(self) -> None:
+        client = self.make_client()
+        _, channel, *_ = self.patch_channel()
+        query = self.enterContext(
+            patch.object(
+                client,
+                "_run_query",
+                side_effect=[
+                    [scheduling_row()],
+                    [flow_row(state="UNRESPONSIVE")],
+                ],
             )
         )
         clock = FakeClock()

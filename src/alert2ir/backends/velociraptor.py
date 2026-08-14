@@ -24,6 +24,17 @@ from alert2ir.core.workflow import InvestigationRequest
 _PROCESS_LIST_ARTIFACT = "Windows.System.Pslist"
 _PROCESS_LIST_CAPABILITY = "process.list"
 _POLL_INTERVAL_SECONDS = 1.0
+_NONTERMINAL_FLOW_STATES = frozenset(
+    {
+        "UNSET",
+        "RUNNING",
+        "WAITING",
+        "IN_PROGRESS",
+        "UNRESPONSIVE",
+    }
+)
+_TERMINAL_SUCCESS_FLOW_STATES = frozenset({"FINISHED"})
+_TERMINAL_FAILURE_FLOW_STATES = frozenset({"ERROR"})
 _REQUIRED_API_CONFIG_FIELDS = (
     "api_connection_string",
     "ca_certificate",
@@ -320,12 +331,16 @@ FROM flows(
                     )
 
                 state = polling_row.get("state")
-                if state == "FINISHED":
+                if not isinstance(state, str):
+                    raise VelociraptorCollectionError(
+                        "Velociraptor flow returned a malformed or unknown state"
+                    )
+                if state in _TERMINAL_SUCCESS_FLOW_STATES:
                     return flow_id
-                if state == "RUNNING":
+                if state in _NONTERMINAL_FLOW_STATES:
                     self._wait_for_next_poll(deadline)
                     continue
-                if state in {"ERROR", "FAILED"}:
+                if state in _TERMINAL_FAILURE_FLOW_STATES:
                     raise VelociraptorCollectionError(
                         f"Velociraptor flow entered terminal {state} state"
                     )

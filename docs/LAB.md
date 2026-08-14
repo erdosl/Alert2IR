@@ -134,9 +134,16 @@ This section records the approved design and observed implementation state. WS09
 - **FIRST LIVE `process.list` INVESTIGATION COLLECTION PROOF: COMPLETE**
 - **`pyvelociraptor` COLLECTION CLIENT: IMPLEMENTED**
 - **ALERT2IR LIVE BACKEND RUNTIME COMPOSITION: IMPLEMENTED IN REPOSITORY / NOT YET LIVE-E2E VALIDATED**
-- **FINAL ALERT2IR-TO-VELOCIRAPTOR END-TO-END INVESTIGATION: NOT YET PERFORMED**
+- **FIRST ALERT2IR-TO-VELOCIRAPTOR END-TO-END ATTEMPT: FAILED AT ADAPTER FLOW-STATE VALIDATION**
+- **FINAL SUCCESSFUL ALERT2IR-TO-VELOCIRAPTOR END-TO-END INVESTIGATION: NOT YET PERFORMED**
 
-Alert2IR now has explicit mock and live Velociraptor runtime composition in the repository. The live Compose override has not been deployed, the final application-to-Velociraptor investigation has not run, and WS09 remains incomplete.
+Alert2IR now has explicit mock and live Velociraptor runtime composition in the repository. The live Compose override has been deployed, but the first application-to-Velociraptor investigation attempt failed during adapter flow-state validation and produced no completed processing record. WS09 remains incomplete pending a successful end-to-end investigation.
+
+### First Alert2IR-to-Velociraptor end-to-end attempt
+
+The first application end-to-end attempt issued exactly one canonical alert POST. Velociraptor scheduled fresh flow `F.D9VPIBOAOTBD8` for `Windows.System.Pslist`; the flow later reached `FINISHED` with 156 collected rows and remains retained as historical lab evidence. The adapter rejected a legitimate intermediate Velociraptor flow state before completion, so Alert2IR returned HTTP 500 and persisted no completed-processing record. No retry occurred.
+
+The failed-attempt flow ID is evidence, not runtime configuration, and must not be reused as an investigation input. No process rows are recorded. Velociraptor 0.77.2 defines `UNSET`, `RUNNING`, `WAITING`, `IN_PROGRESS`, and `UNRESPONSIVE` as nonterminal flow states; `FINISHED` is terminal success and `ERROR` is terminal failure. Repository polling now continues observing the same flow for every documented nonterminal state within the unchanged local deadline, without rescheduling or cancellation. This correction has not yet been deployed or validated through another live E2E attempt.
 
 ### Fresh-PKI artifact-generation checkpoint
 
@@ -985,4 +992,4 @@ The candidate WS09 timeout is 60 seconds. It is a lab-validation bound only, not
 
 Future bootstrap must be reproducible from the approved release artifacts and hashes while generating all environment-specific configuration, credentials, packages, identities, and datastore state outside Git. Future teardown must deliberately account for only WS09-created service/package state, endpoint client state, generated material, and datastore state. Sanitized validation facts and the exact non-secret client-ID mapping may remain documented; teardown does not create a backup or disaster-recovery design.
 
-This bootstrap does not deploy Velociraptor in a container, assign it to Puppet, enroll a second endpoint, add custom artifacts or capabilities, add public exposure, or introduce a reverse proxy, VPN, service mesh, general secret-management system, monitoring stack, backup/DR design, HA, retries or recovery, queues or workers, backend priority, failover, fan-out, or Splunk ingestion. The separately implemented repository runtime composition and live-only Alert2IR Compose override have not been deployed or exercised end to end; the retained historical collection proves the external API operations but does not prove Alert2IR runtime execution.
+This bootstrap does not deploy Velociraptor in a container, assign it to Puppet, enroll a second endpoint, add custom artifacts or capabilities, add public exposure, or introduce a reverse proxy, VPN, service mesh, general secret-management system, monitoring stack, backup/DR design, HA, retries or recovery, queues or workers, backend priority, failover, fan-out, or Splunk ingestion. The separately implemented repository runtime composition and live-only Alert2IR Compose override have since been deployed. Their first end-to-end attempt scheduled a retained flow but failed adapter state validation before durable processing; it therefore does not prove successful Alert2IR runtime execution.
