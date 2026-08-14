@@ -130,7 +130,7 @@ This section records the approved design and observed implementation state. WS09
 - **FRESH-PKI ARTIFACT GENERATION: COMPLETE**
 - **FRESH B1 SERVER VALIDATION: COMPLETE**
 - **FRESH B2 CLIENT INSTALLATION AND IDENTITY VALIDATION: COMPLETE**
-- **B3: NOT YET PERFORMED**
+- **B3 MINIMUM API IDENTITY AND ACL PROOF: COMPLETE**
 - **NO LIVE VELOCIRAPTOR INVESTIGATION COLLECTION HAS RUN**
 
 Alert2IR runtime composition remains the deterministic `MockBackend`.
@@ -427,11 +427,121 @@ The architect-accepted exact lab mapping is:
 
 Fresh B2 is complete because MSI provenance passed; non-installing extraction proved the embedded executable; installation, registration, service, executable, configuration, writeback, and frontend transport validation passed; physical `BasicInformation` proved the endpoint identity; the live GUI resolved the client by exact ID and hostname; the live Notifier proved direct connection; temporary B2 staging cleanup passed; and Git remained canonical and clean.
 
-This mapping is a validated lab fact but is not yet implemented in Alert2IR runtime configuration. B3 has not been performed or authorized: there is no API identity or credential, no target ACL or effective-ACL proof, no certificate-authenticated API validation, and no collection. WS09 therefore remains incomplete.
+This mapping is a validated lab fact but is not yet implemented in Alert2IR runtime configuration. At Fresh B2 closure, B3 had not been performed or authorized: there was no API identity or credential, no target ACL or effective-ACL proof, no certificate-authenticated API validation, and no collection. B3 was subsequently authorized and completed as recorded in the next checkpoint. WS09 remains incomplete.
+
+### Fresh B3 minimum API identity and ACL validation checkpoint
+
+This checkpoint is **B3 MINIMUM API IDENTITY AND ACL PROOF COMPLETE / FIRST INVESTIGATION COLLECTION NOT YET PERFORMED**. One dedicated certificate-authenticated API principal now has the minimum measured Velociraptor permissions for the initial WS09 backend contract; the live gRPC API resolved the accepted client mapping; and no live Velociraptor investigation collection has run. Alert2IR runtime composition remains the deterministic `MockBackend`, and WS09 remains incomplete.
+
+#### Dedicated API identity and credential provenance
+
+| Item | Validated identity or result |
+| --- | --- |
+| Principal | `Alert2IRWS09` |
+| Credential form | Certificate-authenticated Velociraptor API configuration |
+| Connection target | `192.168.56.63:8001` |
+| Protected external path | `/home/jgipsz/velociraptor-bootstrap/v0.77.2/Alert2IRWS09.api.config.yaml` on `ir-core`, outside the repository |
+| API configuration SHA-256 | `485bc8c1c4d39d059fe9009a81c4c86ce888a4c3364b75ae64a8075331459422` |
+| Size | 4333 bytes |
+| Mode | `0600` |
+| Owner/group | `jgipsz:jgipsz` |
+
+The API configuration is secret-bearing because it contains certificate and private-key material. Exactly one protected API configuration is retained outside Git. No API configuration contents, PEM bodies, certificate material, or private keys are stored or documented in the repository.
+
+#### Version-exact API-role baseline and final ACL
+
+The API-role baseline was measured from the installed Velociraptor `0.77.2` binary rather than assumed from documentation. Immediately after identity generation, the stored role set contained only `api`, and that role contributed exactly these effective TRUE permissions in this deployment:
+
+```text
+ANY_QUERY
+READ_RESULTS
+```
+
+This is the observed v0.77.2 baseline for this deployment, not a permanent guarantee for other Velociraptor versions.
+
+The dedicated principal then received only the authorized explicit backend permissions `READ_RESULTS` and `COLLECT_CLIENT` through ACL merge semantics. No additional role was granted. The persisted final policy is:
+
+```text
+roles: api only
+read_results: true
+collect_client: true
+```
+
+The complete final effective TRUE permission set, verified both before and after the controlled restart, is:
+
+```text
+ANY_QUERY
+READ_RESULTS
+COLLECT_CLIENT
+```
+
+No additional TRUE permission or administrator-equivalent expansion was observed.
+
+#### Controlled restart and client continuity
+
+Exactly one controlled `velociraptor_server.service` restart occurred after the CLI ACL changes. The restart succeeded; the service returned active and enabled as `velociraptor:velociraptor`; and the exact listener set remained:
+
+| Surface | Preserved listener |
+| --- | --- |
+| Frontend | `192.168.56.63:8443` |
+| gRPC API | `192.168.56.63:8001` |
+| GUI | `127.0.0.1:8889` |
+| Monitoring | `127.0.0.1:8003` |
+
+No second recovery restart was required. The `win11-02` Velociraptor service remained running as `LocalSystem` with automatic startup throughout, and its service-owned frontend connection recovered successfully. No transient process ID is canonical provenance.
+
+#### Certificate-authenticated live API proof
+
+The built-in Velociraptor client was invoked with `--api_config` and the dedicated `Alert2IRWS09` API configuration. It did not use the privileged server configuration for this proof. The only API operation was a non-mutating query that projected exactly these fields and returned exactly one row:
+
+| Field | API-visible value |
+| --- | --- |
+| `client_id` | `C.4c0d758c0344d6b5` |
+| `hostname` | `win11-02` |
+| `system` | `windows` |
+
+This proves that certificate authentication succeeds, gRPC API connectivity succeeds, the minimum API query and `READ_RESULTS` authorization succeeds, and the accepted exact mapping is visible through the integration path that WS09 intends to use. No raw API request or response beyond those projected fields is documented.
+
+#### Standalone execution-context disposition
+
+The historical B2 diagnostic fact remains: standalone server-context CLI `clients()` queries returned zero rows even while the running server knew the client. The decisive B3 observation is that certificate-authenticated `--api_config` execution in the live server context correctly returned `C.4c0d758c0344d6b5 / win11-02 / windows`.
+
+The architect disposition is that the visibility discrepancy is isolated to the standalone execution context and requires no WS09 repair. No client-info or index repair is roadmap-required unless a future actual integration path reproduces a related defect. No speculative root cause is assigned.
+
+#### Least-privilege and authorization boundary
+
+The approved B3 identity has the `api` role plus `READ_RESULTS` and `COLLECT_CLIENT` for the initial WS09 backend contract. `READ_RESULTS` is organization-scoped in the root organization; Velociraptor ACLs do not restrict it to only client `C.4c0d758c0344d6b5`. Therefore the accepted exact mapping:
+
+```text
+"win11-02" -> "C.4c0d758c0344d6b5"
+```
+
+remains an Alert2IR application-routing boundary rather than a per-client Velociraptor authorization boundary. B3 introduces no generalized authorization framework.
+
+#### No-collection and credential-retention boundary
+
+B3 performed identity creation, ACL configuration, stored and effective ACL validation, and one non-mutating certificate-authenticated API query. It performed no client artifact collection, `Windows.System.Pslist`, `collect_client()` call, hunt, interrogation, or new investigation flow. Automatic platform or client-monitoring activity is not the WS09 investigation collection proof.
+
+Exactly one protected API configuration is retained outside Git. B3 introduces no Vault, SOPS, HSM, cloud secret manager, generic credential broker, or generic PKI framework. `pyvelociraptor` is not installed. Runtime credential injection and dependency selection remain part of a later implementation slice.
+
+#### Next collection slice and broader non-goals
+
+The next separately authorized WS09 action is the first real investigation collection proof:
+
+| Contract field | Approved value |
+| --- | --- |
+| Capability | `process.list` |
+| Backend-private artifact | `Windows.System.Pslist` |
+| Target | `C.4c0d758c0344d6b5` |
+| Desired outcome | Collect process inventory |
+
+That collection must use the dedicated certificate-authenticated API identity and the accepted exact host-to-client mapping. It was not executed in B3 and is not authorized by this documentation checkpoint. The future collection proof does not itself authorize generalized runtime composition, retries, queues, failover, fan-out, additional capabilities, or a generalized authorization or credential-management framework.
+
+B3 changes none of `win11-01`, `ir-core` capacity, the accepted firewall boundary, Defender, Sysmon, Splunk Forwarder, Puppet, TLS or reverse-proxy behavior, organization scope, backend priority, failover, fan-out, Splunk ingestion, persistence, or WS10-and-later work. No investigation collection has run.
 
 ### WS09 trust-material exposure and rebootstrap decision
 
-The following subsections preserve the retired deployment and remediation-decision chronology. Statements about containment, installation, or generated artifacts in that chronology describe the observed state at the cited historical checkpoint; the current state is the fresh B2 checkpoint above.
+The following subsections preserve the retired deployment and remediation-decision chronology. Statements about containment, installation, or generated artifacts in that chronology describe the observed state at the cited historical checkpoint; the current state is the fresh B3 checkpoint above.
 
 #### Sanitized exposure chronology and containment
 
@@ -716,7 +826,7 @@ win11-02
 -> generated Velociraptor server/client trust
 ```
 
-`Client.use_self_signed_ssl = true` remains required; the frontend must not be changed to clear-text HTTP. The API remains certificate-authenticated gRPC on `192.168.56.63:8001`, not clear text or unauthenticated transport. The later API identity, effective-ACL validation, and authorization checkpoint remain required.
+`Client.use_self_signed_ssl = true` remains required; the frontend must not be changed to clear-text HTTP. The API remains certificate-authenticated gRPC on `192.168.56.63:8001`, not clear text or unauthenticated transport. B3 subsequently validated the dedicated API identity, its stored and effective ACL, and certificate-authenticated access without changing this transport boundary.
 
 ### WS09 required proof and explicit non-goals
 
@@ -763,11 +873,11 @@ The first Phase A attempt matched the exact approved MSI SHA-256 and passed the 
 
 ### API identity and pre-collection checkpoint
 
-The intended least-privilege target is identity `Alert2IRWS09` in the root organization only, with the `api` role and `COLLECT_CLIENT` plus `READ_RESULTS`. This is a **TARGET POLICY**, not a validated effective ACL. Bootstrap must create no administrator API identity, inspect the effective policy after creation, and require exactly the permissions needed by the approved collection and result-read strategy. If the v0.77.2 effective ACL differs from the intended policy, bootstrap must stop for architect review and must never widen permissions automatically.
+The B3 checkpoint validated identity `Alert2IRWS09` in the root organization with the `api` role and only the explicit `COLLECT_CLIENT` plus `READ_RESULTS` backend permissions. The measured v0.77.2 API-role baseline was `ANY_QUERY` plus `READ_RESULTS`; the complete final effective TRUE set after merge was exactly `ANY_QUERY`, `READ_RESULTS`, and `COLLECT_CLIENT`. No administrator API identity, additional role, or administrator-equivalent permission expansion was introduced.
 
-Before any real collection, bootstrap must issue a certificate-authenticated, non-mutating gRPC query for the exact enrolled client ID. This checkpoint must not schedule an artifact. It must establish that the API endpoint is reachable, mutual TLS authentication succeeds, minimal read authorization succeeds, and the observed `C.<client-id>` resolves to `win11-02`.
+Before any real collection, B3 issued the required certificate-authenticated, non-mutating gRPC query for the exact enrolled client ID. The query used the dedicated API configuration rather than the privileged server configuration, scheduled no artifact, and returned `C.4c0d758c0344d6b5 / win11-02 / windows`. Certificate authentication, API connectivity, minimum read authorization, and live-context mapping visibility therefore passed.
 
-Slice 1 deliberately contains no external Velociraptor dependency. The eventual live adapter may use official `pyvelociraptor`, but no Python dependency pin is authorized until the v0.77.2 live API is established and compatibility is reviewed. Bootstrap includes no dependency-management redesign.
+The completed bootstrap checkpoints still contain no external Velociraptor dependency. The eventual live adapter may use official `pyvelociraptor`, but it is not installed and no Python dependency pin is authorized in B3. Runtime credential injection, dependency selection, and any dependency-management change remain deferred to a later implementation slice.
 
 ### Timeout and effect windows
 
