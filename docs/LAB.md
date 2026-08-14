@@ -131,9 +131,10 @@ This section records the approved design and observed implementation state. WS09
 - **FRESH B1 SERVER VALIDATION: COMPLETE**
 - **FRESH B2 CLIENT INSTALLATION AND IDENTITY VALIDATION: COMPLETE**
 - **B3 MINIMUM API IDENTITY AND ACL PROOF: COMPLETE**
-- **NO LIVE VELOCIRAPTOR INVESTIGATION COLLECTION HAS RUN**
+- **FIRST LIVE `process.list` INVESTIGATION COLLECTION PROOF: COMPLETE**
+- **ALERT2IR LIVE BACKEND RUNTIME IMPLEMENTATION: NOT YET PERFORMED**
 
-Alert2IR runtime composition remains the deterministic `MockBackend`.
+Alert2IR runtime composition remains the deterministic `MockBackend`. WS09 remains incomplete.
 
 ### Fresh-PKI artifact-generation checkpoint
 
@@ -537,11 +538,106 @@ The next separately authorized WS09 action is the first real investigation colle
 
 That collection must use the dedicated certificate-authenticated API identity and the accepted exact host-to-client mapping. It was not executed in B3 and is not authorized by this documentation checkpoint. The future collection proof does not itself authorize generalized runtime composition, retries, queues, failover, fan-out, additional capabilities, or a generalized authorization or credential-management framework.
 
-B3 changes none of `win11-01`, `ir-core` capacity, the accepted firewall boundary, Defender, Sysmon, Splunk Forwarder, Puppet, TLS or reverse-proxy behavior, organization scope, backend priority, failover, fan-out, Splunk ingestion, persistence, or WS10-and-later work. No investigation collection has run.
+B3 changes none of `win11-01`, `ir-core` capacity, the accepted firewall boundary, Defender, Sysmon, Splunk Forwarder, Puppet, TLS or reverse-proxy behavior, organization scope, backend priority, failover, fan-out, Splunk ingestion, persistence, or WS10-and-later work. No investigation collection ran during B3.
+
+### First live `process.list` investigation collection proof
+
+This checkpoint is **FIRST LIVE `process.list` INVESTIGATION COLLECTION PROOF COMPLETE / ALERT2IR LIVE BACKEND RUNTIME IMPLEMENTATION NOT YET PERFORMED**. It proves the external Velociraptor capability substrate for the existing narrow backend contract. Alert2IR runtime composition remains the deterministic `MockBackend`, and WS09 remains incomplete.
+
+#### Collection contract and scheduling provenance
+
+The exact collection contract was:
+
+| Contract field | Validated value |
+| --- | --- |
+| Canonical capability | `process.list` |
+| Desired outcome | `collect process inventory` |
+| Backend-private Velociraptor artifact | `Windows.System.Pslist` |
+| Exact endpoint mapping | `"win11-02" -> "C.4c0d758c0344d6b5"` |
+| API identity | `Alert2IRWS09` |
+| Collection timeout | 60 seconds |
+
+No environment override, artifact-spec override, urgency override, row-limit override, byte-limit override, or retry was used.
+
+Exactly one `collect_client()` operation was executed through the dedicated certificate-authenticated `Alert2IRWS09` API identity. It returned collection reference `F.D9VKVH7ES21BA` for client `C.4c0d758c0344d6b5` and artifact `Windows.System.Pslist`.
+
+#### Terminal flow and result-read proof
+
+Read-only revalidation through the dedicated API configuration established:
+
+| Flow property | Validated value |
+| --- | --- |
+| Flow | `F.D9VKVH7ES21BA` |
+| Client | `C.4c0d758c0344d6b5` |
+| Creator | `Alert2IRWS09` |
+| State | `FINISHED` |
+| Status | no error / empty status |
+| Requested artifact | `Windows.System.Pslist` only |
+| Artifact with results | `Windows.System.Pslist` only |
+| Total collected rows | 157 |
+| Uploaded files | 0 |
+| Uploaded bytes | 0 |
+
+Flow results were read through the same dedicated certificate-authenticated API identity. The process-result count was exactly 157, and a bounded one-row projection of only `Pid`, `Ppid`, and `Name` proved process-inventory shape and readability. A `Velociraptor.exe` process name was also present as a bounded sanity observation. No process-table sample or general process inventory is retained in Git; the process data remains lab evidence rather than repository fixture data.
+
+#### Exactly-one-collection proof
+
+Before the proof, zero `Alert2IRWS09` flows requesting `Windows.System.Pslist` existed for the target. After the proof, exactly one matching flow existed: `F.D9VKVH7ES21BA`.
+
+The proof created no retry, second flow, other-artifact collection, other-client collection, hunt, interrogation, or server-artifact flow. The successful flow is intentionally retained as lab evidence and was not deleted or altered.
+
+#### Evidence-reference interpretation
+
+`F.D9VKVH7ES21BA` is the historical lab collection reference proving the existing `VelociraptorBackend` collection-reference contract. It maps conceptually to the existing canonical result shape:
+
+```text
+EvidenceReference:
+  kind = "collection"
+  reference = "F.D9VKVH7ES21BA"
+```
+
+This flow ID is not runtime configuration and must never be hard-coded into the backend. For each future live investigation, the backend must return the fresh collection or flow ID produced by that execution.
+
+#### Capability proof and runtime implementation boundary
+
+The live lab now proves all underlying Velociraptor operations required by the already-implemented backend contract:
+
+- the exact host-to-client routing fact exists;
+- certificate-authenticated API access works;
+- the minimum collection and result-read ACL works;
+- `Windows.System.Pslist` can be scheduled;
+- one exact client flow is returned;
+- the flow reaches successful completion;
+- process results are readable; and
+- the flow ID provides the collection evidence reference.
+
+This proves the external capability substrate. It does not prove that the Python `VelociraptorBackend` implementation performs these operations.
+
+The next implementation work must bridge the existing narrow backend protocol to the now-proven Velociraptor API operations without broadening the architecture. The contract remains:
+
+```text
+capability: process.list only
+desired outcome: collect process inventory
+target: one host
+exact host mapping: "win11-02" -> "C.4c0d758c0344d6b5"
+private artifact: Windows.System.Pslist
+result: existing InvestigationResult
+evidence: one EvidenceReference(kind="collection", reference=<fresh flow ID>)
+```
+
+No lifecycle or status model, retry, recovery, queue, priority, failover, fan-out, multiple artifacts, hostname discovery, client normalization, metadata bags, or new canonical model fields are added.
+
+#### Dependency, ACL, credential, and non-goal boundaries
+
+The live API protocol is now established. This documentation slice neither installs nor pins `pyvelociraptor`; dependency and client-library selection must be reviewed in the next implementation-preparation slice. That review must first identify the narrowest supported implementation of the proven API operations and must not assume that `pyvelociraptor` is required or introduce a generalized dependency-management redesign.
+
+The B3 ACL and credential boundary is unchanged. Principal `Alert2IRWS09` retains the `api` role with stored `read_results=true` and `collect_client=true`; its complete effective TRUE permission set remains exactly `ANY_QUERY`, `READ_RESULTS`, and `COLLECT_CLIENT`. The protected API configuration remains outside Git, no credential content enters repository configuration, and the collection proof caused no permission broadening.
+
+No change was made to `win11-01`, `ir-core` capacity, firewalls, Defender, Sysmon, Splunk Forwarder, Puppet, TLS or reverse-proxy behavior, additional organizations, backend priority, failover, fan-out, Splunk ingestion, persistence, or WS10-and-later work. No second collection was executed.
 
 ### WS09 trust-material exposure and rebootstrap decision
 
-The following subsections preserve the retired deployment and remediation-decision chronology. Statements about containment, installation, or generated artifacts in that chronology describe the observed state at the cited historical checkpoint; the current state is the fresh B3 checkpoint above.
+The following subsections preserve the retired deployment and remediation-decision chronology. Statements about containment, installation, or generated artifacts in that chronology describe the observed state at the cited historical checkpoint; the current state is the first live `process.list` collection checkpoint above.
 
 #### Sanitized exposure chronology and containment
 
@@ -887,4 +983,4 @@ The candidate WS09 timeout is 60 seconds. It is a lab-validation bound only, not
 
 Future bootstrap must be reproducible from the approved release artifacts and hashes while generating all environment-specific configuration, credentials, packages, identities, and datastore state outside Git. Future teardown must deliberately account for only WS09-created service/package state, endpoint client state, generated material, and datastore state. Sanitized validation facts and the exact non-secret client-ID mapping may remain documented; teardown does not create a backup or disaster-recovery design.
 
-This bootstrap does not deploy Velociraptor in a container, add it to Alert2IR Compose, assign it to Puppet, enroll a second endpoint, add custom artifacts or capabilities, add public exposure, or introduce a reverse proxy, VPN, service mesh, general secret-management system, monitoring stack, backup/DR design, HA, retries or recovery, queues or workers, backend priority, failover, fan-out, or Splunk ingestion. Live adapter composition, dependency selection, and collection execution remain deferred to separately reviewed runtime work after bootstrap validation.
+This bootstrap does not deploy Velociraptor in a container, add it to Alert2IR Compose, assign it to Puppet, enroll a second endpoint, add custom artifacts or capabilities, add public exposure, or introduce a reverse proxy, VPN, service mesh, general secret-management system, monitoring stack, backup/DR design, HA, retries or recovery, queues or workers, backend priority, failover, fan-out, or Splunk ingestion. Live adapter composition and dependency selection remain deferred to separately reviewed runtime work after bootstrap validation; the retained collection proves the external API operations but does not implement Alert2IR runtime execution.
