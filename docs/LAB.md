@@ -125,12 +125,103 @@ WS08 also did not add a Splunk-to-Alert2IR source adapter or ingestion path, mod
 
 This section records the approved design and observed implementation state. WS09 remains incomplete:
 
-- **B1 — NATIVE VELOCIRAPTOR SERVER ACTIVATION AND VALIDATION: COMPLETE**
+- **B1 HISTORICAL FUNCTIONAL VALIDATION: COMPLETE**
+- **CURRENT B1 TRUST MATERIAL: RETIRED PENDING FRESH-PKI REDEPLOYMENT**
+- **B2: INCOMPLETE**
 - **NOT YET ENROLLED**
 - **NOT YET API-VALIDATED**
 - **NO LIVE VELOCIRAPTOR COLLECTION HAS RUN**
 
 Alert2IR runtime composition remains the deterministic `MockBackend`.
+
+### WS09 trust-material exposure and rebootstrap decision
+
+#### Sanitized exposure chronology and containment
+
+During B2 enrollment diagnosis, a failed filtering command emitted the secret-bearing installed Velociraptor server configuration into the operator terminal and diagnostic conversation. No secret value is reproduced in this repository. The configuration was not committed to Git, and Git did not contain the exposed material, but terminal or conversation exposure is sufficient to treat the affected trust material as compromised.
+
+The affected services are deliberately contained pending separately authorized teardown and redeployment:
+
+- `velociraptor_server.service` on `ir-core` is inactive and disabled, with no listeners on TCP/8443, TCP/8001, TCP/8889, or TCP/8003.
+- The `Velociraptor` service on `win11-02` is stopped and disabled.
+
+This documentation slice neither deletes the compromised artifacts nor changes package, datastore, client writeback, configuration, certificate, or service state.
+
+#### Retired trust-material boundary
+
+The generated server configuration contains the Velociraptor internal PKI and trust material, including the internal CA trust root. The architect decision is:
+
+```text
+current WS09 Velociraptor trust root:
+RETIRED / NOT ACCEPTABLE FOR FURTHER VALIDATION
+```
+
+The following artifacts derive from that retired trust root and must not be reused for the resumed WS09 proof:
+
+```text
+current server.config.yaml
+current generated server Debian package
+current root client configuration
+current repacked win11-02 MSI
+```
+
+Their previously recorded hashes remain historical provenance only. The artifacts are not deleted by this decision record.
+
+Ordinary server-certificate or key rotation is insufficient because the exposure includes the internal CA trust root. WS09 will therefore not remediate this incident merely with:
+
+```text
+config reissue_certs
+config rotate_keys
+```
+
+The remediation target is a newly generated Velociraptor configuration with a fresh internal CA. Generation, teardown, and redeployment remain separately gated and are not performed by this documentation slice.
+
+#### Bounded redeployment consequence and preserved validation
+
+Replacing the internal CA changes the CA certificate embedded in client configurations, so the affected client deployment must also be replaced. The impact remains bounded to `ir-core` and `win11-02`: `win11-01` remains out of scope, no API identity was created, no collection completed, and no canonical `C.<client-id>` mapping was established. This does not justify a production-fleet migration, generalized certificate-rotation framework, or additional endpoint.
+
+B1 still functionally established the native Debian/systemd installation model, package-realized configuration behavior, low-privilege service identity, listener bindings, and lab-network reachability. Those observations remain useful architectural and lab evidence; B1 did happen and its historical functional validation remains complete. The specific cryptographic material used for that B1 instance is retired and cannot serve as the final WS09 validation substrate.
+
+#### Fresh-PKI rebootstrap strategy
+
+The approved rebootstrap strategy is:
+
+```text
+reuse already-verified public Velociraptor v0.77.2 release artifacts
+
+generate entirely fresh server configuration / internal CA
+
+retain the same approved non-secret deployment decisions:
+  ir-core
+  192.168.56.63:8443 frontend
+  192.168.56.63:8001 API
+  127.0.0.1:8889 GUI
+  127.0.0.1:8003 monitoring
+  /opt/velociraptor datastore
+  native Debian/systemd
+  win11-02 only
+
+generate fresh:
+  server package
+  root client config
+  repacked win11-02 MSI
+
+redeploy:
+  server
+  win11-02 client
+
+then repeat:
+  B1 server identity/listener validation
+  B2 enrollment/client-ID validation
+```
+
+No public-release redownload is required unless an already-pinned public artifact fails its recorded hash gate. Because no useful client enrollment, collection, API identity, mapping, or WS09 datastore evidence exists, the preferred remediation is a clean lab redeployment rather than preservation of the compromised PKI deployment. Exact destructive cleanup commands remain separately gated; no teardown is performed here.
+
+#### Secret-handling boundary and non-goals
+
+Future diagnostic commands must never emit unfiltered `config show` output containing secret values. Immediate in-memory sanitized projection, presence checks, and one-way hashes remain the inspection model. This narrow handling improvement does not introduce Vault, SOPS, cloud or commercial secret management, an HSM, generic PKI automation, or other generalized secret-management infrastructure.
+
+The rebootstrap decision also does not introduce `win11-01`, larger `ir-core` capacity, a host firewall, custom browser TLS, containerized Velociraptor, Puppet ownership, retry or recovery infrastructure, backend priority, failover, fan-out, Splunk ingestion, Alert2IR runtime composition, or WS10-and-later work.
 
 ### Approved release, placement, and proof boundary
 
@@ -146,6 +237,8 @@ Alert2IR runtime composition remains the deterministic `MockBackend`.
 | MSI SHA-256 | `7965d63d7c7434db425dba9dc7430f3e12c60e914017da9ac3617d0f3c9991e9` |
 | GPG verification fingerprint | `0572 F28B 4EF1 9A04 3F4C BBE0 B22A 7FB1 9CB6 CFA1` |
 
+The pinned public release artifacts remain reusable subject to their existing hash and signature gates. The generated Debian package in this table belongs to the retired trust root; its hash is historical provenance only and is not an approved fresh-PKI redeployment artifact.
+
 The server package is installed on `ir-core` (`192.168.56.63`) under the approved native generated Debian package and systemd deployment model. Velociraptor is not part of Alert2IR Compose and is not owned by Puppet. The sole initial endpoint is `win11-02` (`192.168.56.62`); `win11-01` is outside this deployment slice. The only initial capability is `process.list`, privately realized by the backend with `Windows.System.Pslist`. No custom artifact or additional investigation capability is approved.
 
 Discovery recorded `ir-core` as Ubuntu 24.04.4 LTS on `amd64`, with 1 vCPU, 3.8 GiB RAM, 3.8 GiB swap, and approximately 38 GiB free on the root filesystem. This is accepted only for the narrow WS09 lab proof: one server, one connected endpoint, and one process-list collection. It is not a production-sizing claim.
@@ -159,6 +252,8 @@ The three sanitized configuration identities are:
 | Prepared source `server.config.yaml` | `88dc03cf978efa7bed86c74d5a36dc880ceeccc674d23cac63ecd7098a873a19` | 12714 bytes | Direct output of the reviewed `config generate` step; package-generation input provenance |
 | Debian-package payload `server.config.yaml` | `0f8118bc192b0549c2370915a349b3e5e70a2113bc6e30274f1df98d361230bf` | 12806 bytes | Package-realized installation provenance |
 | Installed `/etc/velociraptor/server.config.yaml` | `0f8118bc192b0549c2370915a349b3e5e70a2113bc6e30274f1df98d361230bf` | 12806 bytes | Installed-file identity |
+
+Following the trust-material retirement decision, these identities document only the historical B1 instance. They must not be used as acceptance gates for the fresh-PKI rebootstrap.
 
 The installed config bytes equal the Debian package payload config bytes. The configuration transformation therefore occurred during the reviewed `velociraptor 0.77.2 debian server` package-generation step, not during `dpkg` installation or `postinst`.
 
@@ -204,6 +299,8 @@ Final B1 validation after the successful service re-enable reconfirmed `/etc/vel
 | Executable, configuration, and mode | `/usr/local/bin/velociraptor`; `/etc/velociraptor/server.config.yaml`; `frontend` |
 
 The installed package remains the exact reviewed Phase A package; final B1 validation did not reinstall it.
+
+The active/enabled service-state row is a historical B1 observation. Current containment has the server service inactive and disabled with the WS09 listeners absent.
 
 The observed process command was:
 
@@ -256,9 +353,11 @@ No host firewall was enabled or modified during B1. Frontend/API reachability ac
 7. Final package, binary, config, process, listener, local-network, and `win11-02` reachability validation passed.
 8. B1 completed.
 
-### B2 next-slice boundary
+### B2 partial state and resumed proof boundary
 
-The next WS09 slice is **B2 — `win11-02` client installation and enrollment**. It is not yet complete. Its planned proof boundary remains:
+B2 is incomplete. The `win11-02` MSI installation succeeded; the installed executable identity and Authenticode signature passed; and service installation and initial running/automatic state passed. Enrollment was not established, repeated read-only root-organization queries returned no clients, and no `C.<client-id>` was observed. The client is now deliberately stopped and disabled pending fresh-PKI redeployment.
+
+The enrollment root cause remains unresolved. The secret exposure did not cause the already-observed enrollment failure; these are separate facts. Continuing to debug enrollment against the retired trust material is no longer useful. The resumed fresh-PKI proof must repeat the complete boundary:
 
 ```text
 repacked MSI transfer
@@ -273,7 +372,7 @@ repacked MSI transfer
 -> STOP
 ```
 
-The expected repacked MSI SHA-256 is `9e3dd27587bba3116f5af81ce761b084cb94ced0fec360444cbf8f98b61ffe82`. The previously verified official embedded `Velociraptor.exe` identity remains SHA-256 `686E4F5888FDD66D07ACE3B6C1CBD7D2DD0D8D5FB4D3B5D905A7DF3341DFB86F`, version `0.77.2.0`, signed by `Rapid7 LLC`.
+The former repacked MSI SHA-256 `9e3dd27587bba3116f5af81ce761b084cb94ced0fec360444cbf8f98b61ffe82` is historical provenance for an artifact derived from the retired trust root and must not be reused. The previously verified official embedded `Velociraptor.exe` identity remains SHA-256 `686E4F5888FDD66D07ACE3B6C1CBD7D2DD0D8D5FB4D3B5D905A7DF3341DFB86F`, version `0.77.2.0`, signed by `Rapid7 LLC`.
 
 ### Intended network bindings and accepted lab exposure
 
