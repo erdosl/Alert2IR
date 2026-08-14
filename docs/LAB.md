@@ -129,9 +129,9 @@ This section records the approved design and observed implementation state. WS09
 - **RETIRED SERVER/CLIENT DEPLOYMENT TEARDOWN: COMPLETE**
 - **FRESH-PKI ARTIFACT GENERATION: COMPLETE**
 - **FRESH B1 SERVER VALIDATION: COMPLETE**
-- **FRESH B2 ENROLLMENT VALIDATION: NOT YET PERFORMED**
+- **FRESH B2 CLIENT INSTALLATION AND IDENTITY VALIDATION: COMPLETE**
 - **B3: NOT YET PERFORMED**
-- **NO LIVE VELOCIRAPTOR COLLECTION HAS RUN**
+- **NO LIVE VELOCIRAPTOR INVESTIGATION COLLECTION HAS RUN**
 
 Alert2IR runtime composition remains the deterministic `MockBackend`.
 
@@ -306,13 +306,132 @@ The next separately authorized WS09 slice is fresh B2: `win11-02` client install
    "win11-02" -> "C.<observed-id>"
    ```
 
-None of these fresh B2 actions has occurred. Fresh B2 includes no B3 action, API identity, credential, ACL, or collection.
+At Fresh B1 closure, none of these fresh B2 actions had occurred. Fresh B2 includes no B3 action, API identity, credential, ACL, or collection.
 
 This checkpoint changes none of `win11-01`, `ir-core` capacity, the host firewall, Windows Firewall, Defender, Sysmon, Splunk Forwarder, Puppet, custom TLS, reverse-proxy behavior, container ownership, organization scope, GUI users, API identities or credentials, ACLs, collection state, retry or recovery behavior, backend priority, failover, fan-out, Splunk ingestion, Alert2IR runtime composition, or WS10-and-later work.
 
+### Fresh B2 client-installation and identity-validation checkpoint
+
+This checkpoint is **FRESH B2 COMPLETE / B3 NOT YET PERFORMED**. The exact reviewed fresh client package is installed and validated on `win11-02`; the endpoint's physical and live server identities are proven; and the architect accepted the exact lab mapping. WS09 remains incomplete, Alert2IR runtime composition remains the deterministic `MockBackend`, and no live Velociraptor investigation collection has run.
+
+#### Fresh repacked MSI provenance and non-installing extraction
+
+| Item | Validated identity or result |
+| --- | --- |
+| Fresh repacked MSI | `velociraptor-v0.77.2-win11-02-repacked.msi`; SHA-256 `0485a9c7ec649440eabf650b8a7bcf33fb24b60d6bfe1a826b4aa28560bf002d`; 27537408 bytes |
+| Source validation | Identity passed on `ir-core` |
+| Transfer | `scp -3` through `dev01` succeeded without a persistent `dev01` copy |
+| Windows validation | Transferred MSI SHA-256 and size matched the reviewed source |
+| Administrative extraction | `msiexec /a` exited `0` |
+| Extraction boundary | Administrative extraction did not install the product, create the service, start a process, register the MSI, or create `C:\Program Files\Velociraptor` |
+
+The administrative extraction was performed only to prove the repacked payload before installation. No sensitive embedded client-configuration contents are recorded.
+
+#### Embedded and installed executable proof
+
+| Property | Validated value |
+| --- | --- |
+| Executable | `Velociraptor.exe` |
+| SHA-256 | `686E4F5888FDD66D07ACE3B6C1CBD7D2DD0D8D5FB4D3B5D905A7DF3341DFB86F` |
+| Size | 70499832 bytes |
+| File version | `0.77.2.0` |
+| Product version | `0.77.2.0` |
+| Authenticode | Valid |
+| Signer | `Rapid7 LLC` |
+| Signer thumbprint | `8DD67269B148092AC5A14A4982C920C9FDCA3B91` |
+
+Administrative extraction proved this embedded executable identity before installation. The independently validated installed executable matched it exactly.
+
+#### MSI installation and service identity
+
+The exact validated MSI installation exited `0`. It required no retry, repair, or reboot.
+
+| Item | Validated state |
+| --- | --- |
+| Product | `Velociraptor` |
+| Version | `0.77.2` |
+| Publisher | `Velocidex` |
+| Product code | `{2154C220-4579-49B7-A616-249C6494865F}` |
+| Service name | `Velociraptor` |
+| Service state | Running |
+| Startup | Automatic |
+| Service identity | `LocalSystem` |
+
+No transient process ID is canonical provenance. The service-path representation containing `Velociraptor\/client.config.yaml` was proven to resolve to the intended installed client configuration and is not a B2 failure.
+
+#### Installed client-configuration provenance
+
+| Representation | SHA-256 | Size |
+| --- | --- | ---: |
+| Reviewed fresh source client configuration | `5eaae96c06aec022e5d4add8c7076b9676a5c718854cb72595d7aa64767516cb` | 2691 bytes |
+| Installed/repacked payload representation | `8d26990c605e72b8ed4368510db6ad216afcff0739a68c9a7f95425dce4549d0` | 23898 bytes |
+
+The administratively extracted repacked payload and installed `client.config.yaml` were byte-for-byte identical. The SHA-256 of exactly the first 2691 bytes of the installed/repacked representation equals the reviewed fresh source client-configuration hash. The full 23898-byte representation parses successfully when invoked with correct command-line argument handling; it is not characterized as malformed.
+
+Sanitized validation passed for the approved server URL `https://192.168.56.63:8443/`, self-signed setting, `$ProgramFiles\Velociraptor\velociraptor.writeback.yaml` writeback path, nonce presence, and CA presence. No nonce value, CA contents, PEM, private key, full configuration, or other secret-bearing configuration material is recorded.
+
+#### Writeback identity and frontend transport
+
+The primary and backup writeback files exist, and the client writeback identity initialized after installation. Neither writeback was read, copied, rekeyed, deleted, or exposed. Mutable writeback timestamps and sizes are not canonical provenance.
+
+Frontend TCP validation to `192.168.56.63:8443` passed, and the installed service owned an established connection to that frontend. No client restart, reinstall, repair, rekey, configuration replacement, or writeback change was required. After accepted B2 validation, the transferred MSI's identity was rechecked and the dedicated temporary Windows B2 staging directory was removed; the installed product, configuration, and writebacks remain intact.
+
+#### Physical client identity proof
+
+The exact server-side cryptographic client ID is:
+
+```text
+C.4c0d758c0344d6b5
+```
+
+An already-existing `Generic.Client.Info` `BasicInformation` result was read directly from the server filestore without recollection. It reported only these accepted identity fields:
+
+| Field | Observed value |
+| --- | --- |
+| Hostname | `win11-02` |
+| OS | `windows` |
+| Architecture | `amd64` |
+| Platform | `Microsoft Windows 11 Enterprise Evaluation` |
+| PlatformVersion | `25H2` |
+| Fqdn | `win11-02` |
+
+This existing physical result associates the server-side cryptographic client ID `C.4c0d758c0344d6b5` with `win11-02`. No MAC address or unrelated endpoint information is recorded.
+
+#### Live server identity proof
+
+The running Velociraptor GUI independently resolved both the exact client-ID search `C.4c0d758c0344d6b5` and the hostname search `host:win11-02` to the same client. Host Information displayed:
+
+| Field | Observed value |
+| --- | --- |
+| Client ID | `C.4c0d758c0344d6b5` |
+| Hostname | `win11-02` |
+| Operating system | `windows` |
+| Agent version | `0.77.2` |
+| State | Connected |
+
+The running server's Debug Console Notifier also showed `C.4c0d758c0344d6b5 / win11-02` directly connected in the root organization. No Interrogate, Collect, Hunt, VFS refresh, or other state-changing GUI action was performed.
+
+#### Diagnostic chronology and accepted live-context boundary
+
+Fresh B2 diagnosis initially observed zero rows from standalone command-line `clients()` enumeration, indexed search, direct-ID lookup, `client_info()`, `flows()`, and logical `source()` access even while TCP and application-level frontend connectivity were present. Bounded manual client and foreground-frontend diagnostics, read-only datastore inspection, and snapshot-loader inspection preserved this failure evidence rather than rewriting it as a successful standalone lookup.
+
+Physical filestore inspection subsequently proved the existing `BasicInformation` endpoint identity. The client-info snapshot contained one structurally valid compact JSON record for `C.4c0d758c0344d6b5`; its opaque `info` representation was valid even-length hex and decoded successfully, and a verbose standalone loader reported loading one snapshot record without an error or warning. The standalone command-line lookup nevertheless remained empty. The architect accepted this as a non-blocking, context-specific standalone CLI diagnostic anomaly because the running server GUI resolved the exact client by ID and hostname and the live Notifier proved the same ID directly connected. No index rebuild, snapshot edit, client creation, reinterrogation, or recollection was performed. The separately authorized foreground-frontend trace temporarily stopped and restored the normal systemd frontend without changing server configuration, datastore state, or trust material.
+
+#### Accepted exact mapping and B2 boundary
+
+The architect-accepted exact lab mapping is:
+
+```text
+"win11-02" -> "C.4c0d758c0344d6b5"
+```
+
+Fresh B2 is complete because MSI provenance passed; non-installing extraction proved the embedded executable; installation, registration, service, executable, configuration, writeback, and frontend transport validation passed; physical `BasicInformation` proved the endpoint identity; the live GUI resolved the client by exact ID and hostname; the live Notifier proved direct connection; temporary B2 staging cleanup passed; and Git remained canonical and clean.
+
+This mapping is a validated lab fact but is not yet implemented in Alert2IR runtime configuration. B3 has not been performed or authorized: there is no API identity or credential, no target ACL or effective-ACL proof, no certificate-authenticated API validation, and no collection. WS09 therefore remains incomplete.
+
 ### WS09 trust-material exposure and rebootstrap decision
 
-The following subsections preserve the retired deployment and remediation-decision chronology. Statements about containment, installation, or generated artifacts in that chronology describe the observed state at the cited historical checkpoint; the current state is the fresh B1 checkpoint above.
+The following subsections preserve the retired deployment and remediation-decision chronology. Statements about containment, installation, or generated artifacts in that chronology describe the observed state at the cited historical checkpoint; the current state is the fresh B2 checkpoint above.
 
 #### Sanitized exposure chronology and containment
 
