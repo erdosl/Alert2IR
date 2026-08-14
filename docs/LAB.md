@@ -126,21 +126,104 @@ WS08 also did not add a Splunk-to-Alert2IR source adapter or ingestion path, mod
 This section records the approved design and observed implementation state. WS09 remains incomplete:
 
 - **B1 HISTORICAL FUNCTIONAL VALIDATION: COMPLETE**
-- **CURRENT B1 TRUST MATERIAL: RETIRED PENDING FRESH-PKI REDEPLOYMENT**
-- **B2: INCOMPLETE**
-- **NOT YET ENROLLED**
-- **NOT YET API-VALIDATED**
+- **RETIRED SERVER/CLIENT DEPLOYMENT TEARDOWN: COMPLETE**
+- **FRESH-PKI ARTIFACT GENERATION: COMPLETE**
+- **FRESH DEPLOYMENT: NOT YET PERFORMED**
+- **FRESH B1 VALIDATION: NOT YET PERFORMED**
+- **FRESH B2 ENROLLMENT VALIDATION: NOT YET PERFORMED**
+- **B3: NOT YET PERFORMED**
 - **NO LIVE VELOCIRAPTOR COLLECTION HAS RUN**
 
 Alert2IR runtime composition remains the deterministic `MockBackend`.
 
+### Fresh-PKI artifact-generation checkpoint
+
+This checkpoint is **ACCEPTED ARTIFACT PROVENANCE / NOT DEPLOYED**. It records the clean transition from the retired trust deployment to fresh deployment inputs without erasing the historical B1/B2 chronology below.
+
+#### Retired teardown state
+
+The retired server and client deployment was completely removed before fresh generation. The retired Debian package, systemd unit, installed binary, server configuration, datastore, Windows service and MSI registration, endpoint configuration and writeback, generated server and client packages, and repacked MSI no longer remain. The `velociraptor` operating-system user and group were intentionally retained because they hold no cryptographic trust identity.
+
+Only the verified public v0.77.2 Linux and Windows release artifacts, their detached signatures, and the isolated public GPG verification state survived teardown. Retired hashes remain documented below as historical provenance only and are prohibited for reuse.
+
+#### Fresh generation status
+
+```text
+Fresh-PKI artifact generation: COMPLETE
+Fresh deployment: NOT YET PERFORMED
+Fresh B1 validation: NOT YET PERFORMED
+Fresh B2 enrollment validation: NOT YET PERFORMED
+B3: NOT YET PERFORMED
+NO LIVE VELOCIRAPTOR COLLECTION HAS RUN
+```
+
+#### Approved non-secret bootstrap decisions
+
+The fresh bootstrap used exactly these approved non-secret merge values:
+
+| Section | Field | Approved value |
+| --- | --- | --- |
+| Client | `server_urls` | exactly `https://192.168.56.63:8443/` |
+| Client | `use_self_signed_ssl` | `true` |
+| Client | `writeback_windows` | `$ProgramFiles\Velociraptor\velociraptor.writeback.yaml` |
+| Frontend | `hostname` | `192.168.56.63` |
+| Frontend | `bind_address` | `192.168.56.63` |
+| Frontend | `bind_port` | `8443` |
+| API | `hostname` | `192.168.56.63` |
+| API | `bind_address` | `192.168.56.63` |
+| API | `bind_port` | `8001` |
+| GUI | `bind_address` | `127.0.0.1` |
+| GUI | `bind_port` | `8889` |
+| GUI | initial users | none |
+| Monitoring | `bind_address` | `127.0.0.1` |
+| Monitoring | `bind_port` | `8003` |
+| Datastore | `location` | `/opt/velociraptor` |
+| Datastore | `filestore_directory` | `/opt/velociraptor` |
+
+No other configuration was added.
+
+#### Fresh artifact provenance
+
+| Artifact | Filename or stage | SHA-256 | Size | Classification |
+| --- | --- | --- | ---: | --- |
+| Prepared server configuration | `server.config.yaml` | `cb0b51234713c09d0139a81d05033faf66eea76666feb5464399375e23f2f9d7` | 12722 bytes | Secret-bearing generation artifact |
+| Debian-package payload server configuration | package payload `server.config.yaml` | `1d1711837a92e1c9f16ee3f890abae94a27fbc140407f5d95d33025fd0ca2a21` | 12814 bytes | Package-realized secret-bearing server config |
+| Root client configuration | `client.root.config.yaml` | `5eaae96c06aec022e5d4add8c7076b9676a5c718854cb72595d7aa64767516cb` | 2691 bytes | Secret-bearing client deployment config |
+| Generated Debian package | `velociraptor-server-0.77.2.amd64.deb` | `e7afff45864c2dc600dc53656df6b95583ae74c99868dc0f6c56cdc130de03b1` | 30485672 bytes | Secret-bearing because it embeds server configuration |
+| Fresh repacked `win11-02` MSI | `velociraptor-v0.77.2-win11-02-repacked.msi` | `0485a9c7ec649440eabf650b8a7bcf33fb24b60d6bfe1a826b4aa28560bf002d` | 27537408 bytes | Secret-bearing because it embeds client configuration |
+
+These fresh hashes identify the current approved deployment inputs. They do not establish that any artifact is installed or active.
+
+#### Package realization and freshness proof
+
+Fresh package generation reproduced the known v0.77.2 realization:
+
+```text
+prepared Frontend.run_as_user: null / unset
+package payload Frontend.run_as_user: velociraptor
+```
+
+All other approved sanitized deployment fields and trust material were verified equal between the prepared and package-realized server configurations. This is expected package-generation behavior, not drift.
+
+The fresh server and client trust material is internally consistent: the client nonce matched the fresh server nonce, and the client CA matched the fresh server CA. Both fresh trust identities differed from their retired counterparts, and all four fresh generated-artifact hashes differ from the corresponding retired server configuration, root client configuration, Debian package, and repacked MSI hashes.
+
+No nonce value, nonce fingerprint, PEM body, private key, full server configuration, or full client configuration is recorded. Generated server and client configuration must never be emitted unfiltered; Git records only hashes, sizes, non-secret deployment settings, and sanitized equality and freshness conclusions.
+
+#### Deployment boundary and next action
+
+The generated artifacts are accepted provenance inputs for the resumed WS09 proof, but generation does **not** establish a deployed B1 server or an enrolled B2 client. The next separately authorized action is fresh B1 server installation and activation on `ir-core`. It is not client installation, B3, API-credential generation, ACL work, or collection execution.
+
+This checkpoint introduces no change to `win11-01`, `ir-core` capacity, the accepted host-firewall boundary, custom browser TLS, a reverse proxy, containerized Velociraptor, Puppet ownership, retry or recovery behavior, backend priority, failover, fan-out, Splunk ingestion, Alert2IR runtime composition, B3-and-later work, or WS10-and-later work. It introduces no Vault, SOPS, HSM, cloud secret manager, general PKI framework, or additional secret-management tooling.
+
 ### WS09 trust-material exposure and rebootstrap decision
+
+The following subsections preserve the retired deployment and remediation-decision chronology. Statements about containment, installation, or generated artifacts in that chronology describe the observed state at the cited historical checkpoint; the current state is the fresh-PKI checkpoint above.
 
 #### Sanitized exposure chronology and containment
 
 During B2 enrollment diagnosis, a failed filtering command emitted the secret-bearing installed Velociraptor server configuration into the operator terminal and diagnostic conversation. No secret value is reproduced in this repository. The configuration was not committed to Git, and Git did not contain the exposed material, but terminal or conversation exposure is sufficient to treat the affected trust material as compromised.
 
-The affected services are deliberately contained pending separately authorized teardown and redeployment:
+At the containment checkpoint, the affected services were deliberately contained pending separately authorized teardown and redeployment:
 
 - `velociraptor_server.service` on `ir-core` is inactive and disabled, with no listeners on TCP/8443, TCP/8001, TCP/8889, or TCP/8003.
 - The `Velociraptor` service on `win11-02` is stopped and disabled.
@@ -239,7 +322,7 @@ The rebootstrap decision also does not introduce `win11-01`, larger `ir-core` ca
 
 The pinned public release artifacts remain reusable subject to their existing hash and signature gates. The generated Debian package in this table belongs to the retired trust root; its hash is historical provenance only and is not an approved fresh-PKI redeployment artifact.
 
-The server package is installed on `ir-core` (`192.168.56.63`) under the approved native generated Debian package and systemd deployment model. Velociraptor is not part of Alert2IR Compose and is not owned by Puppet. The sole initial endpoint is `win11-02` (`192.168.56.62`); `win11-01` is outside this deployment slice. The only initial capability is `process.list`, privately realized by the backend with `Windows.System.Pslist`. No custom artifact or additional investigation capability is approved.
+The retired server package was installed on `ir-core` (`192.168.56.63`) under the approved native generated Debian package and systemd deployment model. It has since been purged, and the fresh package has not been installed. Velociraptor is not part of Alert2IR Compose and is not owned by Puppet. The sole initial endpoint remains `win11-02` (`192.168.56.62`); `win11-01` is outside this deployment slice. The only initial capability is `process.list`, privately realized by the backend with `Windows.System.Pslist`. No custom artifact or additional investigation capability is approved.
 
 Discovery recorded `ir-core` as Ubuntu 24.04.4 LTS on `amd64`, with 1 vCPU, 3.8 GiB RAM, 3.8 GiB swap, and approximately 38 GiB free on the root filesystem. This is accepted only for the narrow WS09 lab proof: one server, one connected endpoint, and one process-list collection. It is not a production-sizing claim.
 
@@ -355,7 +438,7 @@ No host firewall was enabled or modified during B1. Frontend/API reachability ac
 
 ### B2 partial state and resumed proof boundary
 
-B2 is incomplete. The `win11-02` MSI installation succeeded; the installed executable identity and Authenticode signature passed; and service installation and initial running/automatic state passed. Enrollment was not established, repeated read-only root-organization queries returned no clients, and no `C.<client-id>` was observed. The client is now deliberately stopped and disabled pending fresh-PKI redeployment.
+B2 is incomplete. The historical `win11-02` MSI installation succeeded; the installed executable identity and Authenticode signature passed; and service installation and initial running/automatic state passed. Enrollment was not established, repeated read-only root-organization queries returned no clients, and no `C.<client-id>` was observed. The retired client was first stopped and disabled and was later completely removed during teardown; the fresh client has not been installed.
 
 The enrollment root cause remains unresolved. The secret exposure did not cause the already-observed enrollment failure; these are separate facts. Continuing to debug enrollment against the retired trust material is no longer useful. The resumed fresh-PKI proof must repeat the complete boundary:
 
