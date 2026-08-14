@@ -133,3 +133,11 @@ WS09 Slice 1 adds the first concrete investigation-backend contract for exactly 
 The backend calls an injected narrow collection client with the resolved client ID, backend-private artifact name, and a configured finite positive timeout. On success it returns the existing `InvestigationResult`: backend `velociraptor`, the successfully completed requested capability tuple, and exactly one `EvidenceReference` of kind `collection` containing the client's nonblank opaque collection reference. The canonical request and result models gain no Velociraptor-specific fields.
 
 This slice does not change runtime composition, add an external Velociraptor dependency, or imply that a lab server is deployed or that a live collection has run. It adds no retries, execution lifecycle, asynchronous workers, backend priority, failover, or fan-out.
+
+## WS09 Velociraptor Slice 2 boundary
+
+WS09 Slice 2 adds `PyVelociraptorCollectionClient` as the concrete vendor API implementation behind the unchanged `VelociraptorCollectionClient` protocol. Construction accepts only an external API-configuration path, loads the certificate-authenticated connection material once, and keeps credential contents outside canonical models and repository configuration.
+
+One synchronous `collect()` call creates one secure API channel, schedules exactly one client flow, captures its fresh flow ID, and polls only that client and flow until successful completion or the local deadline. Success returns only the fresh flow ID to `VelociraptorBackend`; the backend continues to place it in one `EvidenceReference` of kind `collection`. Process rows and other artifact results do not enter `InvestigationResult`, and zero result rows do not make an otherwise successfully completed collection fail.
+
+This client adds no retry, automatic flow cancellation, failover, fan-out, client discovery, multi-artifact framework, result ingestion, background execution, or connection pool. Runtime composition still uses `MockBackend`; API-config path injection and live runtime wiring remain deferred.

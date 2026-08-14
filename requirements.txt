@@ -4,3 +4,4 @@ uvicorn==0.51.0
 psycopg[binary]==3.3.4
 alembic==1.18.5
 SQLAlchemy==2.0.51
+pyvelociraptor==0.1.14

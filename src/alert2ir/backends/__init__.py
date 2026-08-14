@@ -8,6 +8,7 @@ from alert2ir.backends.router import (
     UnsupportedCapabilitiesError,
 )
 from alert2ir.backends.velociraptor import (
+    PyVelociraptorCollectionClient,
     VelociraptorBackend,
     VelociraptorCollectionClient,
     VelociraptorCollectionError,
@@ -21,6 +22,7 @@ __all__ = [
     "InvestigationBackend",
     "InvestigationResult",
     "MockBackend",
+    "PyVelociraptorCollectionClient",
     "UnsupportedCapabilitiesError",
     "VelociraptorBackend",
     "VelociraptorCollectionClient",
