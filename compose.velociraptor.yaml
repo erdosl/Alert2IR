@@ -1,0 +1,14 @@
+services:
+  core:
+    environment:
+      ALERT2IR_BACKEND: velociraptor
+      ALERT2IR_VELOCIRAPTOR_API_CONFIG_PATH: /run/secrets/alert2ir-velociraptor-api.yaml
+      ALERT2IR_VELOCIRAPTOR_HOST: ${ALERT2IR_VELOCIRAPTOR_HOST:?ALERT2IR_VELOCIRAPTOR_HOST is required}
+      ALERT2IR_VELOCIRAPTOR_CLIENT_ID: ${ALERT2IR_VELOCIRAPTOR_CLIENT_ID:?ALERT2IR_VELOCIRAPTOR_CLIENT_ID is required}
+    volumes:
+      - type: bind
+        source: ${ALERT2IR_VELOCIRAPTOR_API_CONFIG_SOURCE:?ALERT2IR_VELOCIRAPTOR_API_CONFIG_SOURCE is required}
+        target: /run/secrets/alert2ir-velociraptor-api.yaml
+        read_only: true
+        bind:
+          create_host_path: false

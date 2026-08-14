@@ -2,11 +2,11 @@
 
 ## Purpose
 
-WS03 established the minimal Docker Compose application/runtime substrate intended for `ir-core`. WS05 completes its PostgreSQL persistence substrate, explicit migrations, and durable completed-processing request path.
+WS03 established the minimal Docker Compose application/runtime substrate intended for `ir-core`. WS05 completes its PostgreSQL persistence substrate, explicit migrations, and durable completed-processing request path. WS09 adds repository-defined mock and live Velociraptor runtime composition while preserving mock as the default deployment mode.
 
 ## Current implementation boundary
 
-WS03 established and validated the minimal Docker runtime substrate on `ir-core`. WS04 subsequently validated the typed, in-memory Alert2IR core API on the same host, including `GET /healthz` and `POST /v1/alerts`. WS05 adds an internal-only PostgreSQL service, a named data volume, explicit Alembic migrations, and durable completed-processing writes on successful alert requests. The exact committed WS05 artifact has been validated and deliberately cleaned up on `ir-core`; the validation was not a permanent deployment. Real integrations remain future work.
+WS03 established and validated the minimal Docker runtime substrate on `ir-core`. WS04 subsequently validated the typed, in-memory Alert2IR core API on the same host, including `GET /healthz` and `POST /v1/alerts`. WS05 adds an internal-only PostgreSQL service, a named data volume, explicit Alembic migrations, and durable completed-processing writes on successful alert requests. The exact committed WS05 artifact has been validated and deliberately cleaned up on `ir-core`; the validation was not a permanent deployment. WS09 live Velociraptor composition is implemented in the repository but has not been deployed or exercised by a final application-to-Velociraptor end-to-end investigation.
 
 ## Runtime model
 
@@ -80,12 +80,35 @@ The application does not run migrations at startup. Completed processing is orch
 docker compose down --volumes
 ```
 
+## WS09 backend runtime modes
+
+Base `compose.yaml` passes `ALERT2IR_BACKEND`, defaulting to `mock`, and requires no Velociraptor setting or credential. Normal base Compose operation therefore retains the deterministic singleton `MockBackend` runtime.
+
+The separately selected live shape merges the base file first and the live override second:
+
+```bash
+docker compose -f compose.yaml -f compose.velociraptor.yaml config
+docker compose -f compose.yaml -f compose.velociraptor.yaml up -d
+```
+
+Live deployment requires these external interpolation inputs:
+
+- `ALERT2IR_VELOCIRAPTOR_API_CONFIG_SOURCE`: absolute host path to the protected external API-configuration file.
+- `ALERT2IR_VELOCIRAPTOR_HOST`: the one exact Alert2IR host target.
+- `ALERT2IR_VELOCIRAPTOR_CLIENT_ID`: the one exact Velociraptor client ID.
+
+The source-path value is used by Compose interpolation only and is not passed into the container. The override mounts that file read-only at `/run/secrets/alert2ir-velociraptor-api.yaml`; the application receives only this container path. The file remains external to Git, is not copied into the image, and is not stored in a named volume.
+
+The core container runs as a dedicated non-root identity, and a read-only bind preserves host file access controls. Before a separately authorized live deployment, the host file must therefore grant read access specifically to the effective container runtime identity. World-readable permission is not acceptable, and the core container must not run as root merely to read the credential. A one-file host ACL is an acceptable candidate for that later deployment step, but no such ACL or other permission change has been applied by this repository implementation.
+
+Application construction performs local path and API-config validation only. It does not connect, authenticate, query clients or flows, or schedule a collection. The commands above document the operator shape; the live override and final investigation remain separately authorized work and were not run by the repository implementation slice.
+
 ## Current runtime deferrals
 
 - Public processing read, list, update, or delete APIs
 - Retries, durable idempotency, execution recovery/resume, correlation, and retention/deletion policy
 - Mutable incident lifecycle, backup/disaster recovery, HA/replication, database readiness, and production concurrency/scalability
-- Live Splunk integration and real investigation backends
+- Live Splunk integration and final live Velociraptor end-to-end validation
 - Puppet ownership of Docker
 - Reverse proxy or TLS termination
 - Kubernetes, queues, workers, or caches

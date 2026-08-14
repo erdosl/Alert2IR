@@ -140,4 +140,12 @@ WS09 Slice 2 adds `PyVelociraptorCollectionClient` as the concrete vendor API im
 
 One synchronous `collect()` call creates one secure API channel, schedules exactly one client flow, captures its fresh flow ID, and polls only that client and flow until successful completion or the local deadline. Success returns only the fresh flow ID to `VelociraptorBackend`; the backend continues to place it in one `EvidenceReference` of kind `collection`. Process rows and other artifact results do not enter `InvestigationResult`, and zero result rows do not make an otherwise successfully completed collection fail.
 
-This client adds no retry, automatic flow cancellation, failover, fan-out, client discovery, multi-artifact framework, result ingestion, background execution, or connection pool. Runtime composition still uses `MockBackend`; API-config path injection and live runtime wiring remain deferred.
+This client adds no retry, automatic flow cancellation, failover, fan-out, client discovery, multi-artifact framework, result ingestion, background execution, or connection pool. At Slice 2 closure, runtime composition still used `MockBackend`; API-config path injection and live runtime wiring remained deferred.
+
+## WS09 Velociraptor Slice 3 runtime composition boundary
+
+WS09 Slice 3 adds exact `mock` or `velociraptor` runtime selection through `ALERT2IR_BACKEND`. An absent selector retains the open, deterministic mock default. Mock mode and live mode each construct a singleton `BackendRouter`; the runtime never combines the overlapping `MockBackend` and `VelociraptorBackend`, and it adds no priority, fallback, failover, or fan-out.
+
+Live mode requires one scalar API-config path, one exact host, and one exact client ID. These values must be present, nonempty, and free of leading or trailing whitespace, and the mapping is constructed as exactly the configured host to the configured client ID. The API configuration remains an external file; credential bodies do not enter application environment settings. The backend receives the fixed WS09 collection timeout of 60 seconds.
+
+Application construction reads and validates the local API-configuration file but does not create a gRPC channel, authenticate to Velociraptor, query clients or flows, or schedule a collection. Those operations remain investigation-time effects. This repository composition has deterministic tests but has not been deployed through the live override or proven through the final Alert2IR-to-Velociraptor end-to-end path.
