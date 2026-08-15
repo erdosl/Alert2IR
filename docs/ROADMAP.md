@@ -2,7 +2,7 @@
 
 Workstreams describe coherent areas of work. Their numbering communicates a useful progression, but they are not rigid serial dependencies; work may overlap when prerequisites, risk, and validation permit.
 
-1. **01 Baseline & Architecture** — repository conventions, project boundaries, ADRs, lab record, and scope.
+1. **01 Baseline & Architecture** — completed: repository conventions, project boundaries, ADRs, lab record, and scope.
 2. **02 Windows Endpoint Reproducibility** — completed: repeatable endpoint prerequisites and telemetry configuration.
 3. **03 Docker / IR-Core** — completed: minimal application/service composition validated on the runtime host.
 4. **04 Alert2IR Core** — completed: API, canonical alert normalization, decisions, incidents, and backend contracts.
@@ -18,6 +18,8 @@ Workstreams describe coherent areas of work. Their numbering communicates a usef
 14. **14 Packer** — reproducible machine images where image lifecycle provides demonstrated value.
 15. **15 osquery / Extended Backends** — additional capability-based backends driven by use cases.
 
+WS01 is complete. Commit `e9807179ea793723818f4bb2d99bc784ccda4c68` (`docs: establish Alert2IR architecture and repository baseline`) established the repository and project baseline: conventions, project and architecture boundaries, authorized lab scope, and Git-tracked documentation and ADRs as the canonical record. It implemented no later-workstream capability; subsequent workstreams build on and update that baseline.
+
 WS02 is complete. Both Windows endpoints run Sysmon 15.21 and Splunk Universal Forwarder 10.4.2 and forward Sysmon Operational telemetry to Splunk. The validated Puppet boundary uses deliberate standalone `puppet apply` to manage `Sysmon64` and `SplunkForwarder` running/automatic state and stage canonical Sysmon XML bytes. Staging is not active Sysmon semantic convergence, and Puppet does not own complete Splunk local configuration, endpoint networking, or lab-administration bootstrap. Remaining configuration-management candidates are deferred, non-blocking, and documented in the Puppet environment documentation.
 
 WS03 is complete. Its Docker Compose runtime is one containerized FastAPI `core` service, validated on `ir-core` with a deterministic health endpoint, non-root execution, loopback-only publication, and successful restart and recreation. Persistence and supporting services are intentionally outside this slice.
@@ -32,7 +34,7 @@ WS07 is complete. Commit `2be9f04eac3c7314753793dd5e7c6651f382f815` defines the 
 
 WS08 is complete. Commit `9312f681919a3d05f05e85cb52d8981e61a80584` (`feat: establish Sigma Splunk translation contract`) established the direct-pinned toolchain and narrow repository-owned process-creation mapping; commit `19ad59060ccca96fc3205f39f26831da67fd8ba3` (`feat: add initial Sigma detections`) committed the exact three validated rule blobs; and commit `7ce9a021ef7124c5e4b71fdbafe804221a47ba1f` (`test: record WS08 detection validation`) recorded sanitized evidence. The three initial experimental detections identified their expected WS07 process-creation events in Splunk; T1059.003 also returned a genuine related SSH-launched command-shell wrapper and is recorded as `pass_with_additional_matches`. Sigma remains canonical, while the repository pipeline holds Splunk XML/Sysmon translation constraints. WS08 did not broaden telemetry or ATT&CK coverage, add correlation or saved alerting, fully lock transitive Sigma dependencies, ingest Splunk results into Alert2IR, change `/v1/alerts`, add an investigation backend, or begin WS09.
 
-WS09 is operationally complete. The exact Git-derived corrected runtime validated one live Velociraptor-backed `process.list` investigation for `"win11-02" -> "C.4c0d758c0344d6b5"`, persisted one completed processing record, and retained the fresh flow ID as the exact HTTP and PostgreSQL `collection` evidence reference. The validation introduced no retry, fallback, failover, fan-out, client discovery, hostname normalization, or generalized Velociraptor capability. WS10 remains future, unstarted work.
+WS09 is operationally complete. Commit `ed12b445a0a9430c360fb4b4356eafc8ef98fc5d` (`fix: handle Velociraptor transient flow states`) supplied the exact corrected runtime deployed after the first application E2E exposed incomplete transient flow-state handling: Velociraptor scheduled the intended side effect, but Alert2IR persisted no completed-processing row. The correction added no retry or replacement-flow semantics; the corrected runtime was redeployed, and a second, exactly-one-request E2E succeeded through the first real investigation backend for exactly `process.list`, mapping `"win11-02" -> "C.4c0d758c0344d6b5"` and privately using `Windows.System.Pslist`. Exactly one completed-processing row was persisted, and the returned HTTP `collection` reference, persisted `collection` reference, and actual fresh Velociraptor flow ID were proven equal. WS09 introduced no retry, fallback, failover, fan-out, client discovery, hostname normalization, generalized VQL, or generalized Velociraptor capability; Splunk-to-Alert2IR ingestion remains future work. Detailed operational chronology and provenance remain in [`docs/LAB.md`](LAB.md). WS10 remains the next unstarted workstream.
 
 ## Milestone A — Public MVP
 
