@@ -14,4 +14,4 @@ ADRs record accepted decisions that shape more than one part of Alert2IR. They d
 | [0008](0008-lab-boundaries.md) | Lab network and no-Active-Directory scope |
 | [0009](0009-repository-and-license.md) | Public monorepo and Apache-2.0 |
 | [0010](0010-host-responsibilities.md) | Development, runtime, and hypervisor separation |
-
+| [0011](0011-observability-architecture.md) | OpenTelemetry and a failure-isolated reference observability platform |

@@ -10,6 +10,8 @@ The VirtualBox host-only network is `192.168.56.0/24`. Each listed VM also has a
 
 Existing aliases follow `hostname`, `hostname.lab.test`, `hostname.admin`, and `hostname.admin.lab.test`. The `.admin` names currently resolve to the same host-only interfaces. They are aliases, not a separate management network.
 
+The planned aliases for the new observability host are `obs01`, `obs01.lab.test`, `obs01.admin`, and `obs01.admin.lab.test`. They are not yet recorded as ordinary resolver results on `dev01`; read-only discovery established only that the existing SSH alias reaches `obs01`. No DNS or hosts-file change is implied.
+
 ## Systems
 
 | Host | Host-only IP | Known state |
@@ -19,6 +21,11 @@ Existing aliases follow `hostname`, `hostname.lab.test`, `hostname.admin`, and `
 | `win11-02` | `192.168.56.62` | Windows 11 Enterprise Evaluation 25H2; EditionID `EnterpriseEval`; build `26200.8875`; VirtualBox Guest Additions; Sysmon 15.21 and Splunk Universal Forwarder 10.4.2 installed and running |
 | `ir-core` | `192.168.56.63` | Ubuntu Server 24.04.4 LTS x86_64; Alert2IR runtime host; Docker Engine 29.7.2 and Docker Compose v5.4.0; currently 1 vCPU |
 | `dev01` | `192.168.56.64` | Ubuntu Server 24.04.4 LTS; dedicated development/admin VM; Python 3.12.3, Git 2.43.0, Codex CLI 0.147.0; currently 1 vCPU |
+| `obs01` | `192.168.56.65` | Ubuntu Server 24.04.4 LTS; planned observability-platform host; 1 vCPU, 8 GB RAM, and 100 GB virtual disk |
+
+WS12 read-only discovery confirmed that `obs01` has host-only and NAT interfaces, with `192.168.56.65/24` on the host-only interface, and that SSH is reachable from `dev01`. Docker and Compose are not installed, no observability component is provisioned, time synchronization is active, and SSH was the only externally listening TCP service observed. Firewall runtime enforcement remains to be verified later with privilege.
+
+The VM has a 100 GB virtual disk, while the root logical volume currently exposes approximately 49 GB; privileged LVM inspection is required before any expansion. The apparent remaining capacity is not treated as confirmed allocation, and the storage layout remains a provisioning task. `obs01` starts with one vCPU. CPU adequacy will be evaluated during WS12 operational validation using host and container telemetry; the architecture is not reduced solely because of the initial CPU allocation.
 
 WS03 successfully built, deployed, and validated the minimal containerized `core` service on `ir-core`. Validation covered the deterministic health endpoint, non-root runtime identity, loopback-only publication, restart convergence, and teardown/recreation. The service and its automatic Compose network were removed after validation; the built image and isolated validation artifact were intentionally preserved. Docker Engine, Docker Compose, and SSH were pre-existing host/bootstrap state and are not managed by the current Puppet catalog.
 

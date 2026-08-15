@@ -37,6 +37,22 @@ Source adapters -- normalization boundary --> Canonical alert
                                                     (Velociraptor first)
 ```
 
+## Observability boundary
+
+WS12 establishes a portable application telemetry contract: OpenTelemetry metrics and traces plus structured newline-delimited JSON logs to stdout. A server-generated caller-facing `X-Request-ID`, OpenTelemetry trace and span IDs, the durable processing ID, and opaque backend operation references remain distinct identities.
+
+The planned reference lab topology is:
+
+```text
+Alert2IR on ir-core
+    -> application telemetry
+    -> local Alloy
+    -> separate obs01 observability platform
+       (central Alloy, Prometheus, Alertmanager, Loki, Tempo, and Grafana)
+```
+
+`obs01` is a separate failure domain: Alert2IR processing must continue normally when it or any observability component is unavailable, although bounded non-blocking degradation may lose telemetry. The Grafana stack is the reference open-source lab implementation, not a required production backend for Alert2IR's portable telemetry contracts. Hosted CI tests application telemetry with local, fake, or in-memory instrumentation and requires neither the lab nor the reference stack.
+
 ### Alert sources
 
 Source adapters ingest vendor-specific detections. Splunk is the initial real source, but core contracts must not encode Splunk as the universal model.
