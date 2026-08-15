@@ -6,7 +6,7 @@ WS03 established the minimal Docker Compose application/runtime substrate intend
 
 ## Current implementation boundary
 
-WS03 established and validated the minimal Docker runtime substrate on `ir-core`. WS04 subsequently validated the typed, in-memory Alert2IR core API on the same host, including `GET /healthz` and `POST /v1/alerts`. WS05 adds an internal-only PostgreSQL service, a named data volume, explicit Alembic migrations, and durable completed-processing writes on successful alert requests. The exact committed WS05 artifact has been validated and deliberately cleaned up on `ir-core`; the validation was not a permanent deployment. WS09 live Velociraptor composition is implemented in the repository but has not been deployed or exercised by a final application-to-Velociraptor end-to-end investigation.
+WS03 established and validated the minimal Docker runtime substrate on `ir-core`. WS04 subsequently validated the typed, in-memory Alert2IR core API on the same host, including `GET /healthz` and `POST /v1/alerts`. WS05 adds an internal-only PostgreSQL service, a named data volume, explicit Alembic migrations, and durable completed-processing writes on successful alert requests. The exact committed WS05 artifact has been validated and deliberately cleaned up on `ir-core`; the validation was not a permanent deployment. WS09 live Velociraptor composition is deployed and operationally validated for exactly `process.list` with mapping `"win11-02" -> "C.4c0d758c0344d6b5"`; `docs/LAB.md` is the exact operational evidence record.
 
 ## Runtime model
 
@@ -99,16 +99,16 @@ Live deployment requires these external interpolation inputs:
 
 The source-path value is used by Compose interpolation only and is not passed into the container. The override mounts that file read-only at `/run/secrets/alert2ir-velociraptor-api.yaml`; the application receives only this container path. The file remains external to Git, is not copied into the image, and is not stored in a named volume.
 
-The core container runs as a dedicated non-root identity, and a read-only bind preserves host file access controls. Before a separately authorized live deployment, the host file must therefore grant read access specifically to the effective container runtime identity. World-readable permission is not acceptable, and the core container must not run as root merely to read the credential. A one-file host ACL is an acceptable candidate for that later deployment step, but no such ACL or other permission change has been applied by this repository implementation.
+The live core container runs as dedicated non-root UID/GID `999:999`. Its single secret-bearing API configuration remains outside Git and is mounted read-only; the host file grants named-user read access to UID 999 while retaining `jgipsz:jgipsz` ownership. The authoritative ACL is `user::rw-`, `user:999:r--`, `group::---`, `mask::r--`, and `other::---`. A visible stat mode of `0640` reflects POSIX ACL mask semantics and does not make the file world-readable.
 
-Application construction performs local path and API-config validation only. It does not connect, authenticate, query clients or flows, or schedule a collection. The commands above document the operator shape; the live override and final investigation remain separately authorized work and were not run by the repository implementation slice.
+Application construction performs local path and API-config validation only. It does not connect, authenticate, query clients or flows, or schedule a collection. The live override was subsequently deployed from exact `git archive` content for corrected commit `ed12b445a0a9430c360fb4b4356eafc8ef98fc5d` as image `sha256:fdf9eb454bc702e5df744c042207ad3734798eaea256dbec93b789d4224394c0`. One authorized E2E POST persisted processing UUID `bcebe47f-c5e1-4834-a92c-1c765ea6771f`; its HTTP and PostgreSQL `collection` reference both equal fresh finished flow `F.D9VQFSTQD87H4`. PostgreSQL and its named volume were preserved, and no retry, replacement flow, fallback, failover, or fan-out occurred.
 
 ## Current runtime deferrals
 
 - Public processing read, list, update, or delete APIs
 - Retries, durable idempotency, execution recovery/resume, correlation, and retention/deletion policy
 - Mutable incident lifecycle, backup/disaster recovery, HA/replication, database readiness, and production concurrency/scalability
-- Live Splunk integration and final live Velociraptor end-to-end validation
+- Live Splunk integration
 - Puppet ownership of Docker
 - Reverse proxy or TLS termination
 - Kubernetes, queues, workers, or caches

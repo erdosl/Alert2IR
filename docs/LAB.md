@@ -123,7 +123,7 @@ WS08 also did not add a Splunk-to-Alert2IR source adapter or ingestion path, mod
 
 ### Status
 
-This section records the approved design and observed implementation state. WS09 remains incomplete:
+This section records the approved design and observed implementation state. WS09 is operationally complete:
 
 - **B1 HISTORICAL FUNCTIONAL VALIDATION: COMPLETE**
 - **RETIRED SERVER/CLIENT DEPLOYMENT TEARDOWN: COMPLETE**
@@ -133,17 +133,103 @@ This section records the approved design and observed implementation state. WS09
 - **B3 MINIMUM API IDENTITY AND ACL PROOF: COMPLETE**
 - **FIRST LIVE `process.list` INVESTIGATION COLLECTION PROOF: COMPLETE**
 - **`pyvelociraptor` COLLECTION CLIENT: IMPLEMENTED**
-- **ALERT2IR LIVE BACKEND RUNTIME COMPOSITION: IMPLEMENTED IN REPOSITORY / NOT YET LIVE-E2E VALIDATED**
+- **ALERT2IR LIVE BACKEND RUNTIME COMPOSITION: DEPLOYED AND VALIDATED**
 - **FIRST ALERT2IR-TO-VELOCIRAPTOR END-TO-END ATTEMPT: FAILED AT ADAPTER FLOW-STATE VALIDATION**
-- **FINAL SUCCESSFUL ALERT2IR-TO-VELOCIRAPTOR END-TO-END INVESTIGATION: NOT YET PERFORMED**
+- **CORRECTED CORE REDEPLOY: COMPLETE**
+- **FINAL SUCCESSFUL ALERT2IR-TO-VELOCIRAPTOR END-TO-END INVESTIGATION: COMPLETE**
+- **WS09: OPERATIONALLY COMPLETE**
 
-Alert2IR now has explicit mock and live Velociraptor runtime composition in the repository. The live Compose override has been deployed, but the first application-to-Velociraptor investigation attempt failed during adapter flow-state validation and produced no completed processing record. WS09 remains incomplete pending a successful end-to-end investigation.
+The achieved scope is the real Velociraptor-backed `process.list` path for the exact lab mapping `"win11-02" -> "C.4c0d758c0344d6b5"`. Runtime composition still selects exactly `mock` or `velociraptor`; the live graph contains one `VelociraptorBackend`, `PyVelociraptorCollectionClient`, the fixed `60.0`-second timeout, and no `MockBackend`. This completion does not imply generalized Velociraptor support or begin WS10.
 
-### First Alert2IR-to-Velociraptor end-to-end attempt
+### First Alert2IR-to-Velociraptor end-to-end attempt (failed)
 
-The first application end-to-end attempt issued exactly one canonical alert POST. Velociraptor scheduled fresh flow `F.D9VPIBOAOTBD8` for `Windows.System.Pslist`; the flow later reached `FINISHED` with 156 collected rows and remains retained as historical lab evidence. The adapter rejected a legitimate intermediate Velociraptor flow state before completion, so Alert2IR returned HTTP 500 and persisted no completed-processing record. No retry occurred.
+Detection `ws09-e2e-process-list-001` issued exactly one canonical alert POST with semantics `high -> investigate -> process.list -> win11-02 -> VelociraptorBackend`. The HTTP result was 500 with an empty response body. Velociraptor nevertheless scheduled fresh flow `F.D9VPIBOAOTBD8` through creator `Alert2IRWS09` for `Windows.System.Pslist`; the flow later reached `FINISHED` with 156 collected rows and remains retained as historical lab evidence. Completed-processing rows remained zero, and no retry occurred.
 
-The failed-attempt flow ID is evidence, not runtime configuration, and must not be reused as an investigation input. No process rows are recorded. Velociraptor 0.77.2 defines `UNSET`, `RUNNING`, `WAITING`, `IN_PROGRESS`, and `UNRESPONSIVE` as nonterminal flow states; `FINISHED` is terminal success and `ERROR` is terminal failure. Repository polling now continues observing the same flow for every documented nonterminal state within the unchanged local deadline, without rescheduling or cancellation. This correction has not yet been deployed or validated through another live E2E attempt.
+This was forensic `CASE B`: the Velociraptor side effect occurred, but Alert2IR did not durably complete processing. The exact application exception was `VelociraptorCollectionError: Velociraptor flow returned a malformed or unknown state`. The pre-fix adapter recognized only `RUNNING` as nonterminal, rejected a legitimate transient Velociraptor 0.77.2 state, and aborted orchestration before persistence while the remote flow subsequently finished. The failed-attempt flow ID is evidence, not runtime configuration, and has no corresponding completed-processing record.
+
+### Corrected core redeploy and provenance
+
+The correction was deployed from exact canonical Git content after the first attempt:
+
+| Item | Validated identity |
+| --- | --- |
+| Commit | `ed12b445a0a9430c360fb4b4356eafc8ef98fc5d` |
+| Tree | `f0592affe9d3dafcda217d7ac534f86eb7851e99` |
+| Subject | `fix: handle Velociraptor transient flow states` |
+| Source method | `git archive ed12b445a0a9430c360fb4b4356eafc8ef98fc5d` |
+| Staging path | `/home/jgipsz/alert2ir-ws09-live-ed12b445a0a9` |
+| Archive SHA-256 | `c4612121e9fb74cd5280bd8e1d66780a7aac8243305e2c7c22ba681e5cc1ca75` |
+| Core image ID/repository digest | `sha256:fdf9eb454bc702e5df744c042207ad3734798eaea256dbec93b789d4224394c0` |
+| Platform manifest | `sha256:472ba22da984aaacb8690b10c11206b33ad5ec4fbdfcb97fd911355e56801a29` |
+| Image config | `sha256:02bfd61f440f3e266629a816f20aea363697ea67e7d1b02e3bebdb535fa6acb7` |
+| Commit-specific local tag | `alert2ir-ws09-live-core:ed12b445a0a9430c360fb4b4356eafc8ef98fc5d` |
+| Corrected core container | `3bd21b009de73128919d243a035fdfc256a690e6ee33c95a08c3acb373274174` |
+
+Only `core` was replaced. PostgreSQL container `0996963153bef558de3d8b74a2ec351fd7e572f2ac72b60c64f32cf23a044f23`, named volume `alert2ir-ws09-live_postgres_data`, and migration `0001_processing_records` were preserved without reset or recreation. Completed-processing rows remained zero through redeploy.
+
+#### Protected API credential boundary
+
+Exactly one secret-bearing API configuration remains external to Git at `/home/jgipsz/velociraptor-bootstrap/v0.77.2/Alert2IRWS09.api.config.yaml` and is mounted read-only inside core at `/run/secrets/alert2ir-velociraptor-api.yaml`. Its validated SHA-256 is `485bc8c1c4d39d059fe9009a81c4c86ce888a4c3364b75ae64a8075331459422`, size is 4333 bytes, and owner/group is `jgipsz:jgipsz`. The authoritative ACL is:
+
+```text
+user::rw-
+user:999:r--
+group::---
+mask::r--
+other::---
+```
+
+The visible stat mode may be `0640` because of POSIX ACL mask semantics; the named-user ACL is intentional. Principal `Alert2IRWS09` retains stored role `api` with explicit `read_results=true` and `collect_client=true`. Its complete effective TRUE permission set remains exactly `ANY_QUERY`, `READ_RESULTS`, and `COLLECT_CLIENT`; no administrator-equivalent expansion occurred.
+
+#### Corrected flow-state behavior
+
+For Velociraptor 0.77.2, the deployed adapter classifies `UNSET`, `RUNNING`, `WAITING`, `IN_PROGRESS`, and `UNRESPONSIVE` as nonterminal, `FINISHED` as terminal success, and `ERROR` as terminal failure. `FAILED` is not a 0.77.2 enum state and remains fail-closed as unknown protocol drift.
+
+The adapter retains one scheduling query, captures one fresh `F.*` flow ID, polls only that same flow under one bounded monotonic deadline, and adds no scheduling retry, replacement flow, or automatic cancellation. Unknown states fail closed.
+
+### Successful Alert2IR-to-Velociraptor end-to-end attempt
+
+Detection `ws09-e2e-process-list-002` carried request timestamp `2026-08-14T23:41:12Z`. Exactly one POST to `http://127.0.0.1:8000/v1/alerts` ran from `2026-08-14T23:42:43Z` through `2026-08-14T23:42:47Z`, with HTTP retry disabled. It returned HTTP 200 OK and no retry was performed.
+
+| Field | Validated value |
+| --- | --- |
+| Processing UUID | `bcebe47f-c5e1-4834-a92c-1c765ea6771f` |
+| Decision | `investigate` |
+| Policy | `baseline-severity-v1` |
+| Desired outcome | `collect process inventory` |
+| Required capability | `process.list` |
+| Target | `win11-02` |
+| Backend | `velociraptor` |
+| Completed capability | `process.list` |
+| Fresh flow | `F.D9VQFSTQD87H4` |
+| Flow creator | `Alert2IRWS09` |
+| Flow client | `C.4c0d758c0344d6b5` |
+| Flow artifact | `Windows.System.Pslist` only |
+| Final state | `FINISHED` |
+| Collected rows | 158 |
+
+Completed-processing rows transitioned exactly `0 -> 1`. The sole row is for `ws09-e2e-process-list-002`; its processing-record ID and the HTTP processing ID are both `bcebe47f-c5e1-4834-a92c-1c765ea6771f`. The returned and persisted evidence kind is `collection`, and the primary cross-layer equality is:
+
+```text
+HTTP EvidenceReference.reference
+= persisted EvidenceReference.reference
+= actual fresh Velociraptor flow ID
+= F.D9VQFSTQD87H4
+```
+
+#### Final retained flow cardinality
+
+At closure, exactly three flows (`total = 3`) match creator `Alert2IRWS09` plus artifact `Windows.System.Pslist`:
+
+| Flow | Purpose | State | Rows |
+| --- | --- | --- | ---: |
+| `F.D9VKVH7ES21BA` | Historical direct API/backend substrate proof | `FINISHED` | 157 |
+| `F.D9VPIBOAOTBD8` | Failed application E2E #1 side effect | `FINISHED` | 156 |
+| `F.D9VQFSTQD87H4` | Successful application E2E #2 | `FINISHED` | 158 |
+
+No fourth matching flow exists. All three are retained, and their IDs remain evidence/provenance rather than runtime configuration. The successful E2E used one application request and created exactly one new Pslist flow; WS09 introduced no HTTP or scheduling retry, replacement flow, fallback, failover, fan-out, or overlapping `MockBackend` plus `VelociraptorBackend` execution.
+
+At completion, corrected core and PostgreSQL remained running and healthy; core remained published only at `127.0.0.1:8000`; PostgreSQL retained no host publication of TCP/5432; `GET /healthz` returned HTTP 200 with `{"status":"ok"}`; completed-processing rows equaled `1`; migration remained `0001_processing_records`; and the credential hash, ownership, and ACL remained unchanged. Git remained canonical and clean at `ed12b445a0a9430c360fb4b4356eafc8ef98fc5d`. WS09 is operationally complete for the exact live `process.list` lab path and does not claim broader resilience, generalized Velociraptor support, or completion of any later workstream.
 
 ### Fresh-PKI artifact-generation checkpoint
 
@@ -226,7 +312,7 @@ This checkpoint introduces no change to `win11-01`, `ir-core` capacity, the acce
 
 ### Fresh B1 server-validation checkpoint
 
-This checkpoint is **FRESH B1 COMPLETE / FRESH B2 NOT YET PERFORMED**. The exact reviewed fresh server package is installed and validated on `ir-core`; `win11-02` remains completely undeployed. WS09 remains incomplete, and no live Velociraptor collection has run.
+This checkpoint is **FRESH B1 COMPLETE / FRESH B2 NOT YET PERFORMED**. At this checkpoint, the exact reviewed fresh server package was installed and validated on `ir-core`; `win11-02` remained completely undeployed; WS09 remained incomplete; and no live Velociraptor collection had run.
 
 #### Installed package, binary, and configuration identities
 
@@ -322,7 +408,7 @@ This checkpoint changes none of `win11-01`, `ir-core` capacity, the host firewal
 
 ### Fresh B2 client-installation and identity-validation checkpoint
 
-This checkpoint is **FRESH B2 COMPLETE / B3 NOT YET PERFORMED**. The exact reviewed fresh client package is installed and validated on `win11-02`; the endpoint's physical and live server identities are proven; and the architect accepted the exact lab mapping. WS09 remains incomplete, Alert2IR runtime composition remains the deterministic `MockBackend`, and no live Velociraptor investigation collection has run.
+This checkpoint is **FRESH B2 COMPLETE / B3 NOT YET PERFORMED**. At this checkpoint, the exact reviewed fresh client package was installed and validated on `win11-02`; the endpoint's physical and live server identities were proven; the architect accepted the exact lab mapping; WS09 remained incomplete; Alert2IR runtime composition remained the deterministic `MockBackend`; and no live Velociraptor investigation collection had run.
 
 #### Fresh repacked MSI provenance and non-installing extraction
 
@@ -437,11 +523,11 @@ The architect-accepted exact lab mapping is:
 
 Fresh B2 is complete because MSI provenance passed; non-installing extraction proved the embedded executable; installation, registration, service, executable, configuration, writeback, and frontend transport validation passed; physical `BasicInformation` proved the endpoint identity; the live GUI resolved the client by exact ID and hostname; the live Notifier proved direct connection; temporary B2 staging cleanup passed; and Git remained canonical and clean.
 
-This mapping is a validated lab fact but is not yet implemented in Alert2IR runtime configuration. At Fresh B2 closure, B3 had not been performed or authorized: there was no API identity or credential, no target ACL or effective-ACL proof, no certificate-authenticated API validation, and no collection. B3 was subsequently authorized and completed as recorded in the next checkpoint. WS09 remains incomplete.
+At Fresh B2 closure, this mapping was a validated lab fact but was not yet implemented in Alert2IR runtime configuration. B3 had not been performed or authorized: there was no API identity or credential, no target ACL or effective-ACL proof, no certificate-authenticated API validation, and no collection. B3 was subsequently authorized and completed as recorded in the next checkpoint. WS09 remained incomplete at Fresh B2 closure.
 
 ### Fresh B3 minimum API identity and ACL validation checkpoint
 
-This checkpoint is **B3 MINIMUM API IDENTITY AND ACL PROOF COMPLETE / FIRST INVESTIGATION COLLECTION NOT YET PERFORMED**. One dedicated certificate-authenticated API principal now has the minimum measured Velociraptor permissions for the initial WS09 backend contract; the live gRPC API resolved the accepted client mapping; and no live Velociraptor investigation collection has run. Alert2IR runtime composition remains the deterministic `MockBackend`, and WS09 remains incomplete.
+This checkpoint is **B3 MINIMUM API IDENTITY AND ACL PROOF COMPLETE / FIRST INVESTIGATION COLLECTION NOT YET PERFORMED**. At this checkpoint, one dedicated certificate-authenticated API principal had the minimum measured Velociraptor permissions for the initial WS09 backend contract; the live gRPC API resolved the accepted client mapping; no live Velociraptor investigation collection had run; Alert2IR runtime composition remained the deterministic `MockBackend`; and WS09 remained incomplete.
 
 #### Dedicated API identity and credential provenance
 
@@ -551,7 +637,7 @@ B3 changes none of `win11-01`, `ir-core` capacity, the accepted firewall boundar
 
 ### First live `process.list` investigation collection proof
 
-This checkpoint is **FIRST LIVE `process.list` INVESTIGATION COLLECTION PROOF COMPLETE / ALERT2IR LIVE BACKEND RUNTIME IMPLEMENTATION NOT YET PERFORMED**. It proves the external Velociraptor capability substrate for the existing narrow backend contract. Alert2IR runtime composition remains the deterministic `MockBackend`, and WS09 remains incomplete.
+This checkpoint is **FIRST LIVE `process.list` INVESTIGATION COLLECTION PROOF COMPLETE / ALERT2IR LIVE BACKEND RUNTIME IMPLEMENTATION NOT YET PERFORMED**. At this checkpoint, it proved the external Velociraptor capability substrate for the existing narrow backend contract; Alert2IR runtime composition remained the deterministic `MockBackend`; and WS09 remained incomplete.
 
 #### Collection contract and scheduling provenance
 
@@ -646,7 +732,7 @@ No change was made to `win11-01`, `ir-core` capacity, firewalls, Defender, Sysmo
 
 ### WS09 trust-material exposure and rebootstrap decision
 
-The following subsections preserve the retired deployment and remediation-decision chronology. Statements about containment, installation, or generated artifacts in that chronology describe the observed state at the cited historical checkpoint; the current state is the first live `process.list` collection checkpoint above.
+The following subsections preserve the retired deployment and remediation-decision chronology. Statements about containment, installation, or generated artifacts in that chronology describe the observed state at the cited historical checkpoint; the current state is the completed WS09 application E2E checkpoint above.
 
 #### Sanitized exposure chronology and containment
 
@@ -982,14 +1068,14 @@ The B3 checkpoint validated identity `Alert2IRWS09` in the root organization wit
 
 Before any real collection, B3 issued the required certificate-authenticated, non-mutating gRPC query for the exact enrolled client ID. The query used the dedicated API configuration rather than the privileged server configuration, scheduled no artifact, and returned `C.4c0d758c0344d6b5 / win11-02 / windows`. Certificate authentication, API connectivity, minimum read authorization, and live-context mapping visibility therefore passed.
 
-The completed bootstrap checkpoints still contain no external Velociraptor dependency. The eventual live adapter may use official `pyvelociraptor`, but it is not installed and no Python dependency pin is authorized in B3. Runtime credential injection, dependency selection, and any dependency-management change remain deferred to a later implementation slice.
+At the B3 checkpoint, the completed bootstrap state contained no external Velociraptor dependency. The eventual live adapter could use official `pyvelociraptor`, but it was not installed and no Python dependency pin was authorized in B3. Runtime credential injection, dependency selection, and any dependency-management change remained deferred to a later implementation slice.
 
 ### Timeout and effect windows
 
-The candidate WS09 timeout is 60 seconds. It is a lab-validation bound only, not a production claim. Successful scheduling followed by timeout may leave an upstream flow that later completes without an Alert2IR processing record. Successful collection followed by PostgreSQL persistence failure may likewise leave an upstream collection without a durable Alert2IR completion row. This slice adds no retry, cancellation orchestration, recovery, queue, worker, saga, or reconciliation mechanism.
+The validated WS09 timeout is 60 seconds. It is a lab-validation bound only, not a production claim. Successful scheduling followed by timeout may leave an upstream flow that later completes without an Alert2IR processing record. Successful collection followed by PostgreSQL persistence failure may likewise leave an upstream collection without a durable Alert2IR completion row. WS09 adds no retry, cancellation orchestration, recovery, queue, worker, saga, or reconciliation mechanism.
 
 ### Teardown, reproducibility, and deferrals
 
 Future bootstrap must be reproducible from the approved release artifacts and hashes while generating all environment-specific configuration, credentials, packages, identities, and datastore state outside Git. Future teardown must deliberately account for only WS09-created service/package state, endpoint client state, generated material, and datastore state. Sanitized validation facts and the exact non-secret client-ID mapping may remain documented; teardown does not create a backup or disaster-recovery design.
 
-This bootstrap does not deploy Velociraptor in a container, assign it to Puppet, enroll a second endpoint, add custom artifacts or capabilities, add public exposure, or introduce a reverse proxy, VPN, service mesh, general secret-management system, monitoring stack, backup/DR design, HA, retries or recovery, queues or workers, backend priority, failover, fan-out, or Splunk ingestion. The separately implemented repository runtime composition and live-only Alert2IR Compose override have since been deployed. Their first end-to-end attempt scheduled a retained flow but failed adapter state validation before durable processing; it therefore does not prove successful Alert2IR runtime execution.
+This bootstrap does not deploy Velociraptor in a container, assign it to Puppet, enroll a second endpoint, add custom artifacts or capabilities, add public exposure, or introduce a reverse proxy, VPN, service mesh, general secret-management system, monitoring stack, backup/DR design, HA, retries or recovery, queues or workers, backend priority, failover, fan-out, or Splunk ingestion. The separately implemented repository runtime composition and live-only Alert2IR Compose override have since been deployed. Their first end-to-end attempt scheduled a retained flow but failed adapter state validation before durable processing; it therefore does not prove successful Alert2IR runtime execution. The corrected second attempt recorded in the closure checkpoint above supplies that final operational proof.
