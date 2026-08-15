@@ -1,0 +1,221 @@
+// Future native Alloy configuration for ir-core. Stage 2 does not apply it.
+
+prometheus.remote_write "central_metrics" {
+  endpoint {
+    url            = "http://192.168.56.65:9999/api/v1/metrics/write"
+    remote_timeout = "10s"
+
+    queue_config {
+      capacity             = 2500
+      max_shards           = 2
+      max_samples_per_send = 1000
+      batch_send_deadline  = "5s"
+      min_backoff          = "100ms"
+      max_backoff          = "5s"
+      sample_age_limit     = "15m"
+    }
+  }
+
+  wal {
+    truncate_frequency = "30m"
+    min_keepalive_time = "5m"
+    max_keepalive_time = "30m"
+  }
+
+  external_labels = {
+    environment = "lab",
+    host        = "ir-core",
+  }
+}
+
+otelcol.exporter.prometheus "application_metrics" {
+  forward_to = [prometheus.remote_write.central_metrics.receiver]
+}
+
+otelcol.exporter.otlp "central_traces" {
+  client {
+    endpoint = "192.168.56.65:4317"
+    tls {
+      insecure = true
+    }
+  }
+
+  retry_on_failure {
+    enabled          = true
+    initial_interval = "1s"
+    max_interval     = "10s"
+    max_elapsed_time = "5m"
+  }
+
+  sending_queue {
+    enabled           = true
+    num_consumers     = 2
+    queue_size        = 256
+    block_on_overflow = false
+  }
+}
+
+otelcol.processor.batch "application" {
+  timeout         = "5s"
+  send_batch_size = 1024
+
+  output {
+    metrics = [otelcol.exporter.prometheus.application_metrics.input]
+    traces  = [otelcol.exporter.otlp.central_traces.input]
+  }
+}
+
+otelcol.processor.memory_limiter "application" {
+  check_interval = "1s"
+  limit          = "256MiB"
+  spike_limit    = "64MiB"
+
+  output {
+    metrics = [otelcol.processor.batch.application.input]
+    traces  = [otelcol.processor.batch.application.input]
+  }
+}
+
+otelcol.receiver.otlp "application" {
+  grpc {
+    endpoint          = "192.168.56.63:4317"
+    max_recv_msg_size = "4MiB"
+  }
+
+  output {
+    metrics = [otelcol.processor.memory_limiter.application.input]
+    traces  = [otelcol.processor.memory_limiter.application.input]
+  }
+}
+
+prometheus.relabel "edge_metrics" {
+  forward_to = [prometheus.remote_write.central_metrics.receiver]
+
+  rule {
+    target_label = "environment"
+    replacement  = "lab"
+  }
+
+  rule {
+    target_label = "host"
+    replacement  = "ir-core"
+  }
+}
+
+prometheus.exporter.unix "host" {}
+
+prometheus.scrape "host" {
+  targets         = prometheus.exporter.unix.host.targets
+  forward_to      = [prometheus.relabel.edge_metrics.receiver]
+  scrape_interval = "15s"
+  scrape_timeout  = "10s"
+}
+
+prometheus.exporter.cadvisor "containers" {
+  docker_host      = "unix:///var/run/docker.sock"
+  storage_duration = "5m"
+}
+
+prometheus.relabel "container_cardinality" {
+  forward_to = [prometheus.relabel.edge_metrics.receiver]
+
+  rule {
+    action = "labeldrop"
+    regex  = "id|container_label_.*"
+  }
+}
+
+prometheus.scrape "containers" {
+  targets         = prometheus.exporter.cadvisor.containers.targets
+  forward_to      = [prometheus.relabel.container_cardinality.receiver]
+  scrape_interval = "15s"
+  scrape_timeout  = "10s"
+}
+
+prometheus.exporter.blackbox "alert2ir_health" {
+  config = "{ modules: { http_2xx: { prober: http, timeout: 5s, http: { preferred_ip_protocol: ip4 } } } }"
+
+  target {
+    name    = "alert2ir-healthz"
+    address = "http://127.0.0.1:8000/healthz"
+    module  = "http_2xx"
+  }
+}
+
+prometheus.scrape "alert2ir_health" {
+  targets         = prometheus.exporter.blackbox.alert2ir_health.targets
+  forward_to      = [prometheus.relabel.edge_metrics.receiver]
+  scrape_interval = "15s"
+  scrape_timeout  = "10s"
+}
+
+discovery.docker "alert2ir" {
+  host             = "unix:///var/run/docker.sock"
+  refresh_interval = "10s"
+}
+
+discovery.relabel "alert2ir_logs" {
+  targets = discovery.docker.alert2ir.targets
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    regex         = "core"
+    action        = "keep"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_project"]
+    target_label  = "compose_project"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    target_label  = "compose_service"
+  }
+}
+
+loki.source.docker "alert2ir" {
+  host             = "unix:///var/run/docker.sock"
+  targets          = discovery.relabel.alert2ir_logs.output
+  forward_to       = [loki.process.alert2ir_json.receiver]
+  refresh_interval = "10s"
+}
+
+loki.process "alert2ir_json" {
+  stage.json {
+    expressions = {
+      level = "level",
+    }
+  }
+
+  stage.labels {
+    values = {
+      level = "",
+    }
+  }
+
+  stage.static_labels {
+    values = {
+      environment  = "lab",
+      host         = "ir-core",
+      service_name = "alert2ir",
+      source       = "docker",
+    }
+  }
+
+  forward_to = [loki.write.central_logs.receiver]
+}
+
+loki.write "central_logs" {
+  max_streams = 1000
+
+  endpoint {
+    url                 = "http://192.168.56.65:3500/loki/api/v1/push"
+    batch_size          = "512KiB"
+    batch_wait          = "1s"
+    remote_timeout      = "10s"
+    min_backoff_period  = "500ms"
+    max_backoff_period  = "10s"
+    max_backoff_retries = 10
+  }
+}

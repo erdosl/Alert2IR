@@ -1,0 +1,207 @@
+// Future native Alloy configuration for obs01. Stage 2 does not apply it.
+
+prometheus.remote_write "prometheus" {
+  endpoint {
+    url            = "http://127.0.0.1:19090/api/v1/write"
+    remote_timeout = "10s"
+
+    queue_config {
+      capacity             = 5000
+      max_shards           = 2
+      max_samples_per_send = 1000
+      batch_send_deadline  = "5s"
+      min_backoff          = "100ms"
+      max_backoff          = "5s"
+      sample_age_limit     = "15m"
+    }
+  }
+
+  wal {
+    truncate_frequency = "30m"
+    min_keepalive_time = "5m"
+    max_keepalive_time = "30m"
+  }
+}
+
+prometheus.receive_http "edge_metrics" {
+  http {
+    listen_address = "192.168.56.65"
+    listen_port    = 9999
+  }
+
+  forward_to = [prometheus.remote_write.prometheus.receiver]
+}
+
+otelcol.exporter.otlp "tempo" {
+  client {
+    endpoint = "127.0.0.1:14317"
+    tls {
+      insecure = true
+    }
+  }
+
+  retry_on_failure {
+    enabled          = true
+    initial_interval = "1s"
+    max_interval     = "10s"
+    max_elapsed_time = "5m"
+  }
+
+  sending_queue {
+    enabled           = true
+    num_consumers     = 2
+    queue_size        = 256
+    block_on_overflow = false
+  }
+}
+
+otelcol.processor.batch "edge_traces" {
+  timeout         = "5s"
+  send_batch_size = 1024
+
+  output {
+    traces = [otelcol.exporter.otlp.tempo.input]
+  }
+}
+
+otelcol.processor.memory_limiter "edge_traces" {
+  check_interval = "1s"
+  limit          = "256MiB"
+  spike_limit    = "64MiB"
+
+  output {
+    traces = [otelcol.processor.batch.edge_traces.input]
+  }
+}
+
+otelcol.receiver.otlp "edge_traces" {
+  grpc {
+    endpoint          = "192.168.56.65:4317"
+    max_recv_msg_size = "4MiB"
+  }
+
+  output {
+    traces = [otelcol.processor.memory_limiter.edge_traces.input]
+  }
+}
+
+loki.write "loki" {
+  max_streams = 1000
+
+  endpoint {
+    url                 = "http://127.0.0.1:13100/loki/api/v1/push"
+    batch_size          = "512KiB"
+    batch_wait          = "1s"
+    remote_timeout      = "10s"
+    min_backoff_period  = "500ms"
+    max_backoff_period  = "10s"
+    max_backoff_retries = 10
+  }
+}
+
+loki.source.api "edge_logs" {
+  http {
+    listen_address = "192.168.56.65"
+    listen_port    = 3500
+  }
+
+  forward_to = [loki.write.loki.receiver]
+}
+
+prometheus.relabel "obs01_metrics" {
+  forward_to = [prometheus.remote_write.prometheus.receiver]
+
+  rule {
+    target_label = "environment"
+    replacement  = "lab"
+  }
+
+  rule {
+    target_label = "host"
+    replacement  = "obs01"
+  }
+}
+
+prometheus.exporter.unix "host" {}
+
+prometheus.scrape "host" {
+  targets         = prometheus.exporter.unix.host.targets
+  forward_to      = [prometheus.relabel.obs01_metrics.receiver]
+  scrape_interval = "15s"
+  scrape_timeout  = "10s"
+}
+
+prometheus.exporter.self "alloy" {}
+
+prometheus.scrape "alloy" {
+  targets         = prometheus.exporter.self.alloy.targets
+  forward_to      = [prometheus.relabel.obs01_metrics.receiver]
+  scrape_interval = "15s"
+  scrape_timeout  = "10s"
+}
+
+prometheus.exporter.cadvisor "containers" {
+  docker_host      = "unix:///var/run/docker.sock"
+  storage_duration = "5m"
+}
+
+prometheus.relabel "container_cardinality" {
+  forward_to = [prometheus.relabel.obs01_metrics.receiver]
+
+  rule {
+    action = "labeldrop"
+    regex  = "id|container_label_.*"
+  }
+}
+
+prometheus.scrape "containers" {
+  targets         = prometheus.exporter.cadvisor.containers.targets
+  forward_to      = [prometheus.relabel.container_cardinality.receiver]
+  scrape_interval = "15s"
+  scrape_timeout  = "10s"
+}
+
+discovery.docker "central" {
+  host             = "unix:///var/run/docker.sock"
+  refresh_interval = "10s"
+}
+
+discovery.relabel "central_logs" {
+  targets = discovery.docker.central.targets
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_project"]
+    regex         = "alert2ir-observability"
+    action        = "keep"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    regex         = "grafana|prometheus|alertmanager|loki|tempo"
+    action        = "keep"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    target_label  = "service_name"
+  }
+}
+
+loki.source.docker "central" {
+  host             = "unix:///var/run/docker.sock"
+  targets          = discovery.relabel.central_logs.output
+  forward_to       = [loki.process.central.receiver]
+  refresh_interval = "10s"
+}
+
+loki.process "central" {
+  stage.static_labels {
+    values = {
+      environment = "lab",
+      host        = "obs01",
+      source      = "docker",
+    }
+  }
+
+  forward_to = [loki.write.loki.receiver]
+}
