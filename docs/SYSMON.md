@@ -1,170 +1,100 @@
-# Sysmon Telemetry
+# Sysmon telemetry policy
 
-## Purpose
+## Purpose and authority
 
-Sysmon provides endpoint evidence for investigation. Its configuration is not the Alert2IR detection layer: Sigma is the canonical detection-as-code model, and Splunk is the first concrete execution target. This initial profile collects useful host activity without embedding signatures, ATT&CK-specific matching, or endpoint identities.
+Sysmon provides endpoint activity evidence for investigation and detection validation. It is a collection layer, not the Alert2IR detection model: Sigma rules and target translation belong in [DETECTIONS.md](DETECTIONS.md).
 
-## Ownership
+[`config/sysmon/alert2ir-sysmon.xml`](../config/sysmon/alert2ir-sysmon.xml) is the sole Git-tracked configuration authority. The profile is intentionally small, contains no endpoint identities or ATT&CK-specific signatures, and does not vendor third-party XML. This guide explains its current policy; the XML defines exact behavior.
 
-[`config/sysmon/alert2ir-sysmon.xml`](../config/sysmon/alert2ir-sysmon.xml) is an Alert2IR-owned profile and is intentionally small. Its design was informed by Microsoft Sysmon documentation and general design lessons from SwiftOnSecurity's `sysmon-config` and Olaf Hartong's `sysmon-modular`. No third-party rules, comments, or XML configurations are vendored or copied.
+## Collection principles
 
-The identical schemas captured from both laboratory endpoints report standalone Sysmon 15.21 and configuration schema version `4.91`. Private inventory artifacts remain outside Git.
-
-## Puppet staging boundary
-
-The WS02 Puppet catalog stages the canonical profile at `C:\ProgramData\Alert2IR\Sysmon\alert2ir-sysmon.xml`. Artifact assembly obtains both the Puppet environment and `config/sysmon/alert2ir-sysmon.xml` from the same reviewed Git commit; the module-files copy exists only in the generated deployment artifact.
-
-This managed file is a deployment artifact, not evidence that Sysmon's active configuration matches it. File changes do not invoke `Sysmon64.exe -c` and have no service reload or restart relationship. Active-configuration drift detection and application remain deferred.
-
-### Staging validation
-
-The staging slice at Git commit `88f0e8fddca1837cf221ede5f2d8b4c99e8913d9` (`feat: stage Sysmon config with Puppet`) was runtime-validated on the `win11-02` canary and then promoted to `win11-01`. Both endpoints used the unchanged `alert2ir_ws02-88f0e8fddca1.zip` bytes with SHA-256 `48085012ab89f8898e9beee61c0f0ad21b3ca068c5b9e10ced0ac3818927a436`. The canonical source and both staged target files had SHA-256 `71b792bfdbe3e3fc0ede56a6b9dd680c0a708c06130f54d1fa5b9c15267b9932` after convergence.
-
-On `win11-02`, the initially absent target and its two parent directories were the only resources proposed by the initial noop and created by the enforcing apply. A second enforcing apply reported no corrective changes. Harmless comment-only drift in the staged file then changed its SHA-256 to `7bf1831f457bc4d77108c5188bf31b90387fa75b5555c7a2b013129ac8dacba5`; the drift noop detected the content difference without modifying it, the repair apply restored the canonical bytes, and the final noop reported no corrective events.
-
-On `win11-01`, the initially absent target and its two parent directories were likewise the only resources proposed by the initial noop and created by the enforcing promotion; the final noop reported no corrective events. Promotion tested reproducibility of the already-validated artifact and did not repeat the canary's second enforcing apply or deliberate drift experiment. No active Sysmon configuration was changed, the Sysmon event ID 16 count was `0` during both endpoint validations, service state was preserved, and current Sysmon telemetry remained available in Splunk.
-
-This validates staged-file deployment, idempotence, drift detection and repair, and cross-endpoint reproduction from identical Git-derived artifact bytes. It does not validate active Sysmon configuration convergence, normalized active-config comparison, conditional `Sysmon64.exe -c` execution, or ownership of the Sysmon Operational channel.
+- Collect activity that provides durable process, connection, file, driver, interprocess, WMI, DNS, and process-tampering context.
+- Keep detection logic out of endpoint filters unless a demonstrated collection requirement makes it unavoidable.
+- Disable noisy categories explicitly with empty `onmatch="include"` filters rather than relying on omitted elements.
+- Add exclusions only for measured, narrowly identified self-observation; never exclude an entire process or path class without evidence.
+- Collect deletion metadata without archiving deleted content.
+- Measure event volume on the canary before broadening collection.
 
 ## Global settings
 
-- `HashAlgorithms` is `SHA256`, providing a widely supported, collision-resistant file identity without the added cost and volume of calculating several hashes.
-- `CheckRevocation` is `true` so signature inspection continues to check whether signing certificates have been revoked.
-- `DnsLookup` is `false` to avoid reverse-DNS enrichment, latency, and extra resolver traffic while processing network events. `DnsQuery` remains enabled because the names applications actively query are useful first-party endpoint evidence; it serves a different purpose.
-- Deleted-file archival is not enabled. This workstream needs deletion metadata, not preservation of deleted content, so `ArchiveDirectory`, `CopyOnDeletePE`, `CopyOnDeleteSIDs`, `CopyOnDeleteExtensions`, and related archival settings are absent.
+| Setting | Value | Rationale |
+| --- | --- | --- |
+| Schema | `4.91` | Matches the reviewed standalone Sysmon configuration contract |
+| `HashAlgorithms` | `SHA256` | Provides a single widely supported file identity without multi-hash cost |
+| `CheckRevocation` | `true` | Preserves revocation checking during signature inspection |
+| `DnsLookup` | `false` | Avoids reverse-DNS enrichment latency and traffic; `DnsQuery` still records names applications request |
+| Deleted-file archival | Disabled | The policy needs deletion metadata, not retained deleted content |
 
-## Canary revision
+## Event policy
 
-The initial profile was accepted on `win11-02` by Sysmon 15.21 using schema `4.91`, and Sysmon emitted configuration-change event ID 16. The post-change canary interval contained 11,687 registry object create/delete events (ID 12) and 47 registry value-set events (ID 13). Of the ID 12 events, 7,088 were produced by `svchost.exe` CreateKey activity and 4,493 by `powershell.exe` CreateKey activity. These aggregate counts demonstrate that broad `RegistryEvent` collection exceeded the initial volume acceptance threshold; they are not evidence that either process is globally safe, and they do not justify process-wide exclusions.
-
-Process-termination events (ID 5) also continued after the configuration-change event even though `ProcessTerminate` was omitted from the initial XML. Version 0.1 therefore represents every deferred filterable class explicitly with an empty `onmatch="include"` filter. Under Sysmon include semantics, the absence of child matches disables collection for that class. IDs 4 and 16 remain absent because Sysmon does not expose filters for them.
-
-`RegistryEvent` will be reconsidered in a later tuning iteration using narrow `TargetObject` and process evidence. No registry exclusions are introduced in this revision.
-
-A subsequent 15-minute canary measurement on `win11-02`, after `RegistryEvent` was deferred, recorded 884 file-creation events (ID 11) and 884 detected file-deletion events (ID 26) from `splunk-winevtlog.exe` in the Splunk Universal Forwarder's `var\lib\splunk\modinputs\WinEventLog` checkpoint area. Other ID 11 and 26 activity was comparatively small. The profile therefore excludes only this self-observation and checkpoint churn, using an exact process image and beginning-of-target-path conjunction.
-
-The conjunction preserves telemetry when another process modifies Splunk's checkpoint area, while Splunk activity outside that area remains observable. It does not exclude `splunk-winevtlog.exe` or the checkpoint directory globally. The exclusion is specific to the observed `win11-02` canary evidence and must be revisited if the Splunk installation layout or collection backend changes. No exclusion is added for `splunkd.exe` `tracker.log` activity or other observed low-volume activity.
-
-## Event matrix
-
-The captured schema supports event IDs 1 through 29. An empty `onmatch="exclude"` filter collects the corresponding filterable category broadly. "Deferred" means that the filterable tag is present but explicitly disabled with an empty `onmatch="include"` filter; it does not mean that the tag is absent. IDs 4 and 16 are emitted by Sysmon itself and cannot be filtered.
-
-| ID | Event | Policy | Rationale |
+| Event IDs | Configuration element | Policy | Purpose |
 | ---: | --- | --- | --- |
-| 1 | ProcessCreate | Enabled | Preserves process lineage, command-line, identity, and hash evidence. |
-| 2 | FileCreateTime | Deferred | Timestamp changes can be noisy; enable only after a measured collection need. |
-| 3 | NetworkConnect | Enabled | Preserves process-associated connection evidence. |
-| 4 | Sysmon service state change | Non-filterable | Sysmon emits operational service-state events without a configurable event filter. |
-| 5 | ProcessTerminate | Deferred | Usually adds high volume and limited context beyond process creation in this initial profile. |
-| 6 | DriverLoad | Enabled | Preserves driver identity, hash, and signature evidence. |
-| 7 | ImageLoad | Deferred | Module-load volume is potentially very high and requires measured scoping. |
-| 8 | CreateRemoteThread | Enabled | Preserves cross-process thread creation context for investigation. |
-| 9 | RawAccessRead | Enabled | Records direct raw-device reads that can matter in host investigations. |
-| 10 | ProcessAccess | Deferred | Process-handle access is potentially noisy and needs evidence-backed scoping. |
-| 11 | FileCreate | Enabled | Preserves broad file-creation context except measured Splunk UF WinEventLog checkpoint churn. |
-| 12 | Registry object create/delete | Deferred | Broad canary collection exceeded the initial volume threshold; revisit with narrow target and process evidence. |
-| 13 | Registry value set | Deferred | `RegistryEvent` is deferred as one filterable class while narrow collection is designed. |
-| 14 | Registry object rename | Deferred | `RegistryEvent` is deferred as one filterable class while narrow collection is designed. |
-| 15 | FileCreateStreamHash | Enabled | Preserves alternate data stream creation and content identity. |
-| 16 | Sysmon configuration change | Non-filterable | Sysmon emits configuration-change events without a configurable event filter. |
-| 17 | Pipe created | Enabled | Preserves named-pipe creation evidence. |
-| 18 | Pipe connected | Enabled | Preserves named-pipe connection evidence. |
-| 19 | WMI filter | Enabled | Preserves WMI event-filter registration evidence. |
-| 20 | WMI consumer | Enabled | Preserves WMI event-consumer registration evidence. |
-| 21 | WMI binding | Enabled | Preserves WMI filter-to-consumer binding evidence. |
-| 22 | DNSQuery | Enabled | Preserves application DNS-query evidence even though reverse lookup enrichment is disabled. |
-| 23 | FileDelete | Deferred | This event archives deleted content; content preservation is outside this workstream. |
-| 24 | ClipboardChange | Deferred | Clipboard hashing is not yet justified by a concrete collection requirement. |
-| 25 | ProcessTampering | Enabled | Preserves evidence of process image manipulation. |
-| 26 | FileDeleteDetected | Enabled | Preserves deletion metadata without archiving content, except measured Splunk UF WinEventLog checkpoint churn. |
-| 27 | FileBlockExecutable | Deferred | Enforcement is outside this evidence-collection profile. |
-| 28 | FileBlockShredding | Deferred | Enforcement is outside this evidence-collection profile. |
-| 29 | FileExecutableDetected | Deferred | Executable-file detection volume and value need measurement before collection. |
+| 1 | `ProcessCreate` | Enabled | Process lineage, command line, identity, and hashes |
+| 3 | `NetworkConnect` | Enabled | Process-associated connection evidence |
+| 6 | `DriverLoad` | Enabled | Driver identity, hash, and signature evidence |
+| 8 | `CreateRemoteThread` | Enabled | Cross-process thread creation context |
+| 9 | `RawAccessRead` | Enabled | Direct raw-device read evidence |
+| 11 | `FileCreate` | Enabled with one narrow exception | File creation outside measured Splunk checkpoint churn |
+| 15 | `FileCreateStreamHash` | Enabled | Alternate data stream creation and content identity |
+| 17–18 | `PipeEvent` | Enabled | Named-pipe creation and connection context |
+| 19–21 | `WmiEvent` | Enabled | WMI filter, consumer, and binding registration |
+| 22 | `DnsQuery` | Enabled | Application-requested DNS names |
+| 25 | `ProcessTampering` | Enabled | Process image manipulation evidence |
+| 26 | `FileDeleteDetected` | Enabled with one narrow exception | Deletion metadata without content archival |
+| 2, 5, 7, 10, 12–14, 23–24, 27–29 | Corresponding filterable elements | Deferred with empty include filters | Collection value or volume is not yet justified |
+| 4, 16 | Sysmon-generated, non-filterable | Observable when emitted | Service-state and configuration-change evidence |
 
-## Tuning policy
+The only current content exception is an exact process-and-path conjunction for Splunk Universal Forwarder's Windows Event Log checkpoint files. It suppresses `splunk-winevtlog.exe` self-observation for file creation/deletion beneath its checkpoint directory. Activity by another process in that path, and Splunk activity elsewhere, remains observable. Re-evaluate the exception if the forwarder layout or collection backend changes.
 
-Version 0.1 is broad for the enabled categories in the controlled lab, while deferred filterable categories are explicitly disabled. Before tuning, measure actual event volume and log churn. Add only narrow, evidence-backed filters, and avoid broad exclusions that destroy investigative context. Record material telemetry-policy changes in Git. Keep detection logic out of Sysmon filters unless a concrete collection requirement justifies placing it there.
+## Puppet staging boundary
 
-## Validation procedure
+The [Puppet environment](../infra/puppet/README.md) takes the canonical XML from the same reviewed Git revision used to build its artifact and stages it at:
 
-Validate on `win11-02` first from an elevated PowerShell session. Do not use Atomic Red Team in this workstream.
+```text
+C:\ProgramData\Alert2IR\Sysmon\alert2ir-sysmon.xml
+```
 
-1. On `dev01`, calculate and record the source artifact's SHA-256 before copying it through the normal administrative transfer path:
+Puppet also keeps the already-installed `Sysmon64` service running and enabled. It does not install Sysmon, execute `Sysmon64.exe -c`, compare the staged file with active configuration, restart Sysmon when the file changes, or manage the Operational channel. Equality of staged bytes therefore proves deployment of the reviewed file, not active semantic convergence.
+
+## Validation workflow
+
+### Repository checks
+
+Before endpoint use:
+
+1. parse the canonical XML with a standard XML parser;
+2. confirm the root schema and global settings above;
+3. compare enabled and deferred elements with the event-policy table;
+4. confirm deferred elements contain no child filters;
+5. confirm archival settings are absent;
+6. inspect the single Splunk checkpoint exception for its exact process-and-path conjunction;
+7. run the Puppet repository contract, which proves the artifact contains the exact canonical XML bytes:
 
    ```bash
-   sha256sum config/sysmon/alert2ir-sysmon.xml
+   PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src \
+     .venv/bin/python -m unittest -v tests.test_puppet_contract
    ```
 
-2. On the Windows endpoint, calculate the copied file's SHA-256 and compare the complete value with the value recorded on `dev01`:
+### Canary verification
 
-   ```powershell
-   $Config = 'C:\path\to\alert2ir-sysmon.xml'
-   Get-FileHash -Algorithm SHA256 -LiteralPath $Config
-   ```
+Any active configuration change requires separate authorization and must be evaluated on `win11-02` before promotion:
 
-3. Parse the copy before use. This verifies XML well-formedness independently of Sysmon:
+1. collect the bounded endpoint state described in [WINDOWS_ENDPOINT_INVENTORY.md](WINDOWS_ENDPOINT_INVENTORY.md);
+2. verify the copied XML hash against the reviewed repository file and parse the copy;
+3. query the active configuration with the explicit installed `Sysmon64.exe -c` path before changing it;
+4. if application of the reviewed profile is authorized, pass only the verified XML to `Sysmon64.exe -c` and require a successful exit;
+5. query active configuration again and confirm a recent event ID 16, running service, and enabled Operational channel;
+6. generate only small benign activity and inspect representative enabled events such as IDs 1, 3, 11, 16, and 22;
+7. verify deferred filterable categories do not produce new post-change events without manufacturing destructive or privileged activity;
+8. confirm representative Sysmon events arrive through the existing Splunk forwarding path;
+9. observe volume over a representative interval before promoting the same reviewed configuration to `win11-01`.
 
-   ```powershell
-   $ParsedConfig = [xml](Get-Content -Raw -LiteralPath $Config)
-   $ParsedConfig.Sysmon.schemaversion
-   ```
+Do not use controlled attack scenarios merely to exercise the Sysmon profile. Detection execution and comparison belong in [DETECTIONS.md](DETECTIONS.md).
 
-   Confirm the root is `Sysmon` and the reported schema version is `4.91`.
+## Tuning and rollback
 
-4. Set `$Sysmon` to the explicit, verified path of the already-installed standalone executable. Inspect the active configuration before changing it and retain the output with the pre-change evidence:
+Tuning must start from measured canary evidence. Prefer narrow field conjunctions, preserve investigative context, and record material policy changes in Git. Do not add a broad process exclusion because one event source is noisy.
 
-   ```powershell
-   $Sysmon = 'C:\known\path\to\Sysmon64.exe'
-   & $Sysmon -c
-   ```
+If Sysmon rejects a profile or the telemetry is operationally unsafe, stop promotion. Roll back only to an explicit reviewed configuration whose bytes are verified, then repeat service, channel, event ID 16, representative-event, and forwarding checks. Do not rely on command history, undocumented endpoint paths, or assumed defaults.
 
-5. Apply the copied configuration, checking both the output and process exit code:
-
-   ```powershell
-   & $Sysmon -c $Config
-   if ($LASTEXITCODE -ne 0) { throw "Sysmon rejected the configuration: exit code $LASTEXITCODE" }
-   ```
-
-6. Query the active configuration again with `& $Sysmon -c`. Confirm Sysmon accepted schema `4.91`, `SHA256`, revocation checking, disabled DNS lookup enrichment, broad empty-exclude filters for enabled classes, and empty-include filters with no child rules for deferred classes.
-
-7. Confirm a recent event ID 16 records the configuration change, the standalone Sysmon service is running, and the operational channel remains enabled:
-
-   ```powershell
-   Get-WinEvent -FilterHashtable @{LogName='Microsoft-Windows-Sysmon/Operational'; Id=16; StartTime=(Get-Date).AddMinutes(-10)}
-   Get-Service -Name Sysmon64
-   Get-WinEvent -ListLog 'Microsoft-Windows-Sysmon/Operational' | Select-Object LogName, IsEnabled, RecordCount
-   ```
-
-8. Generate small benign activity: start a command shell that creates a temporary text file, use `Resolve-DnsName` for a domain the lab ordinarily accesses, and make a normal outbound web request to that same benign destination. Remove the test file afterward. Do not attempt to synthesize privileged or destructive event types merely to exercise every category.
-
-9. Inspect recent local events and confirm representative enabled or non-filterable IDs such as 1 (process), 3 (network), 11 (file creation), 16 (configuration change), and 22 (DNS query) appear with expected fields:
-
-   ```powershell
-   Get-WinEvent -FilterHashtable @{LogName='Microsoft-Windows-Sysmon/Operational'; StartTime=(Get-Date).AddMinutes(-15)} |
-     Where-Object Id -in 1,3,11,16,22 |
-     Select-Object TimeCreated, Id, ProviderName
-   ```
-
-   For activity occurring after the ID 16 configuration change, confirm deferred filterable classes do not produce new events, including IDs 5 and 12-14. IDs 4 and 16 can still appear because they are non-filterable. Do not generate destructive or privileged activity solely to test a deferred class.
-
-10. Verify the representative Sysmon events reach Splunk using the existing forwarding path. Compare endpoint event timestamps and IDs with indexed results; do not change Splunk configuration as part of this validation.
-
-11. Observe event volume and operational-log churn on `win11-02` over a representative lab interval. Apply the configuration to `win11-01` only after `win11-02` accepts it, remains healthy, forwards events successfully, and produces acceptable volume.
-
-## Static validation expectations
-
-Before endpoint validation:
-
-- Parse the XML with Python's standard-library `xml.etree.ElementTree` parser.
-- Confirm schema `4.91`, `SHA256`, `CheckRevocation` set to `true`, and `DnsLookup` set to `false`.
-- Confirm every enabled filterable tag is present with `onmatch="exclude"`.
-- Confirm every deferred filterable tag, including `RegistryEvent`, is present with `onmatch="include"` and contains no child filter rules.
-- Confirm every configured tag exists in the captured Sysmon schema `4.91` evidence.
-- Confirm IDs 4 and 16 have no tags in `EventFiltering` because they are non-filterable.
-- Confirm archival settings are absent, the diff contains no Puppet changes or private canary evidence, and `git diff --check` passes.
-
-## Rollback and failure handling
-
-If Sysmon rejects the configuration or the profile is operationally problematic, stop the rollout. Do not perform ad-hoc tuning on `win11-01`, and do not apply the profile there. Preserve the pre-change inventory evidence and the outputs captured during validation.
-
-Rollback must use an explicit, reviewed, known configuration file whose content and SHA-256 are recorded. Apply it with the verified standalone executable using the same `Sysmon64.exe -c <configuration>` mechanism, check the exit code, and repeat the service, channel, event ID 16, and forwarding checks. Do not rely on assumptions about defaults, command history, an undocumented prior path, or an endpoint's historical installation command.
+Current limitations and future project work belong in the [roadmap](ROADMAP.md); endpoint roles and forwarding relationships belong in [LAB.md](LAB.md).

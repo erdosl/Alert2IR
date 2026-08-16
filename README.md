@@ -1,65 +1,64 @@
 # Alert2IR
 
-Alert2IR is a vendor-neutral, detection-driven incident-response orchestration project. It aims to turn alerts into consistent investigation requests without trying to replace a SIEM, EDR, forensic platform, or full SOAR product.
+Alert2IR is a vendor-neutral, detection-driven incident-response orchestration project. It accepts canonical security alerts, applies deterministic investigation policy, optionally invokes one capability-compatible investigation backend, persists completed processing, and returns a bounded API response. It does not replace a SIEM, EDR, forensic platform, or full SOAR product.
 
-The intended flow is:
+The current application path is:
 
 ```text
-Detection source
-  -> alert normalization
-  -> canonical alert
-  -> correlation / risk / policy
-  -> investigation request
-  -> capability-based investigation backend
+canonical alert through POST /v1/alerts
+  -> validation and deterministic policy
+  -> optional capability-based investigation
+  -> PostgreSQL persistence
+  -> API response
 ```
 
-Splunk is the first validated detection execution target, while Alert2IR ingestion remains through the canonical `/v1/alerts` API with no Splunk source adapter. Sigma is the canonical detection-as-code format, the deterministic MockBackend keeps the application workflow testable without a live lab or commercial products, and Velociraptor is the first real investigation backend.
+Sigma is the canonical detection-as-code format, Splunk is the validated detection execution target, the deterministic mock investigation backend keeps application behavior testable without a live lab, and Velociraptor provides the implemented `process.list` investigation path. Detection execution and Alert2IR ingestion are separate: no Splunk-to-Alert2IR source adapter is implemented.
 
-The repository contains an implemented and owned-lab-validated application path. WS05 persistence is complete: PostgreSQL composition, explicit migrations, and durable completed-processing storage support successful `no_action` and `investigate` requests, which return a `processing_id`. WS06 Puppet is complete for its narrow existing Windows roles/profiles boundary. WS07 records three deterministic Atomic-derived scenarios and sanitized ground truth; WS08 provides three canonical Sigma rules and deterministic Splunk translation validated against that evidence. WS09 is operationally complete for the narrow live Velociraptor `process.list` path and does not imply generalized backend support, discovery, retry, failover, or production readiness. WS10 provides routine hosted ordinary, PostgreSQL, Sigma, and repository validation without a live lab or commercial product. WS12 Observability is complete: Alert2IR emits structured JSON logs and vendor-neutral OpenTelemetry metrics/traces with server-generated request correlation; `/readyz` reports PostgreSQL/schema readiness; native edge and central Alloy forward to the failure-isolated Prometheus, Loki, Tempo, Grafana, and Alertmanager reference platform; and source-provisioned dashboards, deterministic alerts, null-receiver routing, failure isolation, and recovery were validated. Splunk-to-Alert2IR ingestion remains future work.
+## Start here
 
-The current [application and API contract](docs/APPLICATION.md) and [Compose deployment guide](docs/DEPLOYMENT.md) document application behavior and safe runtime lifecycle. Puppet ownership is in [the Puppet environment document](infra/puppet/README.md); WS07 provenance is in [the attack-simulation document](docs/ATTACK_SIMULATION.md); current topology and deployed integrations are in [the lab inventory](docs/LAB.md); detection evidence remains under [`validation/detection`](validation/detection/); and normal monitoring, correlation, alert interpretation, and recovery procedures are in [the observability operator guide](docs/OBSERVABILITY.md).
+Application users and developers should begin with the [application and API contract](docs/APPLICATION.md). Deployers should use the [Compose deployment guide](docs/DEPLOYMENT.md), which covers configuration, migration, startup, `/healthz` and `/readyz` acceptance, backend mode selection, and data-preserving lifecycle.
 
-See [the project definition](docs/PROJECT.md), [architecture](docs/ARCHITECTURE.md), and [roadmap](docs/ROADMAP.md).
+## Documentation
+
+| If you want to... | Read |
+| --- | --- |
+| Understand project goals and non-goals | [Project definition](docs/PROJECT.md) |
+| Understand logical architecture, trust, and failure boundaries | [Architecture](docs/ARCHITECTURE.md) |
+| Develop against the application or API | [Application reference](docs/APPLICATION.md) |
+| Deploy or upgrade the Alert2IR application | [Deployment guide](docs/DEPLOYMENT.md) |
+| Understand the owned lab and authorization boundary | [Lab inventory](docs/LAB.md) and [lab scope](docs/LAB_SCOPE.md) |
+| Operate monitoring and recover telemetry services | [Observability operator guide](docs/OBSERVABILITY.md) |
+| Deploy or validate the observability configuration | [Observability configuration reference](observability/README.md) |
+| Author, translate, or validate detections | [Detection development and validation](docs/DETECTIONS.md) |
+| Understand controlled attack scenarios and ground truth | [Attack simulation](docs/ATTACK_SIMULATION.md) |
+| Understand endpoint telemetry policy | [Sysmon telemetry](docs/SYSMON.md) |
+| Collect bounded Windows endpoint inventory | [Windows endpoint inventory](docs/WINDOWS_ENDPOINT_INVENTORY.md) |
+| Apply the repository-owned Windows desired state | [Puppet environment](infra/puppet/README.md) |
+| Understand accepted architectural rationale | [Architecture decision records](docs/adr/README.md) |
+| See completed, deferred, and next work | [Roadmap](docs/ROADMAP.md) |
 
 ## Testing and CI
 
 Install the ordinary development dependencies in a local virtual environment and verify the resolved environment:
 
 ```bash
-python -m pip install --requirement requirements-dev.txt
-python -m pip check
+python3 -m venv .venv
+.venv/bin/python -m pip install --requirement requirements-dev.txt
+.venv/bin/python -m pip check
 ```
 
-Run the ordinary suite from the repository root with the source layout on `PYTHONPATH`:
+Run the ordinary suite from the repository root:
 
 ```bash
-PYTHONPATH=src python -m unittest discover -v
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src \
+  .venv/bin/python -m unittest discover -v
 ```
 
-The ordinary environment intentionally excludes the dedicated Sigma dependencies. Without `ALERT2IR_TEST_DATABASE_URL`, the six PostgreSQL migration and persistence tests skip; the two Sigma modules likewise skip until run in their separate environment.
+Without `ALERT2IR_TEST_DATABASE_URL`, the six PostgreSQL migration/persistence tests skip. Point that variable only at a disposable test database when those integrations are required; never use a production, shared, or live-lab database.
 
-To execute the PostgreSQL tests, point `ALERT2IR_TEST_DATABASE_URL` only at a disposable local test database. The suite applies the repository migration and uses that real PostgreSQL database for one migration test and five persistence tests. Do not use a production, shared, or live-lab database. For example, with a synthetic local database already available:
+The ordinary environment intentionally excludes Sigma dependencies, so its two Sigma modules also skip. The [detection guide](docs/DETECTIONS.md) documents the separate pinned environment and 13 deterministic Sigma contracts.
 
-```bash
-ALERT2IR_TEST_DATABASE_URL=postgresql://alert2ir_test:alert2ir_test@127.0.0.1:5432/alert2ir_test \
-  PYTHONPATH=src python -m unittest discover -v
-```
-
-Run the 13 dedicated Sigma contracts in a separate virtual environment installed from `requirements-sigma.txt`:
-
-```bash
-python -m pip install --requirement requirements-sigma.txt
-python -m pip check
-python -m unittest -v \
-  tests.test_sigma_detection_contract \
-  tests.test_sigma_toolchain_contract
-```
-
-These tests validate the canonical Sigma content, the repository-owned processing pipeline, the direct toolchain versions, and deterministic translation behavior. They do not require live Splunk.
-
-The GitHub Actions `Tests` workflow runs for pull requests and pushes to `main` on Ubuntu 24.04 with Python 3.12.13. Its `python-tests` job gives the ordinary suite full Git history and an ephemeral PostgreSQL service, while `sigma-contracts` installs and exercises the Sigma environment separately. Routine CI requires neither a commercial product nor the owned live lab.
-
-Green routine CI does not establish live Splunk ingestion or search correctness, live Velociraptor operation, Windows endpoint or attack-simulation execution, Puppet application to real systems, Docker/Compose deployment correctness, production readiness, HA/load/backup behavior, a fully hermetic supply chain, or broad security-scanner certification. Hosted runner images and transitive dependency resolution remain outside a fully locked reproducibility boundary.
+The GitHub Actions `Tests` workflow runs the full Python suite with ephemeral PostgreSQL and runs the Sigma contracts in a separate job. Routine CI requires neither a commercial product nor the owned live lab. Green CI does not claim live Splunk or Velociraptor behavior, Windows execution, Puppet convergence, production readiness, or broad infrastructure validation.
 
 ## License
 

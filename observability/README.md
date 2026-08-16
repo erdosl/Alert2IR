@@ -1,20 +1,23 @@
-# WS12 reference observability deployment
+# Observability reference configuration
 
-## Status and purpose
+## Purpose and ownership
 
-WS12 is deployed and operational in the owned lab. This directory is the
-Git-tracked deployment contract for the open-source reference platform. Runtime
-metrics, logs, traces, queues, and local databases are disposable lab state;
-configuration in Git is canonical.
+This directory is the Git-tracked deployment and configuration contract for the
+open-source reference platform. It owns exact versions and image identities,
+ports and listeners, retention and data paths, secrets, runtime privileges,
+Compose structure, immutable deployment, and static configuration validation.
+Runtime metrics, logs, traces, queues, and local databases are disposable lab
+state; configuration in Git is canonical.
 
 The reference stack is optional. Alert2IR processing continues when either
 Alloy instance, `obs01`, or a central service is unavailable. The durable
 application contract is vendor-neutral OpenTelemetry metrics/traces plus
 structured newline-delimited JSON stdout.
 
-Operator checks, dashboards, alert interpretation, correlation, recovery,
-privilege boundaries, and reference resource baselines are documented in
-[`docs/OBSERVABILITY.md`](../docs/OBSERVABILITY.md).
+Operator first-look checks, dashboards, alert interpretation, correlation,
+recovery, and operational warnings are documented in the
+[`docs/OBSERVABILITY.md`](../docs/OBSERVABILITY.md) runbook. Do not duplicate
+those procedures here.
 
 ## Architecture
 
@@ -92,7 +95,7 @@ The accepted Alloy Debian package SHA-256 is
 | Alertmanager | Compose network only | Prometheus and Grafana |
 | Tempo query API | Compose network only | Grafana and Prometheus |
 
-No published port uses a wildcard or NAT-interface bind. Alloy's UI/management endpoint must be started as `127.0.0.1:12345` on both hosts. Host firewalls use default-deny incoming policy and source-specific allowances described in the operator guide.
+No published port uses a wildcard or NAT-interface bind. Alloy's UI/management endpoint must be started as `127.0.0.1:12345` on both hosts. Stable host relationships are described in [`docs/LAB.md`](../docs/LAB.md); authorization remains governed by [`docs/LAB_SCOPE.md`](../docs/LAB_SCOPE.md).
 
 ## Storage and retention
 

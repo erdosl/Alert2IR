@@ -1,53 +1,69 @@
-# Windows Endpoint Inventory
+# Windows endpoint inventory
 
-## Purpose
+## Purpose and authority
 
-Endpoint inventory precedes desired-state implementation so that existing facts, working behavior, and unexplained drift can be reviewed before Puppet resources or Hiera values are designed. This prevents an observed machine from becoming a configuration template by accident.
+The repository provides a read-only collector for bounded inventory of an authorized Windows endpoint. It records system, network, Sysmon, Splunk Universal Forwarder, Puppet, and diagnostic facts without installing, configuring, enabling, disabling, starting, or stopping anything.
 
-`win11-01` is a known-good reference observation for the current Sysmon-to-Splunk telemetry path. It is not automatically the desired-state template. Its configuration may include node-specific, incidental, historical, or still-unresolved choices.
+[`tools/windows/Collect-Alert2IREndpointInventory.ps1`](../tools/windows/Collect-Alert2IREndpointInventory.ps1) is the executable authority. The collector requires Windows PowerShell 5.1 or later and writes schema `alert2ir.windows-endpoint-inventory`, version `1`.
 
-This discovery task does not configure Windows, Sysmon, Splunk Universal Forwarder, Puppet, networking, or the firewall. The collector uses read-only inspection and tolerates absent components by recording their state or a per-check error.
+Endpoint roles and addresses belong in [LAB.md](LAB.md). The current Sysmon collection policy belongs in [SYSMON.md](SYSMON.md).
 
-## Run the collector
+## Authorization and execution
 
-Run the same Git revision on each endpoint from an elevated Windows PowerShell session. Elevation improves access to service, optional-feature, event-log, and configuration metadata; it does not cause the collector to change configuration.
+Run the collector only on systems authorized by [LAB_SCOPE.md](LAB_SCOPE.md). Use the same reviewed repository revision on each endpoint and run from an elevated Windows PowerShell session. Elevation improves access to service, optional-feature, event-log, configuration, and local-group metadata; it does not make the collector mutating.
 
 ```powershell
 Set-Location C:\path\to\Alert2IR
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\windows\Collect-Alert2IREndpointInventory.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass `
+  -File .\tools\windows\Collect-Alert2IREndpointInventory.ps1
 ```
 
-Run it once on `win11-01` and once on `win11-02`. The last output line is the created output directory. By default it is a timestamped directory beneath the current user's temporary directory, for example:
+The last output line is the newly created timestamped evidence directory beneath the current user's temporary directory. Use `-OutputRoot` to select another local diagnostic location:
 
-```text
-C:\Users\analyst\AppData\Local\Temp\Alert2IR-EndpointInventory-win11-01-20260809T120000Z
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass `
+  -File .\tools\windows\Collect-Alert2IREndpointInventory.ps1 `
+  -OutputRoot C:\approved\diagnostic-path
 ```
 
-`-OutputRoot` may be used to choose another local diagnostic location. Do not point it into the repository.
+Do not select a path inside the repository.
 
-## Output and handling
+## Produced evidence
 
-Every run creates `endpoint-inventory.json`, whose `schema` and `schema_version` fields identify the format. It contains system, network, Sysmon, Splunk Universal Forwarder, and diagnostic sections. Failures in individual checks are recorded under `diagnostics.errors` instead of ending the whole collection where practical.
+Every successful invocation creates `endpoint-inventory.json`. Its current top-level content covers:
 
-The collector creates these supplementary text artifacts only when the corresponding executable and inspection are available:
+- collector version and elevation state;
+- computer, operating-system, boot, time, VirtualBox, and Puppet facts;
+- active adapters, IP configuration, firewall profiles, name resolution, route and TCP reachability to the lab Splunk receiver;
+- Sysmon implementation evidence, service/driver/file facts, bounded Operational-channel counts, and read-only configuration/schema inspection;
+- Splunk Universal Forwarder product, service, Event Log Readers membership, effective configuration summaries, forwarding destinations, and configuration-file hashes;
+- bounded warnings and per-check errors.
 
-- `sysmon-current-configuration.txt` contains output from the read-only `sysmon -c` query.
-- `sysmon-schema.txt` contains output from the read-only `sysmon -s` query.
-- `splunk-btool-*-sanitized.txt` contains effective btool output with `--debug` provenance. Sensitive key/value lines are redacted before the output is written.
+Individual collection failures are recorded under `diagnostics.errors` where practical rather than terminating all independent checks.
 
-The inventory does not export raw Sysmon event bodies or copy Splunk configuration files. It records bounded event-ID aggregates and hashes of relevant local Splunk configuration files. It deliberately excludes password stores, `user-seed.conf`, private keys, credential stores, product keys, user inventories, machine SIDs, and unrelated personal data.
+When the corresponding executable and inspection are available, the collector also writes:
 
-Generated endpoint inventories are local diagnostic evidence. They may still contain host-specific operational details such as addresses and paths and **must not be committed to Git**. Transfer and retain them according to the lab's evidence-handling practices.
+| Artifact | Content |
+| --- | --- |
+| `sysmon-current-configuration.txt` | Output from the read-only Sysmon `-c` query |
+| `sysmon-schema.txt` | Output from the read-only Sysmon `-s` query |
+| `splunk-btool-*-sanitized.txt` | Effective `btool --debug` output with sensitive key/value lines redacted |
 
-## Compare before implementing desired state
+The Sysmon event aggregate is bounded to at most 10,000 recent events and reports whether the full log exceeded that boundary. A bounded count is an inventory observation, not a retention or volume guarantee.
 
-Review the two JSON inventories and classify every material difference as one of:
+## Evidence and privacy handling
 
-1. **Shared desired state** — a setting both Windows endpoints should converge on.
-2. **Node-specific desired state** — an intentional per-node value, represented explicitly rather than copied between hosts.
-3. **Incidental/unmanaged** — diagnostic or environmental state that Puppet should not own.
-4. **Unresolved/decision required** — a difference needing evidence, testing, or an architectural decision before implementation.
+Inventory output can contain sensitive operational metadata, including host addresses, routes, executable paths, service accounts, configuration provenance, file hashes, and effective forwarding destinations. Generated inventory directories are local diagnostic evidence and **must not be committed to Git**.
 
-Only after that review should Puppet resources and Hiera values be created. In particular, do not copy `win11-01` configuration wholesale: preserve the working telemetry path as evidence while deciding which parts are genuine desired state.
+The collector deliberately excludes password stores, `user-seed.conf`, private keys, credential stores, product keys, user inventories, machine SIDs, raw Sysmon event bodies, and copied Splunk configuration files. Its Splunk text sanitizer reduces credential exposure but does not make the entire output public. Review, transfer, retain, and destroy the directory using the lab's approved evidence-handling practice.
 
-The inventory establishes endpoint-local facts. End-to-end verification that Sysmon events are actually received, indexed, and queryable in Splunk is a separate validation step.
+## Review and comparison
+
+Before using inventory differences to change desired state, classify each difference as:
+
+1. shared desired state;
+2. intentional node-specific desired state;
+3. incidental or unmanaged state;
+4. unresolved evidence requiring a decision.
+
+Do not copy the observed state of `win11-01` or `win11-02` wholesale into Puppet. Compare the evidence with the explicit ownership in [`infra/puppet/README.md`](../infra/puppet/README.md) and with the canonical Sysmon policy. Endpoint-local inventory also does not prove that forwarded events were indexed or that detections matched; those are separate validation boundaries described in [DETECTIONS.md](DETECTIONS.md).
