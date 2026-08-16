@@ -63,7 +63,7 @@ Prometheus -> Alertmanager -> lab-null
 
 ### Alert sources
 
-Source adapters ingest vendor-specific detections. Splunk is the initial real source, but core contracts must not encode Splunk as the universal model.
+Source adapters ingest vendor-specific detections. Splunk is the initial validated detection execution target, not an implemented Alert2IR alert-ingestion source. Core contracts must not encode Splunk as the universal model.
 
 The implemented detection translation boundary is:
 

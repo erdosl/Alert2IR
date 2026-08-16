@@ -1,4 +1,4 @@
-// Future native Alloy configuration for ir-core. Stage 2 does not apply it.
+// Native Alloy configuration for the ir-core Alert2IR edge host.
 
 prometheus.remote_write "central_metrics" {
   endpoint {

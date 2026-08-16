@@ -14,6 +14,8 @@ Docker Compose defines the `core` application and its supporting `postgres` serv
 
 `GET /healthz` returns `{"status":"ok"}` with HTTP status 200 and is used by the container healthcheck. It is liveness-only and does not query PostgreSQL, so it can remain successful during a database outage while durable alert requests fail with HTTP 500.
 
+`GET /readyz` returns `{"status":"ready"}` with HTTP status 200 only when PostgreSQL is reachable and the Alert2IR schema is at the required Alembic revision. It returns HTTP 503 with `{"status":"not_ready"}` otherwise. Readiness does not check investigation backends or observability. Docker intentionally continues to use `/healthz` for container health; operator deployment acceptance after migration and startup also requires `/readyz`.
+
 The application runs as a dedicated non-root container user. PostgreSQL is a supporting Compose service on the default network with no published host port, and `postgres_data` is its named data volume. The application API retains loopback-only publication and has no external exposure.
 
 ## WS03 runtime validation
@@ -53,14 +55,17 @@ On the intended Docker runtime host, run these commands from the root of a check
 ```bash
 docker compose config
 docker compose build
-docker compose up -d
+docker compose up -d --wait postgres
+docker compose run --rm core alembic upgrade head
+docker compose up -d core
 docker compose ps
 curl http://127.0.0.1:8000/healthz
+curl http://127.0.0.1:8000/readyz
 docker compose restart core
 docker compose down
 ```
 
-After startup, `core` should become healthy and `/healthz` should return HTTP 200 with `{"status":"ok"}`. The service is published only on host loopback. PostgreSQL requires the explicit environment and migration procedure below.
+After migration and startup, `core` should become healthy, `/healthz` should return HTTP 200 with `{"status":"ok"}`, and `/readyz` should return HTTP 200 with `{"status":"ready"}`. `/healthz` proves application liveness and remains the intentional Docker healthcheck; `/readyz` separately proves PostgreSQL connectivity and required-schema readiness for operator deployment acceptance. The service is published only on host loopback. PostgreSQL requires the explicit environment and migration procedure below.
 
 ## PostgreSQL substrate and explicit migrations
 
@@ -107,7 +112,7 @@ Application construction performs local path and API-config validation only. It 
 
 - Public processing read, list, update, or delete APIs
 - Retries, durable idempotency, execution recovery/resume, correlation, and retention/deletion policy
-- Mutable incident lifecycle, backup/disaster recovery, HA/replication, database readiness, and production concurrency/scalability
+- Mutable incident lifecycle, backup/disaster recovery, HA/replication, and production concurrency/scalability
 - Live Splunk integration
 - Puppet ownership of Docker
 - Reverse proxy or TLS termination
