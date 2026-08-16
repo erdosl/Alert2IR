@@ -23,6 +23,7 @@ DATASOURCES_PATH = (
     / "datasources"
     / "datasources.yml"
 )
+README_PATH = OBSERVABILITY_ROOT / "README.md"
 
 REQUIRED_FILES = {
     ".env.example",
@@ -127,6 +128,35 @@ def alloy_blocks(source: str, block_name: str) -> list[str]:
         else:
             raise AssertionError(f"unterminated Alloy {block_name} block")
     return blocks
+
+
+def sole_alloy_block(source: str, block_name: str) -> str:
+    """Return exactly one named Alloy block."""
+    blocks = alloy_blocks(source, block_name)
+    if len(blocks) != 1:
+        raise AssertionError(
+            f"expected exactly one Alloy {block_name} block, found {len(blocks)}"
+        )
+    return blocks[0]
+
+
+def alloy_listener(block: str) -> tuple[str, int]:
+    """Return the exact address and port from one Alloy listener block."""
+    addresses = re.findall(
+        r'^\s*listen_address\s*=\s*"([^"]+)"\s*$', block, re.MULTILINE
+    )
+    ports = re.findall(r"^\s*listen_port\s*=\s*(\d+)\s*$", block, re.MULTILINE)
+    if len(addresses) != 1 or len(ports) != 1:
+        raise AssertionError("Alloy listener must define one address and one port")
+    return addresses[0], int(ports[0])
+
+
+def alloy_endpoint(block: str) -> str:
+    """Return the exact endpoint from one Alloy transport block."""
+    endpoints = re.findall(r'^\s*endpoint\s*=\s*"([^"]+)"\s*$', block, re.MULTILINE)
+    if len(endpoints) != 1:
+        raise AssertionError("Alloy transport must define exactly one endpoint")
+    return endpoints[0]
 
 
 class ObservabilityRepositoryContractTests(unittest.TestCase):
@@ -236,7 +266,6 @@ class ObservabilityRepositoryContractTests(unittest.TestCase):
         ir_core = IR_CORE_ALLOY_PATH.read_text(encoding="utf-8")
         obs01 = OBS01_ALLOY_PATH.read_text(encoding="utf-8")
         for config in (ir_core, obs01):
-            self.assertNotIn("0.0.0.0", config)
             self.assertIn('prometheus.exporter.unix "host"', config)
             self.assertIn('prometheus.exporter.cadvisor "containers"', config)
             self.assertIn("unix:///var/run/docker.sock", config)
@@ -244,7 +273,13 @@ class ObservabilityRepositoryContractTests(unittest.TestCase):
             self.assertIn("max_elapsed_time", config)
             self.assertIn("max_backoff_retries", config)
 
-        self.assertIn('endpoint          = "192.168.56.63:4317"', ir_core)
+        application_receiver = sole_alloy_block(
+            ir_core, 'otelcol.receiver.otlp "application"'
+        )
+        self.assertEqual(
+            alloy_endpoint(sole_alloy_block(application_receiver, "grpc")),
+            "192.168.56.63:4317",
+        )
         self.assertIn('prometheus.exporter.blackbox "alert2ir_health"', ir_core)
         self.assertIn("http://127.0.0.1:8000/healthz", ir_core)
         self.assertNotIn("/readyz", ir_core)
@@ -254,10 +289,45 @@ class ObservabilityRepositoryContractTests(unittest.TestCase):
         self.assertIn('endpoint = "192.168.56.65:4317"', ir_core)
         self.assertIn("http://192.168.56.65:3500/loki/api/v1/push", ir_core)
 
-        self.assertIn('listen_address = "192.168.56.65"', obs01)
-        self.assertIn("listen_port    = 9999", obs01)
-        self.assertIn("listen_port    = 3500", obs01)
-        self.assertIn('endpoint          = "192.168.56.65:4317"', obs01)
+        expected_receivers = {
+            'prometheus.receive_http "edge_metrics"': {
+                "http": ("192.168.56.65", 9999),
+                "grpc": ("127.0.0.1", 0),
+            },
+            'loki.source.api "edge_logs"': {
+                "http": ("192.168.56.65", 3500),
+                "grpc": ("127.0.0.1", 0),
+            },
+        }
+        for component_name, expected_listeners in expected_receivers.items():
+            component = sole_alloy_block(obs01, component_name)
+            self.assertEqual(
+                {
+                    protocol: alloy_listener(sole_alloy_block(component, protocol))
+                    for protocol in expected_listeners
+                },
+                expected_listeners,
+            )
+
+        listener_addresses = re.findall(
+            r'^\s*listen_address\s*=\s*"([^"]+)"\s*$', obs01, re.MULTILINE
+        )
+        self.assertCountEqual(
+            listener_addresses,
+            ["192.168.56.65", "127.0.0.1", "192.168.56.65", "127.0.0.1"],
+        )
+        self.assertTrue({"0.0.0.0", "::", "[::]"}.isdisjoint(listener_addresses))
+
+        trace_receiver = sole_alloy_block(obs01, 'otelcol.receiver.otlp "edge_traces"')
+        trace_grpc = sole_alloy_block(trace_receiver, "grpc")
+        self.assertEqual(alloy_endpoint(trace_grpc), "192.168.56.65:4317")
+
+        readme = README_PATH.read_text(encoding="utf-8")
+        self.assertIn(
+            "Alloy's UI/management endpoint must be started as "
+            "`127.0.0.1:12345` on both hosts.",
+            readme,
+        )
         self.assertIn("http://127.0.0.1:19090/api/v1/write", obs01)
         self.assertIn('endpoint = "127.0.0.1:14317"', obs01)
         self.assertIn("http://127.0.0.1:13100/loki/api/v1/push", obs01)

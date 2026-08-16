@@ -29,6 +29,11 @@ prometheus.receive_http "edge_metrics" {
     listen_port    = 9999
   }
 
+  grpc {
+    listen_address = "127.0.0.1"
+    listen_port    = 0
+  }
+
   forward_to = [prometheus.remote_write.prometheus.receiver]
 }
 
@@ -103,6 +108,11 @@ loki.source.api "edge_logs" {
   http {
     listen_address = "192.168.56.65"
     listen_port    = 3500
+  }
+
+  grpc {
+    listen_address = "127.0.0.1"
+    listen_port    = 0
   }
 
   forward_to = [loki.write.loki.receiver]
