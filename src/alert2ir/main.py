@@ -1,3 +1,4 @@
+import logging
 import os
 
 from alert2ir.api import create_app
@@ -10,6 +11,7 @@ from alert2ir.backends import (
 )
 from alert2ir.core import BaselineSeverityPolicy, Incident, InvestigationRequest
 from alert2ir.persistence import PostgresProcessingRepository
+from alert2ir.observability import ApplicationObservability, configure_observability
 
 
 _BACKEND_SETTING = "ALERT2IR_BACKEND"
@@ -43,7 +45,7 @@ def _require_exact_nonempty_setting(name: str) -> str:
     return value
 
 
-def _make_backend_router() -> BackendRouter:
+def _make_backend_router(observability: ApplicationObservability) -> BackendRouter:
     if _BACKEND_SETTING not in os.environ:
         backend_name = "mock"
     else:
@@ -78,11 +80,15 @@ def _make_backend_router() -> BackendRouter:
     )
     host = _require_exact_nonempty_setting(_VELOCIRAPTOR_HOST_SETTING)
     client_id = _require_exact_nonempty_setting(_VELOCIRAPTOR_CLIENT_ID_SETTING)
-    client = PyVelociraptorCollectionClient(api_config_path=api_config_path)
+    client = PyVelociraptorCollectionClient(
+        api_config_path=api_config_path,
+        observability=observability,
+    )
     backend = VelociraptorBackend(
         client=client,
         host_client_ids={host: client_id},
         collection_timeout_seconds=_WS09_COLLECTION_TIMEOUT_SECONDS,
+        observability=observability,
     )
     return BackendRouter(backends=(backend,))
 
@@ -96,15 +102,28 @@ def _make_ws04_investigation_request(incident: Incident) -> InvestigationRequest
     )
 
 
+observability = configure_observability()
 orchestrator = AlertOrchestrator(
     policy=BaselineSeverityPolicy(),
-    router=_make_backend_router(),
+    router=_make_backend_router(observability),
     request_factory=_make_ws04_investigation_request,
+    observability=observability,
 )
 
-app = create_app(
-    PersistentAlertProcessor(
-        orchestrator=orchestrator,
-        repository=PostgresProcessingRepository(_require_database_url()),
-    )
+processor = PersistentAlertProcessor(
+    orchestrator=orchestrator,
+    repository=PostgresProcessingRepository(_require_database_url()),
+    observability=observability,
+)
+app = create_app(processor, observability)
+
+# Application-owned request completion events replace the ordinary access line;
+# Uvicorn lifecycle and error logging remain enabled.
+logging.getLogger("uvicorn.access").disabled = True
+configured_backend = orchestrator.router.backends[0]
+observability.events.emit(
+    "service.started",
+    backend=configured_backend.name,
+    capabilities=sorted(configured_backend.capabilities),
+    persistence="postgresql",
 )

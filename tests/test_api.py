@@ -79,11 +79,18 @@ def make_client(
 
 
 class ApiEndpointTests(unittest.IsolatedAsyncioTestCase):
+    def assert_request_id(self, response) -> UUID:
+        value = response.headers["X-Request-ID"]
+        parsed = UUID(value)
+        self.assertEqual(str(parsed), value)
+        return parsed
+
     async def test_health_endpoint_is_unchanged(self) -> None:
         async with make_client() as client:
             response = await client.get("/healthz")
 
         self.assertEqual(response.status_code, 200)
+        self.assert_request_id(response)
         self.assertEqual(response.json(), {"status": "ok"})
 
     async def test_typed_investigate_flow(self) -> None:
@@ -92,6 +99,7 @@ class ApiEndpointTests(unittest.IsolatedAsyncioTestCase):
             response = await client.post("/v1/alerts", json=make_payload("high"))
 
         self.assertEqual(response.status_code, 200)
+        self.assert_request_id(response)
         body = response.json()
         self.assertEqual(body["processing_id"], str(PROCESSING_ID))
         self.assertEqual(body["decision"]["outcome"], "investigate")
@@ -129,6 +137,7 @@ class ApiEndpointTests(unittest.IsolatedAsyncioTestCase):
             response = await client.post("/v1/alerts", json=make_payload("low"))
 
         self.assertEqual(response.status_code, 200)
+        self.assert_request_id(response)
         body = response.json()
         self.assertEqual(body["processing_id"], str(PROCESSING_ID))
         self.assertEqual(body["decision"]["outcome"], "no_action")
@@ -153,6 +162,9 @@ class ApiEndpointTests(unittest.IsolatedAsyncioTestCase):
             response = await client.post("/v1/alerts", json=make_payload("low"))
 
         self.assertEqual(response.status_code, 500)
+        self.assertEqual(response.json(), {"detail": "Internal Server Error"})
+        self.assertNotIn("distinctive persistence failure", response.text)
+        self.assert_request_id(response)
 
     async def test_source_specific_extra_field_is_rejected(self) -> None:
         payload = make_payload()
@@ -162,6 +174,7 @@ class ApiEndpointTests(unittest.IsolatedAsyncioTestCase):
             response = await client.post("/v1/alerts", json=payload)
 
         self.assertEqual(response.status_code, 422)
+        self.assert_request_id(response)
 
     async def test_naive_timestamp_is_rejected(self) -> None:
         payload = make_payload("low")
@@ -198,6 +211,7 @@ class ApiEndpointTests(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(response.status_code, 409)
+        self.assert_request_id(response)
         self.assertEqual(
             response.json(),
             {
@@ -221,6 +235,7 @@ class ApiEndpointTests(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(response.status_code, 500)
+        self.assert_request_id(response)
         self.assertEqual(
             response.json(),
             {
@@ -258,6 +273,21 @@ class ApiEndpointTests(unittest.IsolatedAsyncioTestCase):
         response_schema = document["components"]["schemas"]["AlertProcessingResponse"]
         self.assertEqual(response_schema["properties"]["processing_id"]["format"], "uuid")
         self.assertNotIn("created_at", response_schema["properties"])
+
+    async def test_caller_request_id_is_ignored_and_ids_are_unique(self) -> None:
+        caller_value = "caller-controlled-request-id"
+        async with make_client() as client:
+            first = await client.post(
+                "/v1/alerts",
+                json=make_payload("low"),
+                headers={"X-Request-ID": caller_value},
+            )
+            second = await client.post("/v1/alerts", json=make_payload("low"))
+
+        first_id = self.assert_request_id(first)
+        second_id = self.assert_request_id(second)
+        self.assertNotEqual(str(first_id), caller_value)
+        self.assertNotEqual(first_id, second_id)
 
 
 if __name__ == "__main__":

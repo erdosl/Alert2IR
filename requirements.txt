@@ -5,3 +5,7 @@ psycopg[binary]==3.3.4
 alembic==1.18.5
 SQLAlchemy==2.0.51
 pyvelociraptor==0.1.14
+opentelemetry-api==1.44.0
+opentelemetry-sdk==1.44.0
+opentelemetry-exporter-otlp-proto-grpc==1.44.0
+opentelemetry-instrumentation-fastapi==0.65b0

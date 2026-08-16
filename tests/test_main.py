@@ -126,6 +126,16 @@ def complete_live_environment(api_config_path: str) -> dict[str, str]:
 
 
 class RuntimeCompositionTests(unittest.TestCase):
+    def parse_composition_output(self, stdout: str) -> dict[str, object]:
+        documents = [json.loads(line) for line in stdout.splitlines() if line]
+        self.assertGreaterEqual(len(documents), 2)
+        startup = documents[-2]
+        self.assertEqual(startup["event"], "service.started")
+        self.assertEqual(startup["persistence"], "postgresql")
+        for prohibited in ("database_url", "api_config_path", "token", "password"):
+            self.assertNotIn(prohibited, startup)
+        return documents[-1]
+
     def run_python(
         self,
         script: str,
@@ -162,7 +172,7 @@ class RuntimeCompositionTests(unittest.TestCase):
             runtime_environment(configured_values),
         )
         self.assertEqual(result.returncode, 0, result.stderr)
-        return json.loads(result.stdout)
+        return self.parse_composition_output(result.stdout)
 
     def test_absent_backend_selector_constructs_singleton_mock(self) -> None:
         composition = self.inspect_mock_composition(None)
@@ -205,7 +215,7 @@ class RuntimeCompositionTests(unittest.TestCase):
             result = self.run_python(LIVE_INSPECTION_SCRIPT, environment)
 
         self.assertEqual(result.returncode, 0, result.stderr)
-        composition = json.loads(result.stdout)
+        composition = self.parse_composition_output(result.stdout)
         self.assertEqual(composition["backend_count"], 1)
         self.assertEqual(composition["backend_type"], "VelociraptorBackend")
         self.assertEqual(

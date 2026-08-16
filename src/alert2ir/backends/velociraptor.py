@@ -19,6 +19,12 @@ from alert2ir.backends.base import InvestigationResult
 from alert2ir.backends.router import UnsupportedCapabilitiesError
 from alert2ir.core.models import EvidenceReference
 from alert2ir.core.workflow import InvestigationRequest
+from alert2ir.observability import (
+    ApplicationObservability,
+    classify_error,
+    no_op_observability,
+    outcome_for_error,
+)
 
 
 _PROCESS_LIST_ARTIFACT = "Windows.System.Pslist"
@@ -81,7 +87,11 @@ def _vql_string_literal(value: str) -> str:
 class PyVelociraptorCollectionClient:
     """Certificate-authenticated client for one synchronous collection."""
 
-    def __init__(self, api_config_path: str | Path) -> None:
+    def __init__(
+        self,
+        api_config_path: str | Path,
+        observability: ApplicationObservability | None = None,
+    ) -> None:
         try:
             path = Path(api_config_path)
         except (TypeError, ValueError):
@@ -135,6 +145,7 @@ class PyVelociraptorCollectionClient:
         self._ca_certificate = configuration["ca_certificate"]
         self._client_private_key = configuration["client_private_key"]
         self._client_cert = configuration["client_cert"]
+        self._observability = observability or no_op_observability()
 
     @staticmethod
     def _validate_timeout(timeout_seconds: float) -> float:
@@ -274,6 +285,7 @@ FROM scope()
                 raise VelociraptorCollectionError(
                     "Velociraptor collection scheduling returned an invalid flow ID"
                 )
+            self._observability.backend_operation_submitted(flow_id)
             if scheduling_row.get("client_id") != client_id:
                 raise VelociraptorCollectionError(
                     "Velociraptor collection scheduling returned an unexpected client"
@@ -357,6 +369,7 @@ class VelociraptorBackend:
     client: VelociraptorCollectionClient
     host_client_ids: Mapping[str, str]
     collection_timeout_seconds: float
+    observability: ApplicationObservability | None = None
 
     def __post_init__(self) -> None:
         timeout = self.collection_timeout_seconds
@@ -385,6 +398,8 @@ class VelociraptorBackend:
             "host_client_ids",
             MappingProxyType(host_client_ids),
         )
+        if self.observability is None:
+            object.__setattr__(self, "observability", no_op_observability())
 
     @property
     def name(self) -> str:
@@ -416,11 +431,26 @@ class VelociraptorBackend:
                 "host target has no configured Velociraptor client mapping"
             ) from exc
 
-        collection_reference = self.client.collect(
-            client_id=client_id,
-            artifact=_PROCESS_LIST_ARTIFACT,
-            timeout_seconds=self.collection_timeout_seconds,
-        )
+        observability = self.observability
+        if observability is None:  # Defensive for static type narrowing.
+            observability = no_op_observability()
+        with observability.span("velociraptor.collect") as span:
+            try:
+                collection_reference = self.client.collect(
+                    client_id=client_id,
+                    artifact=_PROCESS_LIST_ARTIFACT,
+                    timeout_seconds=self.collection_timeout_seconds,
+                )
+            except Exception as error:
+                category = classify_error(error, stage="backend")
+                observability.finish_span(
+                    span,
+                    outcome=outcome_for_error(category),
+                    error_category=category,
+                )
+                raise
+            else:
+                observability.finish_span(span, outcome="success")
         if (
             not isinstance(collection_reference, str)
             or not collection_reference.strip()

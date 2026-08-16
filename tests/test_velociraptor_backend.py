@@ -303,6 +303,7 @@ class ConcreteClientTestCase(unittest.TestCase):
     def make_client(
         self,
         configuration: dict[str, object] | None = None,
+        observability=None,
     ) -> PyVelociraptorCollectionClient:
         loaded_configuration = (
             dict(_TEST_API_CONFIG) if configuration is None else configuration
@@ -312,7 +313,10 @@ class ConcreteClientTestCase(unittest.TestCase):
             "LoadConfigFile",
             return_value=loaded_configuration,
         ) as load_config:
-            client = PyVelociraptorCollectionClient(self.api_config_path)
+            client = PyVelociraptorCollectionClient(
+                self.api_config_path,
+                observability=observability,
+            )
 
         load_config.assert_called_once_with(str(self.api_config_path))
         return client
@@ -453,6 +457,42 @@ class PyVelociraptorConfigurationTests(ConcreteClientTestCase):
 
 
 class PyVelociraptorCollectionTests(ConcreteClientTestCase):
+    def test_operation_reference_is_emitted_before_terminal_poll(self) -> None:
+        observed = []
+        observability = MagicMock()
+        observability.backend_operation_submitted.side_effect = (
+            lambda reference: observed.append(("submitted", reference))
+        )
+        client = self.make_client(observability=observability)
+        self.patch_channel()
+
+        def query_side_effect(stub, vql, *, timeout_seconds):
+            if "collect_client(" in vql:
+                observed.append(("schedule", None))
+                return [scheduling_row(flow_id="F.SUBMITTED")]
+            observed.append(("poll", None))
+            return [flow_row(flow_id="F.SUBMITTED")]
+
+        self.enterContext(
+            patch.object(client, "_run_query", side_effect=query_side_effect)
+        )
+
+        result = client.collect(
+            client_id="C.TESTCLIENT",
+            artifact="Windows.Test.Artifact",
+            timeout_seconds=5,
+        )
+
+        self.assertEqual(result, "F.SUBMITTED")
+        self.assertEqual(
+            observed,
+            [
+                ("schedule", None),
+                ("submitted", "F.SUBMITTED"),
+                ("poll", None),
+            ],
+        )
+
     def test_scheduling_vql_channel_and_immediate_finished_contract(self) -> None:
         client = self.make_client()
         client_id = 'C.test"quoted\\client'

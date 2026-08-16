@@ -1,7 +1,7 @@
 """In-memory alert orchestration use case."""
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Protocol
 
 from alert2ir.backends.base import InvestigationResult
@@ -12,6 +12,15 @@ from alert2ir.core.workflow import (
     DecisionOutcome,
     Incident,
     InvestigationRequest,
+)
+from alert2ir.observability import (
+    ApplicationObservability,
+    bounded_backend,
+    bounded_capability,
+    classify_error,
+    no_op_observability,
+    outcome_for_error,
+    set_error_category,
 )
 
 
@@ -61,6 +70,11 @@ class AlertOrchestrator:
     policy: DecisionPolicy
     router: BackendRouter
     request_factory: Callable[[Incident], InvestigationRequest]
+    observability: ApplicationObservability = field(
+        default_factory=no_op_observability,
+        compare=False,
+        repr=False,
+    )
 
     def process(self, alert: CanonicalAlert) -> OrchestrationResult:
         decision = self.policy.decide(alert)
@@ -81,7 +95,67 @@ class AlertOrchestrator:
             if request.incident != incident:
                 raise ValueError("investigation request incident must match incident")
             backend = self.router.select(request)
-            result = backend.investigate(request)
+            backend_name = bounded_backend(backend.name)
+            capability = bounded_capability(request.required_capabilities)
+            started = self.observability.monotonic()
+            self.observability.events.emit(
+                "backend.execution.started",
+                backend=backend_name,
+                capability=capability,
+                target_count=len(request.targets),
+            )
+            with self.observability.span(
+                "backend.investigate",
+                {
+                    "alert2ir.backend": backend_name,
+                    "alert2ir.capability": capability,
+                    "alert2ir.target_count": len(request.targets),
+                },
+            ) as span:
+                try:
+                    result = backend.investigate(request)
+                except Exception as error:
+                    category = classify_error(error, stage="backend")
+                    outcome = outcome_for_error(category)
+                    duration = self.observability.monotonic() - started
+                    set_error_category(category)
+                    self.observability.finish_span(
+                        span,
+                        outcome=outcome,
+                        error_category=category,
+                    )
+                    self.observability.record_backend(
+                        duration_seconds=duration,
+                        backend=backend_name,
+                        capability=capability,
+                        outcome=outcome,
+                        error_category=category,
+                    )
+                    self.observability.events.emit(
+                        "backend.execution.finished",
+                        backend=backend_name,
+                        capability=capability,
+                        outcome=outcome,
+                        error_category=category,
+                        duration_ms=round(duration * 1000, 3),
+                    )
+                    raise
+                else:
+                    duration = self.observability.monotonic() - started
+                    self.observability.finish_span(span, outcome="success")
+                    self.observability.record_backend(
+                        duration_seconds=duration,
+                        backend=backend_name,
+                        capability=capability,
+                        outcome="success",
+                    )
+                    self.observability.events.emit(
+                        "backend.execution.finished",
+                        backend=backend_name,
+                        capability=capability,
+                        outcome="success",
+                        duration_ms=round(duration * 1000, 3),
+                    )
             return OrchestrationResult(
                 decision=decision,
                 incident=incident,
