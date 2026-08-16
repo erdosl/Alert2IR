@@ -157,7 +157,6 @@ services:
 
 networks:
   observability_internal:
-    internal: true
 
 secrets:
   grafana_admin_password:

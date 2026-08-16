@@ -65,6 +65,51 @@ def yaml_children(source: str, top_level_key: str) -> list[str]:
     return children
 
 
+def compose_service_blocks(source: str) -> dict[str, str]:
+    """Return each service body from the repository's simple Compose model."""
+    lines = source.splitlines()
+    try:
+        start = lines.index("services:") + 1
+    except ValueError as error:
+        raise AssertionError("missing top-level 'services' mapping") from error
+
+    blocks: dict[str, list[str]] = {}
+    current_service = None
+    for line in lines[start:]:
+        if line and not line.startswith((" ", "#")):
+            break
+        match = re.match(r"^  ([a-z][a-z0-9_-]*):\s*$", line)
+        if match:
+            current_service = match.group(1)
+            blocks[current_service] = []
+        elif current_service is not None:
+            blocks[current_service].append(line)
+    return {name: "\n".join(lines) for name, lines in blocks.items()}
+
+
+def compose_service_ports(service: str) -> set[str]:
+    """Return exact short-syntax publications, rejecting implicit/long forms."""
+    lines = service.splitlines()
+    try:
+        start = lines.index("    ports:") + 1
+    except ValueError:
+        return set()
+
+    ports = set()
+    for line in lines[start:]:
+        if re.match(r"^    [a-z][a-z0-9_-]*:", line):
+            break
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        match = re.fullmatch(r'      - "([^"]+)"', line)
+        if not match:
+            raise AssertionError(
+                "host publications must use quoted IP:host-port:container-port syntax"
+            )
+        ports.add(match.group(1))
+    return ports
+
+
 def alloy_blocks(source: str, block_name: str) -> list[str]:
     """Extract balanced Alloy blocks for narrow label-policy assertions."""
     blocks = []
@@ -110,23 +155,33 @@ class ObservabilityRepositoryContractTests(unittest.TestCase):
         self.assertEqual(compose.count("    platform: linux/amd64"), 5)
         self.assertNotRegex(compose, r"^  alloy:", re.MULTILINE)
 
-    def test_compose_exposure_and_privilege_boundary(self) -> None:
+    def test_compose_exact_publication_and_privilege_boundary(self) -> None:
         compose = COMPOSE_PATH.read_text(encoding="utf-8")
-        published = re.findall(r'^      - "([^"]+:[^"]+:[^"]+)"$', compose, re.MULTILINE)
+        services = compose_service_blocks(compose)
+        expected_publications = {
+            "grafana": {"192.168.56.65:3000:3000"},
+            "prometheus": {"127.0.0.1:19090:9090"},
+            "alertmanager": set(),
+            "loki": {"127.0.0.1:13100:3100"},
+            "tempo": {"127.0.0.1:14317:4317"},
+        }
         self.assertEqual(
-            set(published),
-            {
-                "192.168.56.65:3000:3000",
-                "127.0.0.1:19090:9090",
-                "127.0.0.1:13100:3100",
-                "127.0.0.1:14317:4317",
-            },
+            {name: compose_service_ports(service) for name, service in services.items()},
+            expected_publications,
         )
+        self.assertEqual(yaml_children(compose, "networks"), ["observability_internal"])
+        for service in services.values():
+            self.assertRegex(
+                service,
+                r"(?m)^    networks:\n      - observability_internal$",
+            )
+
         self.assertNotIn("0.0.0.0:", compose)
+        self.assertNotIn("[::]:", compose)
+        self.assertNotIn("internal: true", compose)
         self.assertNotIn("network_mode: host", compose)
         self.assertNotIn("privileged: true", compose)
         self.assertNotIn("/var/run/docker.sock", compose)
-        self.assertIn("internal: true", compose)
         self.assertIn("${OBSERVABILITY_DATA_ROOT:?", compose)
 
     def test_prometheus_contract_enables_bounded_storage_and_remote_write(self) -> None:
