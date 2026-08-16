@@ -1,110 +1,152 @@
-# Architecture
+# Alert2IR architecture
 
-## Status
+## Purpose and ownership
 
-This document records implemented and planned architectural boundaries. Vendor-neutral canonical-alert and source-adapter boundaries, decisions, incidents, investigation requests, backend capability contracts, a deterministic MockBackend, in-memory orchestration, and the typed FastAPI core boundary are implemented and validated on `ir-core`. WS05 completed PostgreSQL composition, the completed-processing schema and repository, and durable `POST /v1/alerts` request-path integration; the exact committed artifact was validated on `ir-core` and deliberately removed afterward rather than becoming a permanent deployment. Successful `no_action` and `investigate` responses include a processing UUID after the completed aggregate is persisted. The persistence boundary remains deliberately narrow: no retries, durable idempotency, execution recovery, mutable incident lifecycle, correlation, application-data retention policy, backup/DR, HA, or production-scale claim is implied. Live detection-source ingestion remains future work. WS09 is operationally complete for the narrow live Velociraptor-backed `process.list` path from exact host `win11-02` to client `C.4c0d758c0344d6b5`; the exact deployment and cross-layer validation provenance is recorded in `docs/LAB.md`. WS06 completed deterministic repository contracts for the existing Windows Puppet roles/profiles and validated one unchanged Git-derived artifact with standalone Puppet 8.20.0 on both endpoints. The catalog manages the running and startup state of already-installed Sysmon and Splunk Universal Forwarder services and stages the project-owned canonical Sysmon XML; each endpoint's noop and two enforcing applies were clean, including the idempotent second apply. Staging owns file bytes only: it does not apply or compare Sysmon's active configuration, reload either telemetry service, own the Sysmon Operational channel, or manage complete Splunk local configuration. Puppet Agent remains stopped and disabled outside catalog ownership, and no Puppet Server control plane was introduced. WS07 completed a narrow ground-truth layer: one pinned Alert2IR scenario-definition artifact contains three deterministic Atomic-derived Windows scenarios, and three sanitized `win11-02` execution records preserve exact provenance, execution, local telemetry accounting, deviations, and cleanup state. Python-standard-library repository contracts validate the scenarios and evidence. This layer is not an attack-execution framework, detection content, a live Splunk source integration, Alert2IR orchestration input, or an investigation workflow; WS08 subsequently used it as immutable execution ground truth.
+This document describes the implemented logical components of Alert2IR, their interactions, and their trust, persistence, and failure boundaries. It also identifies the deliberately narrow extension points without presenting possible extensions as deployed behavior.
 
-WS08 completed the initial detection layer. Sigma is the canonical detection-as-code model; a repository-owned target processing pipeline adds the narrowly approved Splunk XML/Sysmon process-creation conditions; generated SPL is a derived target artifact; and live execution established whether those detections identified the WS07 ground truth. This validation does not make Splunk the canonical detection model and does not implement a live source adapter or ingestion path into Alert2IR.
+The [project definition](PROJECT.md) owns mission and non-goals. The [application reference](APPLICATION.md) owns exact API, domain, routing, persistence, and acknowledgement semantics; the [deployment guide](DEPLOYMENT.md) owns repository-defined Compose operation. [Architecture decision records](adr/README.md) preserve why major choices were made, while executable source and tests define exact behavior.
 
-The initial WS09 backend contract retains the open-string `process.list` capability and specializes it for Velociraptor without changing the canonical request or result models. This first operation requires exactly one `host` target, resolves its value by exact match through an injected host-to-client-ID mapping, and privately maps the capability to Velociraptor process collection. A successful call returns the existing `InvestigationResult` with one opaque `collection` evidence reference. `desired_outcome` remains descriptive and does not select backend behavior.
-
-## WS09 Velociraptor adapter boundary
-
-`pyvelociraptor==0.1.14` is the selected vendor API binding. Compatibility was established against Velociraptor 0.77.2 using the project's `python:3.12.13-slim-bookworm` runtime base before selection. The binding remains isolated inside `PyVelociraptorCollectionClient`, behind the unchanged high-level `VelociraptorCollectionClient` protocol; it does not enter canonical models or backend routing.
-
-An external API-configuration path is the credential boundary. Each synchronous collection call creates one certificate-authenticated channel, schedules exactly one flow for the already-resolved client and private artifact, and polls only that flow. Successful completion returns its fresh flow ID as the collection evidence reference; result rows do not enter the canonical `InvestigationResult`. The adapter adds no retry, automatic cancellation, connection pool, failover, or fan-out.
-
-Runtime composition now selects exactly `mock` or `velociraptor` through `ALERT2IR_BACKEND`; absence retains the deterministic mock default. Each mode constructs a singleton `BackendRouter`, so the overlapping `process.list` capability never creates mock/live ambiguity and no priority or fallback policy is introduced. Live mode requires one exact configured host-to-client-ID mapping, uses the fixed 60-second WS09 timeout, and constructs `PyVelociraptorCollectionClient` from an external API-configuration path. Construction validates only local configuration and does not create a gRPC channel or call the API. Generated credentials and other Velociraptor runtime state remain external and must not be committed. The live Compose override has been deployed with exactly one `VelociraptorBackend`, no `MockBackend`, and the exact mapping `"win11-02" -> "C.4c0d758c0344d6b5"`; one successful application E2E produced and durably retained its fresh `collection` flow reference without retry, fallback, failover, or fan-out.
-
-## Conceptual flow
+## Current logical architecture
 
 ```text
-Alert sources
-    |
-    v
-Source adapters -- normalization boundary --> Canonical alert
-                                              |
-                                              v
-                                  Correlation / risk / policy
-                                              |
-                                              v
-                                  Investigation request
-                                              |
-                                              v
-                              Capability-based backend selection
-                                    |                    |
-                               MockBackend          Real backends
-                                                    (Velociraptor first)
+Canonical alert request
+        |
+        v
+Alert2IR API validation and domain conversion
+        |
+        v
+Deterministic severity policy
+        |
+        +--------------------+
+        |                    |
+        v                    v
+   no_action             investigate
+                             |
+                             v
+                    investigation request
+                             |
+                             v
+                   capability-based router
+                             |
+                             v
+                  one investigation backend
+                             |
+                             v
+                       backend result
+        |                    |
+        +---------+----------+
+                  v
+       completed orchestration
+                  |
+                  v
+   processing identity and completed aggregate
+                  |
+                  v
+          PostgreSQL persistence
+                  |
+                  v
+              API response
 ```
 
-## Observability boundary
+The Alert2IR application is a Python/FastAPI process. Its `src/alert2ir/core` package contains the vendor-neutral domain model and workflow contracts; it is not a separate service or the name of the whole application. The `core` name is reserved for the Compose service that runs the application.
 
-WS12 implements a portable application telemetry contract: OpenTelemetry metrics and traces plus structured newline-delimited JSON logs to stdout. A server-generated caller-facing `X-Request-ID`, OpenTelemetry trace and span IDs, the durable processing ID, and opaque backend operation references remain distinct identities. Metrics use bounded dimensions, correlation identifiers remain structured fields rather than metric or Loki stream labels, and exception values are sanitized behind a bounded error taxonomy.
+## Canonical alert and detection boundaries
 
-The implemented reference lab topology is:
+Alert2IR accepts a canonical, vendor-neutral alert through `POST /v1/alerts`. API validation is the input boundary, after which application processing uses the canonical domain model. Vendor-specific event conversion belongs in a source adapter outside that model. No automatic Splunk, SIEM, EDR, or webhook ingestion adapter is implemented.
 
-```text
-Alert2IR on ir-core
-    -> local native Alloy
-    -> central native Alloy on obs01
-       |-- metrics -> Prometheus
-       |-- logs    -> Loki
-       `-- traces  -> Tempo
-                        |
-                        v
-                      Grafana
-
-Prometheus -> Alertmanager -> lab-null
-```
-
-`/healthz` remains pure process liveness and is the Docker healthcheck. `/readyz` checks only PostgreSQL connectivity and the exact required schema revision. Neither endpoint depends on observability, and readiness does not check investigation backends.
-
-`obs01` is a separate failure domain: validated Alert2IR processing continued normally during a local Alloy outage, although bounded non-blocking degradation can lose telemetry. The Grafana stack is the reference open-source lab implementation, not a required production backend for Alert2IR's portable telemetry contracts. Hosted CI tests application telemetry with local, fake, or in-memory instrumentation and requires neither the lab nor the reference stack. Three source-provisioned dashboards and eight deterministic Prometheus alerts provide the operator layer; Alertmanager deliberately routes to the internal `lab-null` receiver. Operational procedures are in [`OBSERVABILITY.md`](OBSERVABILITY.md).
-
-### Alert sources
-
-Source adapters ingest vendor-specific detections. Splunk is the initial validated detection execution target, not an implemented Alert2IR alert-ingestion source. Core contracts must not encode Splunk as the universal model.
-
-The implemented detection translation boundary is:
+Detection execution is a separate concern from Alert2IR ingestion. The repository keeps Sigma as canonical detection-as-code and applies a repository-owned processing pipeline to derive Splunk SPL for the validated Windows process-creation cases:
 
 ```text
 Canonical Sigma
     -> repository-owned target processing pipeline
     -> derived Splunk SPL
-    -> Splunk execution and validation against WS07 ground truth
+    -> Splunk execution and validation against controlled ground truth
 ```
 
-Target-specific source, sourcetype, and event-code conditions belong in the processing pipeline, not in canonical Sigma rules. The current pipeline maps only Windows `process_creation` to the validated Splunk XML Sysmon Event ID 1 representation; it is not a generic Sysmon taxonomy or a generic SIEM abstraction.
+This makes Splunk a validated detection execution target, not an Alert2IR alert-ingestion source. A finding must be represented as a canonical request and supplied to the API by an external caller; the repository implements no automated transition between those paths.
 
-Validated Sigma-to-Splunk detection execution does not automatically imply Splunk-to-Alert2IR ingestion. `POST /v1/alerts` accepts canonical typed alerts. A future Splunk adapter requires its own reviewed contract for detection identity, source provenance, entity mapping, severity, evidence references, and trigger or delivery mechanism.
+## Decision and investigation boundaries
 
-### Normalization boundary and canonical alert
+The implemented policy is deterministic and bounded: low- and medium-severity alerts produce `no_action`, while high- and critical-severity alerts produce `investigate`. No correlation engine, machine-learning score, generalized risk engine, or dynamic policy orchestration is implemented. Policy is isolated behind an interface so a later policy can be reviewed without changing the canonical alert or investigation-backend contracts.
 
-Normalization ends source-specific concerns and produces a canonical alert representation. The representation will carry the detection identity, time and entities, source provenance, evidence references, severity or confidence inputs, and other fields established during application design. This document intentionally does not fix a premature schema.
+An investigation request states an open-string required capability independently of a vendor API. Investigation backends advertise supported capabilities, and the router applies an explicit cardinality rule:
 
-### Correlation, risk, and policy
+- zero eligible investigation backends produces a bounded unsupported-routing outcome;
+- exactly one eligible investigation backend is selected;
+- multiple eligible investigation backends produce a bounded ambiguity outcome rather than an implicit preference.
 
-Canonical alerts enter a decision layer that may correlate related activity, calculate or accept risk signals, and enforce policy. Its output determines whether and what investigation should be requested. Decisions should be explainable and retain provenance.
+Runtime composition provides exactly one investigation backend: the deterministic `MockBackend` for the open/testable path or the Velociraptor implementation for live process collection. Both support the current `process.list` capability. Velociraptor privately maps that capability to its collection operation; vendor identifiers and result rows do not enter the canonical model.
 
-### Investigation request
+## Persistence and availability boundaries
 
-An investigation request expresses the desired outcome and required capabilities independently of a vendor API. It is the boundary between detection decisions and investigation execution.
+PostgreSQL is the current durable store for completed processing aggregates. Persistence follows policy evaluation and any investigation-backend execution, uses a migration-managed schema, and assigns a durable processing identity before the save attempt. Detailed ordering, transaction, uniqueness, remote-effect, and HTTP-acknowledgement semantics belong in the [application reference](APPLICATION.md).
 
-### Capability-based backends
+The availability endpoints deliberately expose different failure domains:
 
-Backends advertise supported investigation capabilities. Routing and validation use those capabilities; unsupported operations fail explicitly rather than being hidden behind a misleading common interface.
+- `/healthz` proves Alert2IR application process liveness and performs no dependency checks;
+- `/readyz` proves PostgreSQL connectivity and the required Alembic/schema revision.
 
-The initial strategy is:
+Readiness does not depend on an investigation backend or any observability component. The [deployment guide](DEPLOYMENT.md) defines how operators use both endpoints.
 
-1. Build a MockBackend with deterministic behavior for core integration tests.
-2. Add Velociraptor as the first real investigation backend.
-3. Add Binalyze AIR only after the open-source workflow functions.
-4. Treat CrowdStrike as optional and never a runtime requirement.
+## Observability architecture
 
-## Platform boundaries
+The application emits structured JSON logs and optional OpenTelemetry traces and metrics. The reference lab deployment is:
 
-The implemented core uses Python and FastAPI, PostgreSQL for persistence, and Docker Compose for application/service composition. Puppet owns the narrow documented endpoint desired-state boundary; Packer may later own reproducible machine-image construction where demonstrated value justifies it.
+```text
+Alert2IR application on ir-core ---- OTel ----+
+Docker JSON stdout ---------------------------+--> local ir-core Alloy
+                                                      |
+                                                      v
+                                               central obs01 Alloy
+                                                  |     |     |
+                                             metrics   logs  traces
+                                                  |     |     |
+                                                  v     v     v
+                                            Prometheus Loki  Tempo
+                                                  \     |     /
+                                                   \    |    /
+                                                      Grafana
 
-No Kubernetes or speculative queues, caches, or distributed workers are planned without a demonstrated requirement.
+Prometheus -> Alertmanager -> lab-null
+```
 
-The initial Velociraptor backend contract also adds no retries, execution lifecycle, asynchronous workers, backend priority, failover, or fan-out.
+Telemetry export is failure-isolated from application processing, liveness, and readiness. The named hosts implement the reference lab topology; they are not mandatory logical components. [ADR 0011](adr/0011-observability-architecture.md) records the decision, the [observability operator guide](OBSERVABILITY.md) owns monitoring and recovery procedures, and [`observability/`](../observability/README.md) owns exact reference configuration.
+
+## Failure boundaries
+
+| Failure domain | Architectural effect |
+| --- | --- |
+| Investigation backend | An investigation request can fail without a completed local record. A submitted remote operation can nevertheless outlive a later timeout or persistence failure; the application reference defines this acknowledgement window. |
+| PostgreSQL | Readiness fails when connectivity or schema revision is wrong. A persistence failure prevents completion acknowledgement and may follow an already-submitted remote operation. |
+| Local Alloy | Application processing, `/healthz`, and `/readyz` remain independent; telemetry can be delayed or lost during bounded non-blocking degradation. |
+| Central observability platform | Prometheus, Loki, Tempo, Grafana, and Alertmanager are operator facilities, not application dependencies. |
+| Detection platform | Detection execution or search can fail without changing the canonical Alert2IR API contract; alert delivery remains an external concern. |
+
+The architecture defines no high-availability, automatic retry, reconciliation, failover, fan-out, or arbitrary rollback guarantee.
+
+## Trust and security boundaries
+
+- External alert input crosses the API validation boundary before becoming a canonical domain value.
+- PostgreSQL contains internal application state and is not published by the repository-defined Compose deployment.
+- Database and investigation-backend credentials, certificates, and live target mappings remain external secrets and must not enter Git.
+- Velociraptor calls cross an external-effect boundary; their opaque operation references are retained for correlation.
+- Native Alloy access to Docker and containerd metadata is highly privileged and belongs only on trusted lab hosts.
+- The reference deployment publishes the application on host loopback; broader exposure requires an independently reviewed access-control and transport boundary.
+- Authorization for security testing is governed by [LAB_SCOPE.md](LAB_SCOPE.md), not inferred from network reachability or component capability.
+
+## Logical architecture and extension points
+
+The [lab inventory](LAB.md) maps these logical contracts onto `ir-core`, `obs01`, and the other owned systems. Alternate deployments may place the application, database, telemetry collector, and observability backends differently while preserving the same boundaries.
+
+Intentional extension points are source adapters, policy implementations, investigation capabilities and backends, persistence implementations, and OpenTelemetry-compatible destinations. They do not imply that generalized source ingestion, correlation, asynchronous workers, commercial backends, Kubernetes, queues, caches, or distributed processing exist. Proposed work and deferrals belong in the [roadmap](ROADMAP.md).
+
+## Related references
+
+- [Project mission and non-goals](PROJECT.md)
+- [Application and API contract](APPLICATION.md)
+- [Compose deployment and lifecycle](DEPLOYMENT.md)
+- [Owned-lab topology and deployed integrations](LAB.md)
+- [Authorized lab scope](LAB_SCOPE.md)
+- [Observability operation and recovery](OBSERVABILITY.md)
+- [Workstream status and future work](ROADMAP.md)
+- [Architecture decision record index](adr/README.md)
