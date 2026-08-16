@@ -2,7 +2,7 @@
 
 ## Status
 
-This document describes the planned architecture. Vendor-neutral canonical-alert and source-adapter boundaries, decisions, incidents, investigation requests, backend capability contracts, a deterministic MockBackend, in-memory orchestration, and the typed FastAPI core boundary are implemented and validated on `ir-core`. WS05 completed PostgreSQL composition, the completed-processing schema and repository, and durable `POST /v1/alerts` request-path integration; the exact committed artifact was validated on `ir-core` and deliberately removed afterward rather than becoming a permanent deployment. Successful `no_action` and `investigate` responses include a processing UUID after the completed aggregate is persisted. The persistence boundary remains deliberately narrow: no retries, durable idempotency, execution recovery, mutable incident lifecycle, correlation, retention, backup/DR, HA, readiness endpoint, or production-scale claim is implied. Live detection-source ingestion remains future work. WS09 is operationally complete for the narrow live Velociraptor-backed `process.list` path from exact host `win11-02` to client `C.4c0d758c0344d6b5`; the exact deployment and cross-layer validation provenance is recorded in `docs/LAB.md`. WS06 completed deterministic repository contracts for the existing Windows Puppet roles/profiles and validated one unchanged Git-derived artifact with standalone Puppet 8.20.0 on both endpoints. The catalog manages the running and startup state of already-installed Sysmon and Splunk Universal Forwarder services and stages the project-owned canonical Sysmon XML; each endpoint's noop and two enforcing applies were clean, including the idempotent second apply. Staging owns file bytes only: it does not apply or compare Sysmon's active configuration, reload either telemetry service, own the Sysmon Operational channel, or manage complete Splunk local configuration. Puppet Agent remains stopped and disabled outside catalog ownership, and no Puppet Server control plane was introduced. WS07 completed a narrow ground-truth layer: one pinned Alert2IR scenario-definition artifact contains three deterministic Atomic-derived Windows scenarios, and three sanitized `win11-02` execution records preserve exact provenance, execution, local telemetry accounting, deviations, and cleanup state. Python-standard-library repository contracts validate the scenarios and evidence. This layer is not an attack-execution framework, detection content, a live Splunk source integration, Alert2IR orchestration input, or an investigation workflow; WS08 subsequently used it as immutable execution ground truth.
+This document records implemented and planned architectural boundaries. Vendor-neutral canonical-alert and source-adapter boundaries, decisions, incidents, investigation requests, backend capability contracts, a deterministic MockBackend, in-memory orchestration, and the typed FastAPI core boundary are implemented and validated on `ir-core`. WS05 completed PostgreSQL composition, the completed-processing schema and repository, and durable `POST /v1/alerts` request-path integration; the exact committed artifact was validated on `ir-core` and deliberately removed afterward rather than becoming a permanent deployment. Successful `no_action` and `investigate` responses include a processing UUID after the completed aggregate is persisted. The persistence boundary remains deliberately narrow: no retries, durable idempotency, execution recovery, mutable incident lifecycle, correlation, application-data retention policy, backup/DR, HA, or production-scale claim is implied. Live detection-source ingestion remains future work. WS09 is operationally complete for the narrow live Velociraptor-backed `process.list` path from exact host `win11-02` to client `C.4c0d758c0344d6b5`; the exact deployment and cross-layer validation provenance is recorded in `docs/LAB.md`. WS06 completed deterministic repository contracts for the existing Windows Puppet roles/profiles and validated one unchanged Git-derived artifact with standalone Puppet 8.20.0 on both endpoints. The catalog manages the running and startup state of already-installed Sysmon and Splunk Universal Forwarder services and stages the project-owned canonical Sysmon XML; each endpoint's noop and two enforcing applies were clean, including the idempotent second apply. Staging owns file bytes only: it does not apply or compare Sysmon's active configuration, reload either telemetry service, own the Sysmon Operational channel, or manage complete Splunk local configuration. Puppet Agent remains stopped and disabled outside catalog ownership, and no Puppet Server control plane was introduced. WS07 completed a narrow ground-truth layer: one pinned Alert2IR scenario-definition artifact contains three deterministic Atomic-derived Windows scenarios, and three sanitized `win11-02` execution records preserve exact provenance, execution, local telemetry accounting, deviations, and cleanup state. Python-standard-library repository contracts validate the scenarios and evidence. This layer is not an attack-execution framework, detection content, a live Splunk source integration, Alert2IR orchestration input, or an investigation workflow; WS08 subsequently used it as immutable execution ground truth.
 
 WS08 completed the initial detection layer. Sigma is the canonical detection-as-code model; a repository-owned target processing pipeline adds the narrowly approved Splunk XML/Sysmon process-creation conditions; generated SPL is a derived target artifact; and live execution established whether those detections identified the WS07 ground truth. This validation does not make Splunk the canonical detection model and does not implement a live source adapter or ingestion path into Alert2IR.
 
@@ -39,19 +39,27 @@ Source adapters -- normalization boundary --> Canonical alert
 
 ## Observability boundary
 
-WS12 establishes a portable application telemetry contract: OpenTelemetry metrics and traces plus structured newline-delimited JSON logs to stdout. A server-generated caller-facing `X-Request-ID`, OpenTelemetry trace and span IDs, the durable processing ID, and opaque backend operation references remain distinct identities.
+WS12 implements a portable application telemetry contract: OpenTelemetry metrics and traces plus structured newline-delimited JSON logs to stdout. A server-generated caller-facing `X-Request-ID`, OpenTelemetry trace and span IDs, the durable processing ID, and opaque backend operation references remain distinct identities. Metrics use bounded dimensions, correlation identifiers remain structured fields rather than metric or Loki stream labels, and exception values are sanitized behind a bounded error taxonomy.
 
-The planned reference lab topology is:
+The implemented reference lab topology is:
 
 ```text
 Alert2IR on ir-core
-    -> application telemetry
-    -> local Alloy
-    -> separate obs01 observability platform
-       (central Alloy, Prometheus, Alertmanager, Loki, Tempo, and Grafana)
+    -> local native Alloy
+    -> central native Alloy on obs01
+       |-- metrics -> Prometheus
+       |-- logs    -> Loki
+       `-- traces  -> Tempo
+                        |
+                        v
+                      Grafana
+
+Prometheus -> Alertmanager -> lab-null
 ```
 
-`obs01` is a separate failure domain: Alert2IR processing must continue normally when it or any observability component is unavailable, although bounded non-blocking degradation may lose telemetry. The Grafana stack is the reference open-source lab implementation, not a required production backend for Alert2IR's portable telemetry contracts. Hosted CI tests application telemetry with local, fake, or in-memory instrumentation and requires neither the lab nor the reference stack.
+`/healthz` remains pure process liveness and is the Docker healthcheck. `/readyz` checks only PostgreSQL connectivity and the exact required schema revision. Neither endpoint depends on observability, and readiness does not check investigation backends.
+
+`obs01` is a separate failure domain: validated Alert2IR processing continued normally during a local Alloy outage, although bounded non-blocking degradation can lose telemetry. The Grafana stack is the reference open-source lab implementation, not a required production backend for Alert2IR's portable telemetry contracts. Hosted CI tests application telemetry with local, fake, or in-memory instrumentation and requires neither the lab nor the reference stack. Three source-provisioned dashboards and eight deterministic Prometheus alerts provide the operator layer; Alertmanager deliberately routes to the internal `lab-null` receiver. Operational procedures are in [`OBSERVABILITY.md`](OBSERVABILITY.md).
 
 ### Alert sources
 
@@ -93,9 +101,9 @@ The initial strategy is:
 3. Add Binalyze AIR only after the open-source workflow functions.
 4. Treat CrowdStrike as optional and never a runtime requirement.
 
-## Planned platform boundaries
+## Platform boundaries
 
-Python and FastAPI are planned for the core application, PostgreSQL for persistence, and Docker Compose for application/service composition. Puppet owns desired-state configuration; Packer may later own reproducible machine-image construction. These responsibilities are decisions, not evidence that any component is currently deployed.
+The implemented core uses Python and FastAPI, PostgreSQL for persistence, and Docker Compose for application/service composition. Puppet owns the narrow documented endpoint desired-state boundary; Packer may later own reproducible machine-image construction where demonstrated value justifies it.
 
 No Kubernetes or speculative queues, caches, or distributed workers are planned without a demonstrated requirement.
 

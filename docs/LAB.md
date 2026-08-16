@@ -10,7 +10,7 @@ The VirtualBox host-only network is `192.168.56.0/24`. Each listed VM also has a
 
 Existing aliases follow `hostname`, `hostname.lab.test`, `hostname.admin`, and `hostname.admin.lab.test`. The `.admin` names currently resolve to the same host-only interfaces. They are aliases, not a separate management network.
 
-The planned aliases for the new observability host are `obs01`, `obs01.lab.test`, `obs01.admin`, and `obs01.admin.lab.test`. They are not yet recorded as ordinary resolver results on `dev01`; read-only discovery established only that the existing SSH alias reaches `obs01`. No DNS or hosts-file change is implied.
+The established operator SSH alias `obs01` reaches the host-only observability address from `dev01`. As with the other `.admin` aliases, an alias does not imply a separate management network or broaden authorization.
 
 ## Systems
 
@@ -19,17 +19,53 @@ The planned aliases for the new observability host are `obs01`, `obs01.lab.test`
 | `win11-01` | `192.168.56.60` | Windows 11 Enterprise Evaluation 25H2; EditionID `EnterpriseEval`; build `26200.8875`; VirtualBox Guest Additions; Sysmon 15.21 and Splunk Universal Forwarder 10.4.2 installed and running |
 | `splunk` | `192.168.56.61` | Ubuntu Server 24.04.4 LTS; Splunk Enterprise 10.4.1 build `5a009d941268`; currently 1 vCPU |
 | `win11-02` | `192.168.56.62` | Windows 11 Enterprise Evaluation 25H2; EditionID `EnterpriseEval`; build `26200.8875`; VirtualBox Guest Additions; Sysmon 15.21 and Splunk Universal Forwarder 10.4.2 installed and running |
-| `ir-core` | `192.168.56.63` | Ubuntu Server 24.04.4 LTS x86_64; Alert2IR runtime host; Docker Engine 29.7.2 and Docker Compose v5.4.0; currently 1 vCPU |
+| `ir-core` | `192.168.56.63` | Ubuntu Server 24.04.4 LTS x86_64; deployed Alert2IR/PostgreSQL runtime and native Alloy 1.18.1; Docker Engine 29.7.2 and Docker Compose v5.4.0; currently 1 vCPU |
 | `dev01` | `192.168.56.64` | Ubuntu Server 24.04.4 LTS; dedicated development/admin VM; Python 3.12.3, Git 2.43.0, Codex CLI 0.147.0; currently 1 vCPU |
-| `obs01` | `192.168.56.65` | Ubuntu Server 24.04.4 LTS; planned observability-platform host; 1 vCPU, 8 GB RAM, and 100 GB virtual disk |
+| `obs01` | `192.168.56.65` | Ubuntu Server 24.04.4 LTS; deployed WS12 reference observability platform; Docker Engine 29.7.2, Docker Compose v5.4.0, native Alloy 1.18.1; 1 vCPU, 8 GB RAM, and 100 GB virtual disk |
 
-WS12 read-only discovery confirmed that `obs01` has host-only and NAT interfaces, with `192.168.56.65/24` on the host-only interface, and that SSH is reachable from `dev01`. Docker and Compose are not installed, no observability component is provisioned, time synchronization is active, and SSH was the only externally listening TCP service observed. Firewall runtime enforcement remains to be verified later with privilege.
+`obs01` has host-only and NAT interfaces, with `192.168.56.65/24` on the host-only interface. The central Compose project runs Grafana, Prometheus, Alertmanager, Loki, and Tempo; Alloy runs natively as a separate non-root systemd service. UFW is active with default-deny incoming policy and source-specific operator and `ir-core` gateway rules.
 
-The VM has a 100 GB virtual disk, while the root logical volume currently exposes approximately 49 GB; privileged LVM inspection is required before any expansion. The apparent remaining capacity is not treated as confirmed allocation, and the storage layout remains a provisioning task. `obs01` starts with one vCPU. CPU adequacy will be evaluated during WS12 operational validation using host and container telemetry; the architecture is not reduced solely because of the initial CPU allocation.
+The 100 GB virtual disk exposes a 97 GB root filesystem after the reviewed WS12 storage correction. `obs01` retains one vCPU. Completed operational samples showed substantial idle CPU under the reference workload, so no resize is justified without later sustained evidence; this is not a production-sizing claim.
 
 WS03 successfully built, deployed, and validated the minimal containerized `core` service on `ir-core`. Validation covered the deterministic health endpoint, non-root runtime identity, loopback-only publication, restart convergence, and teardown/recreation. The service and its automatic Compose network were removed after validation; the built image and isolated validation artifact were intentionally preserved. Docker Engine, Docker Compose, and SSH were pre-existing host/bootstrap state and are not managed by the current Puppet catalog.
 
 WS04 subsequently built and validated the typed Alert2IR core API on `ir-core` using the observed Docker Engine 29.7.2 and Docker Compose v5.4.0 runtime. Validation covered health, canonical investigate and no-action paths, strict request rejection, restart and full recreation, and publication only on `127.0.0.1:8000`. The validation service, container, and automatic Compose network were torn down afterward; the built image and isolated artifact may remain cached or preserved. This was not a permanent deployment, did not add PostgreSQL or external exposure, and did not place Docker under Puppet management.
+
+## WS12 reference observability deployment
+
+WS12 is complete. The deployed telemetry path is:
+
+```text
+Alert2IR core on ir-core
+  -> native ir-core Alloy
+  -> native obs01 Alloy
+  -> Prometheus / Loki / Tempo
+  -> Grafana
+
+Prometheus -> Alertmanager -> lab-null
+```
+
+Alert2IR exports OpenTelemetry metrics and traces only to local `ir-core` Alloy and emits structured JSON logs to Docker stdout. Native Alloy reads the bounded Docker JSON logs and forwards all three signal types to the central gateway. The `core` and `postgres` services use `json-file` logging with `max-size=10m` and `max-file=3`.
+
+The central `alert2ir-observability` Compose project contains exactly Grafana, Prometheus, Alertmanager, Loki, and Tempo. Native Alloy is deliberately outside Compose on both hosts. The durable exposure model is:
+
+| Surface | Accepted exposure |
+| --- | --- |
+| Grafana | `192.168.56.65:3000`, operator access from `dev01` |
+| obs01 Alloy gateways | `192.168.56.65:4317`, `:9999`, and `:3500`, accepted from `ir-core` |
+| Prometheus, Loki, Tempo ingestion | loopback publications for native obs01 Alloy |
+| Alertmanager and Tempo query API | Compose network only |
+| Alert2IR API | `127.0.0.1:8000` on `ir-core` |
+| ir-core Alloy OTLP | `192.168.56.63:4317`, accepted from the application Docker subnet |
+| Alloy management | `127.0.0.1:12345` on each host |
+
+UFW is active with default-deny incoming policy on both hosts. `obs01` permits SSH and Grafana from `dev01` and the three Alloy gateways from `ir-core`. `ir-core` permits SSH from `dev01`, local application-Docker access to Alloy and the Velociraptor API, and the existing `win11-02` Velociraptor frontend path. Rule numbers and transient Docker bridge names are not durable architecture.
+
+The Docker socket access required by native Alloy is effectively root-equivalent. containerd metadata access on `ir-core` is assigned through the dedicated `alloy-containerd` group; the root-owned socket remains `0660`, Alloy remains non-root, and no runtime socket is world-accessible.
+
+`/healthz` is process liveness and remains the Docker healthcheck. `/readyz` checks only PostgreSQL connectivity and exact schema revision. Stage 5 proved both remain healthy during a local Alloy outage; Stage 6 proved the real `IrCoreAlloyTelemetryMissing` lifecycle and routing to Alertmanager's internal `lab-null` receiver, then verified resolution and telemetry recovery.
+
+Three source-provisioned Grafana dashboards and eight Prometheus alerts form the operator layer. Current configuration, troubleshooting, correlation, alert response, recovery, retention, and reference resource baselines are documented in [`OBSERVABILITY.md`](OBSERVABILITY.md). The implementation remains a reference lab platform rather than a mandatory production observability backend.
 
 ## Existing telemetry path
 
@@ -993,7 +1029,12 @@ Final B1 revalidation confirmed these exact bindings. The native frontend and AP
 
 #### Firewall ground truth and lab-scoped acceptance
 
-Privileged inspection established the following current `ir-core` facts:
+This subsection preserves the historical WS09 checkpoint. WS12 later enabled
+the source-specific default-deny UFW policy described in the current WS12
+deployment section above; that reviewed correction supersedes the runtime state
+in this table without changing the historical WS09 acceptance decision.
+
+Privileged inspection established the following `ir-core` facts at the WS09 checkpoint:
 
 | Item | Observed or configured value |
 | --- | --- |
@@ -1006,11 +1047,11 @@ Privileged inspection established the following current `ir-core` facts:
 | Live IPv4 `INPUT` policy | `ACCEPT` |
 | Live IPv6 `INPUT` policy | `ACCEPT` |
 
-Because UFW is inactive, its configured defaults are not currently enforcing host-input filtering. Observed nftables/iptables content consisted of Docker NAT and forwarding rules and did not provide a native host-input restriction for the planned Velociraptor listeners. `ir-core` must not be described as presently protected by UFW, and Docker forwarding rules do not provide the intended Velociraptor input boundary.
+At that checkpoint UFW was inactive, so its configured defaults did not enforce host-input filtering. Observed nftables/iptables content consisted of Docker NAT and forwarding rules and did not provide a native host-input restriction for the Velociraptor listeners.
 
 For this owned, isolated WS09 lab environment, the architect accepts the absence of an `ir-core` host firewall for the initial Velociraptor proof. UFW activation and UFW rule creation are not required for WS09. Puppet firewall ownership and generic firewall tooling are not introduced. This is a lab-scoped acceptance, not a production security recommendation, a production deployment claim, a general Alert2IR firewall policy, or a precedent requiring removal of firewalls elsewhere. No compensating nftables, iptables, reverse-proxy, VPN, service-mesh, or other firewall infrastructure is introduced.
 
-Without a host `INPUT` firewall, TCP/8443 and TCP/8001 may be reachable by other routable systems on the host-only `192.168.56.0/24` network. That reachability is explicitly accepted for this owned lab environment. WS09 functional scope nevertheless remains exactly one enrolled endpoint, `win11-02`; no other host may be enrolled or used merely because a listener is network-reachable. Useful API access still requires Velociraptor certificate authentication and the separately reviewed API authorization policy.
+At that historical checkpoint, without a host `INPUT` firewall, TCP/8443 and TCP/8001 could be reachable by other routable systems on the host-only `192.168.56.0/24` network. That reachability was explicitly accepted for the owned WS09 lab. WS09 functional scope nevertheless remained exactly one enrolled endpoint, `win11-02`; no other host could be enrolled or used merely because a listener was network-reachable. Useful API access still requires Velociraptor certificate authentication and the separately reviewed API authorization policy.
 
 #### GUI TLS and protocol-security boundary
 
