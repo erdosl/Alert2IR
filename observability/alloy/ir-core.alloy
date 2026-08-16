@@ -111,6 +111,15 @@ prometheus.scrape "host" {
   scrape_timeout  = "10s"
 }
 
+prometheus.exporter.self "alloy" {}
+
+prometheus.scrape "alloy" {
+  targets         = prometheus.exporter.self.alloy.targets
+  forward_to      = [prometheus.relabel.edge_metrics.receiver]
+  scrape_interval = "15s"
+  scrape_timeout  = "10s"
+}
+
 prometheus.exporter.cadvisor "containers" {
   docker_host                  = "unix:///var/run/docker.sock"
   storage_duration             = "5m"

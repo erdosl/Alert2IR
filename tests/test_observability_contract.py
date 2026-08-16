@@ -438,6 +438,61 @@ class ObservabilityRepositoryContractTests(unittest.TestCase):
         self.assertIn('endpoint = "127.0.0.1:14317"', obs01)
         self.assertIn("http://127.0.0.1:13100/loki/api/v1/push", obs01)
 
+    def test_native_alloy_self_metrics_use_each_hosts_existing_metrics_path(
+        self,
+    ) -> None:
+        contracts = (
+            (
+                IR_CORE_ALLOY_PATH.read_text(encoding="utf-8"),
+                "prometheus.relabel.edge_metrics.receiver",
+                'prometheus.remote_write "central_metrics"',
+                "http://192.168.56.65:9999/api/v1/metrics/write",
+            ),
+            (
+                OBS01_ALLOY_PATH.read_text(encoding="utf-8"),
+                "prometheus.relabel.obs01_metrics.receiver",
+                'prometheus.remote_write "prometheus"',
+                "http://127.0.0.1:19090/api/v1/write",
+            ),
+        )
+
+        for config, metrics_receiver, remote_write_name, remote_write_url in contracts:
+            with self.subTest(remote_write=remote_write_name):
+                exporter = sole_alloy_block(
+                    config, 'prometheus.exporter.self "alloy"'
+                )
+                self.assertEqual(exporter.strip(), "")
+
+                scrape = sole_alloy_block(config, 'prometheus.scrape "alloy"')
+                self.assertRegex(
+                    scrape,
+                    r"(?m)^\s*targets\s*=\s*"
+                    r"prometheus\.exporter\.self\.alloy\.targets$",
+                )
+                self.assertRegex(
+                    scrape,
+                    rf"(?m)^\s*forward_to\s*=\s*\[{re.escape(metrics_receiver)}\]$",
+                )
+                self.assertRegex(
+                    scrape,
+                    r'(?m)^\s*scrape_interval\s*=\s*"15s"$',
+                )
+                self.assertRegex(
+                    scrape,
+                    r'(?m)^\s*scrape_timeout\s*=\s*"10s"$',
+                )
+                self.assertNotRegex(
+                    exporter + scrape,
+                    r"\b(?:listen_address|listen_port|endpoint)\s*=",
+                )
+
+                self.assertEqual(
+                    len(re.findall(r'\bprometheus\.remote_write\s+"', config)),
+                    1,
+                )
+                remote_write = sole_alloy_block(config, remote_write_name)
+                self.assertIn(f'url            = "{remote_write_url}"', remote_write)
+
     def test_cadvisor_metrics_preserve_bounded_compose_service_identity(self) -> None:
         application_services = set(
             compose_service_blocks(
