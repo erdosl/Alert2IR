@@ -9,6 +9,11 @@ services:
       ALERT2IR_DATABASE_URL: ${ALERT2IR_DATABASE_URL:?ALERT2IR_DATABASE_URL is required}
       ALERT2IR_BACKEND: ${ALERT2IR_BACKEND:-mock}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     restart: unless-stopped
     healthcheck:
       test:
@@ -28,6 +33,11 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
     volumes:
       - postgres_data:/var/lib/postgresql
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     healthcheck:
       test:
         - CMD-SHELL

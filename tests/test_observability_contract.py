@@ -113,6 +113,33 @@ def compose_service_ports(service: str) -> set[str]:
     return ports
 
 
+def compose_service_logging(service: str) -> dict[str, object]:
+    """Return the explicit driver and options from one service logging block."""
+    lines = service.splitlines()
+    try:
+        start = lines.index("    logging:") + 1
+    except ValueError as error:
+        raise AssertionError("service must define an explicit logging block") from error
+
+    block = []
+    for line in lines[start:]:
+        if re.match(r"^    [a-z][a-z0-9_-]*:", line):
+            break
+        block.append(line)
+
+    drivers = re.findall(r"^      driver: ([a-z0-9-]+)$", "\n".join(block), re.MULTILINE)
+    options = dict(
+        re.findall(
+            r'^        ([a-z][a-z0-9-]*): "([^"]+)"$',
+            "\n".join(block),
+            re.MULTILINE,
+        )
+    )
+    if len(drivers) != 1:
+        raise AssertionError("logging block must define exactly one driver")
+    return {"driver": drivers[0], "options": options}
+
+
 def alloy_blocks(source: str, block_name: str) -> list[str]:
     """Extract balanced Alloy blocks for narrow label-policy assertions."""
     blocks = []
@@ -565,7 +592,10 @@ class ObservabilityRepositoryContractTests(unittest.TestCase):
 
     def test_application_compose_passes_optional_local_otlp_configuration(self) -> None:
         compose = APPLICATION_COMPOSE_PATH.read_text(encoding="utf-8")
-        core = compose_service_blocks(compose)["core"]
+        services = compose_service_blocks(compose)
+        self.assertEqual(set(services), {"core", "postgres"})
+        core = services["core"]
+        postgres = services["postgres"]
         environment_lines = re.findall(
             r"^      ([A-Z0-9_]+):\s*(.*)$",
             core,
@@ -585,6 +615,24 @@ class ObservabilityRepositoryContractTests(unittest.TestCase):
         )
         self.assertIn("/healthz", core)
         self.assertNotIn("/readyz", core)
+        self.assertEqual(compose_service_ports(core), {"127.0.0.1:8000:8000"})
+        self.assertEqual(compose_service_ports(postgres), set())
+        self.assertRegex(
+            postgres,
+            r"(?m)^    volumes:\n      - postgres_data:/var/lib/postgresql$",
+        )
+        self.assertEqual(yaml_children(compose, "volumes"), ["postgres_data"])
+
+        expected_logging = {
+            "driver": "json-file",
+            "options": {"max-size": "10m", "max-file": "3"},
+        }
+        for name in ("core", "postgres"):
+            with self.subTest(service=name):
+                self.assertEqual(
+                    compose_service_logging(services[name]),
+                    expected_logging,
+                )
 
     def test_correlation_identities_never_become_loki_labels(self) -> None:
         alloy = "\n".join(
