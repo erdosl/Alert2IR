@@ -1,0 +1,191 @@
+rule_files:
+  - ../rules/alert2ir.yml
+
+evaluation_interval: 30s
+
+tests:
+  - name: application probe failures fire only after their hold duration
+    interval: 30s
+    input_series:
+      - series: 'probe_success{host="ir-core",job="integrations/blackbox/readiness"}'
+        values: '1 0 0 0'
+      - series: 'probe_success{host="ir-core",job="integrations/blackbox/liveness"}'
+        values: '1 0 0 0'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: Alert2IRReadinessFailing
+        exp_alerts: []
+      - eval_time: 1m
+        alertname: Alert2IRLivenessFailing
+        exp_alerts: []
+      - eval_time: 1m30s
+        alertname: Alert2IRReadinessFailing
+        exp_alerts:
+          - exp_labels:
+              alertname: Alert2IRReadinessFailing
+              component: application
+              host: ir-core
+              job: integrations/blackbox/readiness
+              service: alert2ir
+              severity: critical
+            exp_annotations:
+              summary: Alert2IR readiness probe is failing
+              description: Alert2IR cannot currently satisfy its PostgreSQL and schema readiness contract.
+      - eval_time: 1m30s
+        alertname: Alert2IRLivenessFailing
+        exp_alerts:
+          - exp_labels:
+              alertname: Alert2IRLivenessFailing
+              component: application
+              host: ir-core
+              job: integrations/blackbox/liveness
+              service: alert2ir
+              severity: critical
+            exp_annotations:
+              summary: Alert2IR liveness probe is failing
+              description: The Alert2IR process liveness probe on ir-core has failed.
+
+  - name: application operation errors fire and healthy outcomes do not
+    interval: 30s
+    input_series:
+      - series: 'alert2ir_processing_total{host="ir-core",decision="no_action",outcome="success"}'
+        values: '0+1x12'
+      - series: 'alert2ir_processing_total{host="ir-core",decision="investigate",outcome="failure"}'
+        values: '0 0 1+0x10'
+      - series: 'alert2ir_persistence_operations_total{host="ir-core",operation="save",outcome="success"}'
+        values: '0+1x12'
+      - series: 'alert2ir_persistence_operations_total{host="ir-core",operation="save",outcome="failure"}'
+        values: '0 0 1+0x10'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: Alert2IRProcessingErrors
+        exp_alerts: []
+      - eval_time: 2m
+        alertname: Alert2IRProcessingErrors
+        exp_alerts:
+          - exp_labels:
+              alertname: Alert2IRProcessingErrors
+              component: application
+              service: alert2ir
+              severity: warning
+            exp_annotations:
+              summary: Alert2IR processing errors detected
+              description: One or more Alert2IR processing operations failed during the last 15 minutes.
+      - eval_time: 2m
+        alertname: Alert2IRPersistenceErrors
+        exp_alerts:
+          - exp_labels:
+              alertname: Alert2IRPersistenceErrors
+              component: persistence
+              service: postgres
+              severity: warning
+            exp_annotations:
+              summary: Alert2IR persistence errors detected
+              description: One or more Alert2IR persistence operations failed during the last 15 minutes.
+
+  - name: ir-core Alloy absence fires and resumed samples clear it
+    interval: 30s
+    input_series:
+      - series: 'alloy_build_info{host="ir-core",job="integrations/self",version="v1.18.1"}'
+        values: '1 1 _ _ _ _ 1 1'
+    alert_rule_test:
+      - eval_time: 30s
+        alertname: IrCoreAlloyTelemetryMissing
+        exp_alerts: []
+      - eval_time: 2m
+        alertname: IrCoreAlloyTelemetryMissing
+        exp_alerts: []
+      - eval_time: 2m30s
+        alertname: IrCoreAlloyTelemetryMissing
+        exp_alerts:
+          - exp_labels:
+              alertname: IrCoreAlloyTelemetryMissing
+              component: telemetry
+              host: ir-core
+              service: alloy
+              severity: critical
+            exp_annotations:
+              summary: ir-core Alloy telemetry is missing
+              description: Central Prometheus has received no ir-core Alloy build metric for at least one minute.
+      - eval_time: 3m
+        alertname: IrCoreAlloyTelemetryMissing
+        exp_alerts: []
+
+  - name: Alloy configuration failure is bounded by host
+    interval: 30s
+    input_series:
+      - series: 'alloy_config_last_load_successful{host="ir-core",job="integrations/self"}'
+        values: '1 0 0 0'
+      - series: 'alloy_config_last_load_successful{host="obs01",job="integrations/self"}'
+        values: '1 1 1 1'
+    alert_rule_test:
+      - eval_time: 1m30s
+        alertname: AlloyConfigLoadFailed
+        exp_alerts:
+          - exp_labels:
+              alertname: AlloyConfigLoadFailed
+              component: telemetry
+              host: ir-core
+              job: integrations/self
+              service: alloy
+              severity: critical
+            exp_annotations:
+              summary: Alloy configuration load failed on ir-core
+              description: The native Alloy instance reports that its most recent configuration load failed.
+
+  - name: central target down fires only for the controlled job set
+    interval: 30s
+    input_series:
+      - series: 'up{job="tempo",instance="tempo:3200"}'
+        values: '1 0 0 0 0 0'
+      - series: 'up{job="unrelated",instance="future:1234"}'
+        values: '0+0x5'
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: CentralObservabilityTargetDown
+        exp_alerts: []
+      - eval_time: 2m30s
+        alertname: CentralObservabilityTargetDown
+        exp_alerts:
+          - exp_labels:
+              alertname: CentralObservabilityTargetDown
+              component: platform
+              instance: tempo:3200
+              job: tempo
+              severity: critical
+            exp_annotations:
+              summary: Central observability target tempo is down
+              description: Prometheus cannot scrape the expected central tempo service.
+
+  - name: low root disk fires while healthy and pseudo filesystems do not
+    interval: 1m
+    input_series:
+      - series: 'node_filesystem_avail_bytes{host="ir-core",mountpoint="/",fstype="ext4"}'
+        values: '200 140 140 140 140 140 140'
+      - series: 'node_filesystem_size_bytes{host="ir-core",mountpoint="/",fstype="ext4"}'
+        values: '1000+0x6'
+      - series: 'node_filesystem_avail_bytes{host="obs01",mountpoint="/",fstype="ext4"}'
+        values: '500+0x6'
+      - series: 'node_filesystem_size_bytes{host="obs01",mountpoint="/",fstype="ext4"}'
+        values: '1000+0x6'
+      - series: 'node_filesystem_avail_bytes{host="ir-core",mountpoint="/",fstype="tmpfs"}'
+        values: '1+0x6'
+      - series: 'node_filesystem_size_bytes{host="ir-core",mountpoint="/",fstype="tmpfs"}'
+        values: '1000+0x6'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: ObservabilityHostRootFilesystemLow
+        exp_alerts: []
+      - eval_time: 6m
+        alertname: ObservabilityHostRootFilesystemLow
+        exp_alerts:
+          - exp_labels:
+              alertname: ObservabilityHostRootFilesystemLow
+              component: capacity
+              fstype: ext4
+              host: ir-core
+              mountpoint: /
+              severity: warning
+            exp_annotations:
+              summary: Root filesystem space is low on ir-core
+              description: Less than 15 percent of the root filesystem remains available.

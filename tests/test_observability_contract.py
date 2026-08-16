@@ -7,6 +7,7 @@ runtime validation.
 
 from pathlib import Path
 import configparser
+import json
 import re
 import unittest
 
@@ -25,6 +26,20 @@ DATASOURCES_PATH = (
     / "datasources"
     / "datasources.yml"
 )
+DASHBOARD_PROVIDER_PATH = (
+    OBSERVABILITY_ROOT
+    / "grafana"
+    / "provisioning"
+    / "dashboards"
+    / "dashboards.yml"
+)
+DASHBOARDS_ROOT = OBSERVABILITY_ROOT / "grafana" / "dashboards"
+PROMETHEUS_RULES_PATH = (
+    OBSERVABILITY_ROOT / "prometheus" / "rules" / "alert2ir.yml"
+)
+PROMETHEUS_RULE_TESTS_PATH = (
+    OBSERVABILITY_ROOT / "prometheus" / "tests" / "alert2ir_rules_test.yml"
+)
 README_PATH = OBSERVABILITY_ROOT / "README.md"
 
 REQUIRED_FILES = {
@@ -34,10 +49,16 @@ REQUIRED_FILES = {
     "alloy/ir-core.alloy",
     "alloy/obs01.alloy",
     "compose.yaml",
+    "grafana/dashboards/alert2ir-application.json",
+    "grafana/dashboards/alert2ir-edge.json",
+    "grafana/dashboards/alert2ir-platform.json",
     "grafana/grafana.ini",
+    "grafana/provisioning/dashboards/dashboards.yml",
     "grafana/provisioning/datasources/datasources.yml",
     "loki/loki.yml",
     "prometheus/prometheus.yml",
+    "prometheus/rules/alert2ir.yml",
+    "prometheus/tests/alert2ir_rules_test.yml",
     "tempo/tempo.yml",
 }
 CENTRAL_SERVICES = {"grafana", "prometheus", "alertmanager", "loki", "tempo"}
@@ -245,14 +266,13 @@ def bounded_container_labels(
 
 
 class ObservabilityRepositoryContractTests(unittest.TestCase):
-    def test_required_configuration_tree_is_exact_and_has_no_stage6_content(self) -> None:
+    def test_required_configuration_tree_is_exact(self) -> None:
         files = {
             path.relative_to(OBSERVABILITY_ROOT).as_posix()
             for path in OBSERVABILITY_ROOT.rglob("*")
             if path.is_file()
         }
         self.assertEqual(files, REQUIRED_FILES)
-        self.assertFalse(list(OBSERVABILITY_ROOT.rglob("*.json")))
         self.assertFalse((OBSERVABILITY_ROOT / ".env").exists())
         self.assertFalse((OBSERVABILITY_ROOT / "secrets").exists())
 
@@ -727,6 +747,199 @@ class ObservabilityRepositoryContractTests(unittest.TestCase):
         self.assertEqual(parser["auth.anonymous"]["enabled"], "false")
         self.assertEqual(parser["analytics"]["reporting_enabled"], "false")
         self.assertEqual(parser["plugins"]["preinstall_disabled"], "true")
+
+    def test_grafana_provisions_exact_read_only_operator_dashboards(self) -> None:
+        provider = DASHBOARD_PROVIDER_PATH.read_text(encoding="utf-8")
+        for contract in (
+            "name: Alert2IR",
+            "folder: Alert2IR",
+            "type: file",
+            "disableDeletion: true",
+            "allowUiUpdates: false",
+            "path: /etc/grafana/dashboards",
+            "foldersFromFilesStructure: false",
+        ):
+            self.assertIn(contract, provider)
+
+        compose = COMPOSE_PATH.read_text(encoding="utf-8")
+        grafana = compose_service_blocks(compose)["grafana"]
+        for source, target in (
+            (
+                "./grafana/provisioning/dashboards",
+                "/etc/grafana/provisioning/dashboards",
+            ),
+            ("./grafana/dashboards", "/etc/grafana/dashboards"),
+        ):
+            self.assertRegex(
+                grafana,
+                rf"(?ms)^        source: {re.escape(source)}$.*?"
+                rf"^        target: {re.escape(target)}$.*?"
+                r"^        read_only: true$",
+            )
+
+        expected = {
+            "alert2ir-application": ("Alert2IR Application", {"prometheus", "loki"}),
+            "alert2ir-edge": ("Alert2IR Edge", {"prometheus"}),
+            "alert2ir-platform": (
+                "Alert2IR Observability Platform",
+                {"prometheus"},
+            ),
+        }
+        paths = sorted(DASHBOARDS_ROOT.glob("*.json"))
+        self.assertEqual(len(paths), 3)
+        dashboards = [json.loads(path.read_text(encoding="utf-8")) for path in paths]
+        self.assertEqual({dashboard["uid"] for dashboard in dashboards}, set(expected))
+
+        for dashboard in dashboards:
+            uid = dashboard["uid"]
+            with self.subTest(uid=uid):
+                title, required_datasources = expected[uid]
+                self.assertEqual(dashboard["title"], title)
+                self.assertFalse(dashboard["editable"])
+                self.assertEqual(dashboard["refresh"], "30s")
+                self.assertEqual(dashboard["time"], {"from": "now-1h", "to": "now"})
+                self.assertEqual(dashboard["templating"], {"list": []})
+                self.assertNotIn("id", dashboard)
+                self.assertEqual(dashboard["version"], 1)
+                self.assertTrue(dashboard["panels"])
+
+                datasource_uids = set()
+                expressions = []
+                for panel in dashboard["panels"]:
+                    datasource = panel.get("datasource", {})
+                    if datasource:
+                        datasource_uids.add(datasource["uid"])
+                    for target in panel.get("targets", []):
+                        datasource_uids.add(target["datasource"]["uid"])
+                        expression = target.get("expr", "")
+                        self.assertTrue(expression.strip())
+                        expressions.append(expression)
+
+                self.assertEqual(datasource_uids, required_datasources)
+                query_text = "\n".join(expressions)
+                self.assertNotRegex(
+                    query_text,
+                    r"(?i)\bby\s*\([^)]*"
+                    r"(?:request_id|trace_id|span_id|processing_id)",
+                )
+                self.assertNotRegex(
+                    query_text,
+                    r"\{[^}]*\b(?:request_id|trace_id|span_id|processing_id)\s*=",
+                )
+
+        application = next(
+            dashboard
+            for dashboard in dashboards
+            if dashboard["uid"] == "alert2ir-application"
+        )
+        application_queries = "\n".join(
+            target["expr"]
+            for panel in application["panels"]
+            for target in panel.get("targets", [])
+        )
+        for required in (
+            "integrations/blackbox/readiness",
+            "integrations/blackbox/liveness",
+            "alert2ir_processing_total",
+            "alert2ir_processing_duration_seconds_bucket",
+            "alert2ir_persistence_operations_total",
+            "alert2ir_persistence_duration_seconds_bucket",
+            "alert2ir_backend_executions_total",
+            "alert2ir_backend_duration_seconds_bucket",
+            'service_name=\"alert2ir\"',
+        ):
+            self.assertIn(required, application_queries)
+        logs_panel = next(
+            panel for panel in application["panels"] if panel["type"] == "logs"
+        )
+        self.assertIn("| json", logs_panel["targets"][0]["expr"])
+        for field in (
+            "event",
+            "level",
+            "request_id",
+            "trace_id",
+            "processing_id",
+            "outcome",
+            "error_category",
+        ):
+            self.assertIn(field, logs_panel["description"])
+
+    def test_prometheus_loads_exact_bounded_alert_rules_and_tests_stay_off_path(
+        self,
+    ) -> None:
+        prometheus = read("prometheus/prometheus.yml")
+        compose = COMPOSE_PATH.read_text(encoding="utf-8")
+        service = compose_service_blocks(compose)["prometheus"]
+        rules = PROMETHEUS_RULES_PATH.read_text(encoding="utf-8")
+        rule_tests = PROMETHEUS_RULE_TESTS_PATH.read_text(encoding="utf-8")
+
+        self.assertRegex(
+            prometheus,
+            r"(?m)^rule_files:\n  - /etc/prometheus/rules/\*\.yml$",
+        )
+        self.assertRegex(
+            service,
+            r"(?ms)^        source: \./prometheus/rules$.*?"
+            r"^        target: /etc/prometheus/rules$.*?"
+            r"^        read_only: true$",
+        )
+        self.assertNotIn("prometheus/tests", prometheus)
+        self.assertNotIn("prometheus/tests", service)
+        self.assertEqual(PROMETHEUS_RULE_TESTS_PATH.parent.name, "tests")
+        self.assertNotEqual(
+            PROMETHEUS_RULE_TESTS_PATH.parent,
+            PROMETHEUS_RULES_PATH.parent,
+        )
+        self.assertIn("- ../rules/alert2ir.yml", rule_tests)
+
+        expected_alerts = {
+            "Alert2IRReadinessFailing",
+            "Alert2IRLivenessFailing",
+            "Alert2IRProcessingErrors",
+            "Alert2IRPersistenceErrors",
+            "IrCoreAlloyTelemetryMissing",
+            "AlloyConfigLoadFailed",
+            "CentralObservabilityTargetDown",
+            "ObservabilityHostRootFilesystemLow",
+        }
+        alerts = re.findall(r"^      - alert: ([A-Za-z][A-Za-z0-9]+)$", rules, re.MULTILINE)
+        self.assertEqual(set(alerts), expected_alerts)
+        self.assertEqual(len(alerts), len(expected_alerts))
+        for alert in expected_alerts:
+            self.assertIn(f"alertname: {alert}", rule_tests)
+
+        self.assertIn(
+            'absent_over_time(alloy_build_info{host="ir-core"}[1m])',
+            rules,
+        )
+        self.assertIn(
+            'probe_success{host="ir-core",job="integrations/blackbox/readiness"}',
+            rules,
+        )
+        self.assertIn(
+            'probe_success{host="ir-core",job="integrations/blackbox/liveness"}',
+            rules,
+        )
+        self.assertIn(
+            'up{job=~"prometheus|grafana|alertmanager|loki|tempo"}',
+            rules,
+        )
+        self.assertNotRegex(
+            rules,
+            r"(?i)\b(?:request_id|trace_id|span_id|processing_id|operation_reference)\b",
+        )
+        self.assertIn("--no-web.enable-admin-api", compose)
+
+        alertmanager = read("alertmanager/alertmanager.yml")
+        self.assertEqual(
+            re.findall(r"^  - name: ([a-z][a-z0-9-]*)$", alertmanager, re.MULTILINE),
+            ["lab-null"],
+        )
+        self.assertIn("receiver: lab-null", alertmanager)
+        self.assertNotRegex(
+            alertmanager,
+            r"(?i)email_configs|slack_configs|pagerduty_configs|webhook_configs",
+        )
 
     def test_external_secret_contract_contains_no_committed_secret(self) -> None:
         all_text = "\n".join(

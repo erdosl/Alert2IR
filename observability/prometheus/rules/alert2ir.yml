@@ -1,0 +1,89 @@
+groups:
+  - name: alert2ir-operations
+    interval: 30s
+    rules:
+      - alert: Alert2IRReadinessFailing
+        expr: probe_success{host="ir-core",job="integrations/blackbox/readiness"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: application
+          service: alert2ir
+        annotations:
+          summary: Alert2IR readiness probe is failing
+          description: Alert2IR cannot currently satisfy its PostgreSQL and schema readiness contract.
+
+      - alert: Alert2IRLivenessFailing
+        expr: probe_success{host="ir-core",job="integrations/blackbox/liveness"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: application
+          service: alert2ir
+        annotations:
+          summary: Alert2IR liveness probe is failing
+          description: The Alert2IR process liveness probe on ir-core has failed.
+
+      - alert: Alert2IRProcessingErrors
+        expr: sum(increase(alert2ir_processing_total{host="ir-core",outcome!="success"}[15m])) > 0
+        for: 1m
+        labels:
+          severity: warning
+          component: application
+          service: alert2ir
+        annotations:
+          summary: Alert2IR processing errors detected
+          description: One or more Alert2IR processing operations failed during the last 15 minutes.
+
+      - alert: Alert2IRPersistenceErrors
+        expr: sum(increase(alert2ir_persistence_operations_total{host="ir-core",outcome!="success"}[15m])) > 0
+        for: 1m
+        labels:
+          severity: warning
+          component: persistence
+          service: postgres
+        annotations:
+          summary: Alert2IR persistence errors detected
+          description: One or more Alert2IR persistence operations failed during the last 15 minutes.
+
+      - alert: IrCoreAlloyTelemetryMissing
+        expr: absent_over_time(alloy_build_info{host="ir-core"}[1m])
+        for: 1m
+        labels:
+          severity: critical
+          component: telemetry
+          service: alloy
+        annotations:
+          summary: ir-core Alloy telemetry is missing
+          description: Central Prometheus has received no ir-core Alloy build metric for at least one minute.
+
+      - alert: AlloyConfigLoadFailed
+        expr: alloy_config_last_load_successful{host=~"ir-core|obs01"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: telemetry
+          service: alloy
+        annotations:
+          summary: Alloy configuration load failed on {{ $labels.host }}
+          description: The native Alloy instance reports that its most recent configuration load failed.
+
+      - alert: CentralObservabilityTargetDown
+        expr: up{job=~"prometheus|grafana|alertmanager|loki|tempo"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          component: platform
+        annotations:
+          summary: Central observability target {{ $labels.job }} is down
+          description: Prometheus cannot scrape the expected central {{ $labels.job }} service.
+
+      - alert: ObservabilityHostRootFilesystemLow
+        expr: 100 * node_filesystem_avail_bytes{host=~"ir-core|obs01",mountpoint="/",fstype!~"tmpfs|devtmpfs|overlay|squashfs"} / node_filesystem_size_bytes{host=~"ir-core|obs01",mountpoint="/",fstype!~"tmpfs|devtmpfs|overlay|squashfs"} < 15
+        for: 5m
+        labels:
+          severity: warning
+          component: capacity
+        annotations:
+          summary: Root filesystem space is low on {{ $labels.host }}
+          description: Less than 15 percent of the root filesystem remains available.
