@@ -151,16 +151,41 @@ prometheus.scrape "alloy" {
 }
 
 prometheus.exporter.cadvisor "containers" {
-  docker_host      = "unix:///var/run/docker.sock"
-  storage_duration = "5m"
+  docker_host                  = "unix:///var/run/docker.sock"
+  storage_duration             = "5m"
+  store_container_labels       = false
+  allowlisted_container_labels = [
+    "com.docker.compose.project",
+    "com.docker.compose.service",
+  ]
 }
 
 prometheus.relabel "container_cardinality" {
   forward_to = [prometheus.relabel.obs01_metrics.receiver]
 
   rule {
+    source_labels = ["container_label_com_docker_compose_project"]
+    regex         = "alert2ir-observability"
+    action        = "keep"
+  }
+
+  rule {
+    source_labels = ["container_label_com_docker_compose_service"]
+    regex         = "(.+)"
+    target_label  = "service_name"
+    replacement   = "$1"
+    action        = "replace"
+  }
+
+  rule {
+    source_labels = ["service_name"]
+    regex         = ".+"
+    action        = "keep"
+  }
+
+  rule {
     action = "labeldrop"
-    regex  = "id|container_label_.*"
+    regex  = "id|name|image|container_label_.*"
   }
 }
 

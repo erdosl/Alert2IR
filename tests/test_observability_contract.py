@@ -13,9 +13,11 @@ import unittest
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 OBSERVABILITY_ROOT = REPOSITORY_ROOT / "observability"
+APPLICATION_COMPOSE_PATH = REPOSITORY_ROOT / "compose.yaml"
 COMPOSE_PATH = OBSERVABILITY_ROOT / "compose.yaml"
 IR_CORE_ALLOY_PATH = OBSERVABILITY_ROOT / "alloy" / "ir-core.alloy"
 OBS01_ALLOY_PATH = OBSERVABILITY_ROOT / "alloy" / "obs01.alloy"
+LAB_PATH = REPOSITORY_ROOT / "docs" / "LAB.md"
 DATASOURCES_PATH = (
     OBSERVABILITY_ROOT
     / "grafana"
@@ -157,6 +159,62 @@ def alloy_endpoint(block: str) -> str:
     if len(endpoints) != 1:
         raise AssertionError("Alloy transport must define exactly one endpoint")
     return endpoints[0]
+
+
+def alloy_string_list(block: str, field: str) -> list[str]:
+    """Return one Alloy list containing only quoted string values."""
+    matches = re.findall(
+        rf"^\s*{re.escape(field)}\s*=\s*\[(.*?)^\s*\]\s*$",
+        block,
+        re.MULTILINE | re.DOTALL,
+    )
+    if len(matches) != 1:
+        raise AssertionError(f"expected exactly one Alloy {field!r} list")
+    values = re.findall(r'^\s*"([^"]+)"\s*,?\s*$', matches[0], re.MULTILINE)
+    if not values:
+        raise AssertionError(f"Alloy {field!r} list must contain quoted values")
+    return values
+
+
+def alloy_rule_fields(block: str) -> dict[str, object]:
+    """Parse the narrow scalar/list fields used by metric relabel rules."""
+    fields: dict[str, object] = {
+        key: value
+        for key, value in re.findall(
+            r'^\s*([a-z_]+)\s*=\s*"([^"]*)"\s*$', block, re.MULTILINE
+        )
+    }
+    source_labels = re.findall(
+        r'^\s*source_labels\s*=\s*\["([^"]+)"\]\s*$', block, re.MULTILINE
+    )
+    if source_labels:
+        if len(source_labels) != 1:
+            raise AssertionError("relabel rule must define at most one source list")
+        fields["source_labels"] = [source_labels[0]]
+    return fields
+
+
+def bounded_container_labels(
+    labels: dict[str, str], expected_project: str
+) -> dict[str, str] | None:
+    """Model only the reviewed bounded container-identity invariant."""
+    project_label = "container_label_com_docker_compose_project"
+    service_label = "container_label_com_docker_compose_service"
+    if labels.get(project_label) != expected_project:
+        return None
+
+    service_name = labels.get(service_label, "")
+    if not service_name:
+        return None
+
+    result = {
+        key: value
+        for key, value in labels.items()
+        if key not in {"id", "name", "image"}
+        and not key.startswith("container_label_")
+    }
+    result["service_name"] = service_name
+    return result
 
 
 class ObservabilityRepositoryContractTests(unittest.TestCase):
@@ -331,6 +389,158 @@ class ObservabilityRepositoryContractTests(unittest.TestCase):
         self.assertIn("http://127.0.0.1:19090/api/v1/write", obs01)
         self.assertIn('endpoint = "127.0.0.1:14317"', obs01)
         self.assertIn("http://127.0.0.1:13100/loki/api/v1/push", obs01)
+
+    def test_cadvisor_metrics_preserve_bounded_compose_service_identity(self) -> None:
+        application_services = set(
+            compose_service_blocks(
+                APPLICATION_COMPOSE_PATH.read_text(encoding="utf-8")
+            )
+        )
+        self.assertEqual(application_services, {"core", "postgres"})
+        self.assertIn(
+            "alert2ir-ws09-live_postgres_data",
+            LAB_PATH.read_text(encoding="utf-8"),
+        )
+
+        contracts = (
+            (
+                OBS01_ALLOY_PATH.read_text(encoding="utf-8"),
+                "alert2ir-observability",
+                CENTRAL_SERVICES,
+                "prometheus.relabel.obs01_metrics.receiver",
+            ),
+            (
+                IR_CORE_ALLOY_PATH.read_text(encoding="utf-8"),
+                "alert2ir-ws09-live",
+                application_services,
+                "prometheus.relabel.edge_metrics.receiver",
+            ),
+        )
+        raw_compose_labels = [
+            "com.docker.compose.project",
+            "com.docker.compose.service",
+        ]
+
+        for config, project, services, destination in contracts:
+            with self.subTest(project=project):
+                exporter = sole_alloy_block(
+                    config, 'prometheus.exporter.cadvisor "containers"'
+                )
+                self.assertRegex(
+                    exporter,
+                    r"(?m)^\s*store_container_labels\s*=\s*false$",
+                )
+                self.assertEqual(
+                    alloy_string_list(exporter, "allowlisted_container_labels"),
+                    raw_compose_labels,
+                )
+
+                relabel = sole_alloy_block(
+                    config, 'prometheus.relabel "container_cardinality"'
+                )
+                self.assertIn(f"forward_to = [{destination}]", relabel)
+                rules = [
+                    alloy_rule_fields(rule) for rule in alloy_blocks(relabel, "rule")
+                ]
+                self.assertEqual(
+                    rules,
+                    [
+                        {
+                            "source_labels": [
+                                "container_label_com_docker_compose_project"
+                            ],
+                            "regex": project,
+                            "action": "keep",
+                        },
+                        {
+                            "source_labels": [
+                                "container_label_com_docker_compose_service"
+                            ],
+                            "regex": "(.+)",
+                            "target_label": "service_name",
+                            "replacement": "$1",
+                            "action": "replace",
+                        },
+                        {
+                            "source_labels": ["service_name"],
+                            "regex": ".+",
+                            "action": "keep",
+                        },
+                        {
+                            "action": "labeldrop",
+                            "regex": "id|name|image|container_label_.*",
+                        },
+                    ],
+                )
+                self.assertIsNone(
+                    re.fullmatch(rules[-1]["regex"], "service_name")
+                )
+
+                scrape = sole_alloy_block(
+                    config, 'prometheus.scrape "containers"'
+                )
+                self.assertIn(
+                    "forward_to      = "
+                    "[prometheus.relabel.container_cardinality.receiver]",
+                    scrape,
+                )
+
+                transformed = []
+                for index, service in enumerate(sorted(services)):
+                    result = bounded_container_labels(
+                        {
+                            "__name__": "container_memory_usage_bytes",
+                            "container_label_com_docker_compose_project": project,
+                            "container_label_com_docker_compose_service": service,
+                            "container_label_com_docker_compose_config_hash": (
+                                f"config-{index}"
+                            ),
+                            "id": f"/docker/container-{index}",
+                            "name": f"{project}-{service}-1",
+                            "image": f"example.invalid/{service}@sha256:{index:064x}",
+                            "device": "/dev/sda",
+                        },
+                        project,
+                    )
+                    self.assertIsNotNone(result)
+                    transformed.append(result)
+
+                self.assertEqual(
+                    {labels["service_name"] for labels in transformed}, services
+                )
+                self.assertEqual(
+                    len({tuple(sorted(labels.items())) for labels in transformed}),
+                    len(services),
+                )
+                for labels in transformed:
+                    self.assertEqual(labels["device"], "/dev/sda")
+                    self.assertTrue(
+                        {"id", "name", "image"}.isdisjoint(labels)
+                    )
+                    self.assertFalse(
+                        any(label.startswith("container_label_") for label in labels)
+                    )
+
+                self.assertIsNone(
+                    bounded_container_labels(
+                        {
+                            "container_label_com_docker_compose_project": (
+                                "unrelated-project"
+                            ),
+                            "container_label_com_docker_compose_service": "grafana",
+                        },
+                        project,
+                    )
+                )
+                self.assertIsNone(
+                    bounded_container_labels(
+                        {
+                            "container_label_com_docker_compose_project": project,
+                            "container_label_com_docker_compose_service": "",
+                        },
+                        project,
+                    )
+                )
 
     def test_correlation_identities_never_become_loki_labels(self) -> None:
         alloy = "\n".join(
