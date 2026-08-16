@@ -339,13 +339,34 @@ class ObservabilityRepositoryContractTests(unittest.TestCase):
             "192.168.56.63:4317",
         )
         self.assertIn('prometheus.exporter.blackbox "alert2ir_health"', ir_core)
-        self.assertIn("http://127.0.0.1:8000/healthz", ir_core)
-        self.assertNotIn("/readyz", ir_core)
+        blackbox = sole_alloy_block(
+            ir_core, 'prometheus.exporter.blackbox "alert2ir_health"'
+        )
+        targets = []
+        for target in alloy_blocks(blackbox, "target"):
+            fields = {
+                key: value
+                for key, value in re.findall(
+                    r'^\s*([a-z_]+)\s*=\s*"([^"]+)"\s*$',
+                    target,
+                    re.MULTILINE,
+                )
+            }
+            self.assertEqual(fields.get("module"), "http_2xx")
+            targets.append((fields.get("name"), fields.get("address")))
+        self.assertCountEqual(
+            targets,
+            [
+                ("liveness", "http://127.0.0.1:8000/healthz"),
+                ("readiness", "http://127.0.0.1:8000/readyz"),
+            ],
+        )
         self.assertIn('regex         = "core"', ir_core)
         self.assertIn('service_name = "alert2ir"', ir_core)
         self.assertIn("http://192.168.56.65:9999/api/v1/metrics/write", ir_core)
         self.assertIn('endpoint = "192.168.56.65:4317"', ir_core)
         self.assertIn("http://192.168.56.65:3500/loki/api/v1/push", ir_core)
+        self.assertNotRegex(ir_core, r'endpoint\s*=\s*"(?:0\.0\.0\.0|\[?::\]?)')
 
         expected_receivers = {
             'prometheus.receive_http "edge_metrics"': {
@@ -541,6 +562,29 @@ class ObservabilityRepositoryContractTests(unittest.TestCase):
                         project,
                     )
                 )
+
+    def test_application_compose_passes_optional_local_otlp_configuration(self) -> None:
+        compose = APPLICATION_COMPOSE_PATH.read_text(encoding="utf-8")
+        core = compose_service_blocks(compose)["core"]
+        environment_lines = re.findall(
+            r"^      ([A-Z0-9_]+):\s*(.*)$",
+            core,
+            re.MULTILINE,
+        )
+        environment = dict(environment_lines)
+
+        self.assertEqual(
+            environment["OTEL_EXPORTER_OTLP_ENDPOINT"],
+            "${OTEL_EXPORTER_OTLP_ENDPOINT:-}",
+        )
+        self.assertNotIn("192.168.56.65", core)
+        self.assertNotIn("192.168.56.63", core)
+        self.assertIn(
+            "OTEL_EXPORTER_OTLP_ENDPOINT=",
+            (REPOSITORY_ROOT / ".env.example").read_text(encoding="utf-8"),
+        )
+        self.assertIn("/healthz", core)
+        self.assertNotIn("/readyz", core)
 
     def test_correlation_identities_never_become_loki_labels(self) -> None:
         alloy = "\n".join(

@@ -33,6 +33,11 @@ class PersistentAlertProcessor:
         self._processing_id_factory = processing_id_factory
         self.observability = observability or no_op_observability()
 
+    def check_readiness(self) -> None:
+        """Verify that the configured persistence contract is ready."""
+
+        self._repository.check_readiness()
+
     def process(self, alert: CanonicalAlert) -> ProcessingRecord:
         started = self.observability.monotonic()
         decision = "unknown"

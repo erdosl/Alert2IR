@@ -93,6 +93,57 @@ class ApiEndpointTests(unittest.IsolatedAsyncioTestCase):
         self.assert_request_id(response)
         self.assertEqual(response.json(), {"status": "ok"})
 
+    async def test_readiness_reports_persistence_contract_ready(self) -> None:
+        repository = InMemoryProcessingRepository(lambda: CREATED_AT)
+
+        async with make_client(repository=repository) as client:
+            response = await client.get("/readyz")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"status": "ready"})
+
+    async def test_readiness_failures_are_sanitized_and_do_not_affect_liveness(
+        self,
+    ) -> None:
+        for failure in (
+            RuntimeError("DATABASE_HOST_SECRET_2049"),
+            RuntimeError("SCHEMA_DETAIL_SECRET_3117"),
+        ):
+            with self.subTest(failure=str(failure)):
+                class NotReadyRepository:
+                    def check_readiness(self):
+                        raise failure
+
+                    def save(self, processing_id, alert, result):
+                        raise AssertionError("save is not expected")
+
+                    def get(self, processing_id):
+                        raise AssertionError("get is not expected")
+
+                async with make_client(repository=NotReadyRepository()) as client:
+                    readiness = await client.get("/readyz")
+                    liveness = await client.get("/healthz")
+
+                self.assertEqual(readiness.status_code, 503)
+                self.assertEqual(readiness.json(), {"status": "not_ready"})
+                self.assertNotIn(str(failure), readiness.text)
+                self.assertEqual(liveness.status_code, 200)
+                self.assertEqual(liveness.json(), {"status": "ok"})
+
+    async def test_readiness_does_not_invoke_investigation_backend(self) -> None:
+        class ExplodingBackend:
+            name = "mock"
+            capabilities = frozenset({"process.list"})
+
+            def investigate(self, request):
+                raise AssertionError("readiness must not invoke a backend")
+
+        async with make_client(backends=(ExplodingBackend(),)) as client:
+            response = await client.get("/readyz")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"status": "ready"})
+
     async def test_typed_investigate_flow(self) -> None:
         repository = InMemoryProcessingRepository(lambda: CREATED_AT)
         async with make_client(repository=repository) as client:
@@ -252,7 +303,9 @@ class ApiEndpointTests(unittest.IsolatedAsyncioTestCase):
         document = response.json()
 
         self.assertIn("/healthz", document["paths"])
+        self.assertIn("/readyz", document["paths"])
         self.assertIn("/v1/alerts", document["paths"])
+        self.assertIn("503", document["paths"]["/readyz"]["get"]["responses"])
         operation = document["paths"]["/v1/alerts"]["post"]
         request_schema = operation["requestBody"]["content"]["application/json"]["schema"]
         self.assertTrue(request_schema)

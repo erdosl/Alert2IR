@@ -25,6 +25,9 @@ from alert2ir.core import (
 
 
 SNAPSHOT_VERSION = 1
+SCHEMA_REVISION = "0001_processing_records"
+_READINESS_CONNECT_TIMEOUT_SECONDS = 3
+_READINESS_STATEMENT_TIMEOUT_MILLISECONDS = 2000
 
 _INSERT_SQL = """
     INSERT INTO processing_records (
@@ -231,6 +234,26 @@ class PostgresProcessingRepository:
         if not database_url.strip():
             raise ValueError("database_url must be non-empty")
         self._database_url = database_url
+
+    def check_readiness(self) -> None:
+        """Verify bounded connectivity and the exact required migration revision."""
+
+        with psycopg.connect(
+            self._database_url,
+            connect_timeout=_READINESS_CONNECT_TIMEOUT_SECONDS,
+            options=(
+                "-c statement_timeout="
+                f"{_READINESS_STATEMENT_TIMEOUT_MILLISECONDS}"
+            ),
+        ) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT 1")
+                if cursor.fetchone() != (1,):
+                    raise RuntimeError("PostgreSQL connectivity check failed")
+                cursor.execute("SELECT version_num FROM alembic_version")
+                revisions = cursor.fetchall()
+        if revisions != [(SCHEMA_REVISION,)]:
+            raise RuntimeError("Alert2IR schema is not at the required revision")
 
     def save(
         self,

@@ -173,7 +173,7 @@ async def request(app, payload, *, headers=None):
 
 
 class ObservabilitySuccessTests(unittest.IsolatedAsyncioTestCase):
-    async def test_health_is_liveness_only_and_excluded_from_tracing(self) -> None:
+    async def test_health_and_readiness_are_excluded_from_tracing(self) -> None:
         harness = TelemetryHarness()
         self.addCleanup(harness.close)
         app = make_app(harness)
@@ -183,9 +183,11 @@ class ObservabilitySuccessTests(unittest.IsolatedAsyncioTestCase):
             transport=transport,
             base_url="http://testserver",
         ) as client:
-            response = await client.get("/healthz")
+            health = await client.get("/healthz")
+            readiness = await client.get("/readyz")
 
-        self.assertEqual(response.json(), {"status": "ok"})
+        self.assertEqual(health.json(), {"status": "ok"})
+        self.assertEqual(readiness.json(), {"status": "ready"})
         self.assertEqual(harness.spans(), ())
         self.assertEqual(harness.events(), [])
 
@@ -620,18 +622,26 @@ class SensitiveFailureTests(unittest.IsolatedAsyncioTestCase):
 
 class ExportIsolationTests(unittest.IsolatedAsyncioTestCase):
     def test_exporters_are_not_constructed_without_explicit_endpoint(self) -> None:
-        with patch.dict(os.environ, {}, clear=False), patch(
-            "alert2ir.observability.OTLPSpanExporter"
-        ) as span_exporter, patch(
-            "alert2ir.observability.OTLPMetricExporter"
-        ) as metric_exporter:
-            os.environ.pop("OTEL_EXPORTER_OTLP_ENDPOINT", None)
-            configured = configure_observability()
+        for endpoint in (None, "", " \t "):
+            with self.subTest(endpoint=endpoint), patch.dict(
+                os.environ,
+                {},
+                clear=False,
+            ), patch(
+                "alert2ir.observability.OTLPSpanExporter"
+            ) as span_exporter, patch(
+                "alert2ir.observability.OTLPMetricExporter"
+            ) as metric_exporter:
+                if endpoint is None:
+                    os.environ.pop("OTEL_EXPORTER_OTLP_ENDPOINT", None)
+                else:
+                    os.environ["OTEL_EXPORTER_OTLP_ENDPOINT"] = endpoint
+                configured = configure_observability()
 
-        span_exporter.assert_not_called()
-        metric_exporter.assert_not_called()
-        configured.tracer_provider.shutdown()
-        configured.meter_provider.shutdown()
+            span_exporter.assert_not_called()
+            metric_exporter.assert_not_called()
+            configured.tracer_provider.shutdown()
+            configured.meter_provider.shutdown()
 
     async def test_failing_trace_export_does_not_change_request(self) -> None:
         class FailingSpanExporter(SpanExporter):

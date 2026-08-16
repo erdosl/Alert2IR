@@ -13,6 +13,9 @@ class InMemoryProcessingRepository:
         self._clock = clock
         self._records: dict[UUID, ProcessingRecord] = {}
 
+    def check_readiness(self) -> None:
+        """The in-memory repository has no external readiness dependency."""
+
     def save(
         self,
         processing_id: UUID,

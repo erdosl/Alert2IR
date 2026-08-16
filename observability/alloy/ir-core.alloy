@@ -161,8 +161,14 @@ prometheus.exporter.blackbox "alert2ir_health" {
   config = "{ modules: { http_2xx: { prober: http, timeout: 5s, http: { preferred_ip_protocol: ip4 } } } }"
 
   target {
-    name    = "alert2ir-healthz"
+    name    = "liveness"
     address = "http://127.0.0.1:8000/healthz"
+    module  = "http_2xx"
+  }
+
+  target {
+    name    = "readiness"
+    address = "http://127.0.0.1:8000/readyz"
     module  = "http_2xx"
   }
 }

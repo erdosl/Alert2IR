@@ -232,6 +232,7 @@ class PostgresProcessingRepositoryIntegrationTests(unittest.TestCase):
                 )
 
     def test_unknown_id_returns_none(self) -> None:
+        self.repository.check_readiness()
         self.assertIsNone(self.repository.get(uuid4()))
 
     def test_duplicate_id_is_rejected_and_original_is_unchanged(self) -> None:

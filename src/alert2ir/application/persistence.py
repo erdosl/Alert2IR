@@ -30,6 +30,10 @@ class ProcessingRecord:
 class ProcessingRepository(Protocol):
     """Store and retrieve completed processing aggregates by storage identity."""
 
+    def check_readiness(self) -> None:
+        """Raise when persistence connectivity or its required schema is absent."""
+        ...
+
     def save(
         self,
         processing_id: UUID,

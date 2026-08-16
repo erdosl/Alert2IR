@@ -82,6 +82,21 @@ def create_app(
     async def healthz() -> dict[str, str]:
         return {"status": "ok"}
 
+    @app.get(
+        "/readyz",
+        response_model=None,
+        responses={503: {"description": "Persistence is not ready."}},
+    )
+    def readyz() -> dict[str, str] | JSONResponse:
+        try:
+            processor.check_readiness()
+        except Exception:
+            return JSONResponse(
+                status_code=503,
+                content={"status": "not_ready"},
+            )
+        return {"status": "ready"}
+
     @app.post(
         "/v1/alerts",
         response_model=AlertProcessingResponse,
@@ -132,7 +147,7 @@ def create_app(
         # the bounded WS12 application metric contract. Custom metrics below
         # retain the reviewed decision/backend/persistence dimensions only.
         meter_provider=metrics.NoOpMeterProvider(),
-        excluded_urls=".*/healthz",
+        excluded_urls=".*/healthz,.*/readyz",
         http_capture_headers_server_request=[],
         http_capture_headers_server_response=[],
         http_capture_headers_sanitize_fields=[".*"],

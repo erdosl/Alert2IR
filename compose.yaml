@@ -8,6 +8,7 @@ services:
     environment:
       ALERT2IR_DATABASE_URL: ${ALERT2IR_DATABASE_URL:?ALERT2IR_DATABASE_URL is required}
       ALERT2IR_BACKEND: ${ALERT2IR_BACKEND:-mock}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
     restart: unless-stopped
     healthcheck:
       test:

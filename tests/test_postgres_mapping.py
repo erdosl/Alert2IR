@@ -1,7 +1,9 @@
 import unittest
+from unittest.mock import MagicMock, call, patch
 
 from alert2ir.persistence.postgres import (
     PostgresProcessingRepository,
+    SCHEMA_REVISION,
     _decode_entities,
     _decode_evidence,
     _decode_strings,
@@ -16,6 +18,51 @@ class SnapshotV1MappingTests(unittest.TestCase):
     def test_repository_rejects_blank_url(self) -> None:
         with self.assertRaisesRegex(ValueError, "database_url must be non-empty"):
             PostgresProcessingRepository(" \t\n ")
+
+    def test_readiness_is_bounded_and_checks_connectivity_and_schema(self) -> None:
+        connection = MagicMock()
+        connection.__enter__.return_value = connection
+        cursor = connection.cursor.return_value
+        cursor.__enter__.return_value = cursor
+        cursor.fetchone.return_value = (1,)
+        cursor.fetchall.return_value = [(SCHEMA_REVISION,)]
+
+        with patch(
+            "alert2ir.persistence.postgres.psycopg.connect",
+            return_value=connection,
+        ) as connect:
+            PostgresProcessingRepository("postgresql://synthetic").check_readiness()
+
+        connect.assert_called_once_with(
+            "postgresql://synthetic",
+            connect_timeout=3,
+            options="-c statement_timeout=2000",
+        )
+        self.assertEqual(
+            cursor.execute.call_args_list,
+            [call("SELECT 1"), call("SELECT version_num FROM alembic_version")],
+        )
+
+    def test_readiness_rejects_missing_or_unexpected_schema_revision(self) -> None:
+        for revisions in ([], [("future_revision",)]):
+            with self.subTest(revisions=revisions):
+                connection = MagicMock()
+                connection.__enter__.return_value = connection
+                cursor = connection.cursor.return_value
+                cursor.__enter__.return_value = cursor
+                cursor.fetchone.return_value = (1,)
+                cursor.fetchall.return_value = revisions
+
+                with patch(
+                    "alert2ir.persistence.postgres.psycopg.connect",
+                    return_value=connection,
+                ), self.assertRaisesRegex(
+                    RuntimeError,
+                    "schema is not at the required revision",
+                ):
+                    PostgresProcessingRepository(
+                        "postgresql://synthetic"
+                    ).check_readiness()
 
     def test_entity_shape_and_order_are_explicit(self) -> None:
         entities = (Entity("host", "workstation-7"), Entity("user", "alice"))
