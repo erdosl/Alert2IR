@@ -6,7 +6,7 @@ from uuid import UUID
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, field_validator
 
-from alert2ir.application import ProcessingRecord
+from alert2ir.application import ProcessingRecord, ProcessingState
 from alert2ir.backends.base import InvestigationResult
 from alert2ir.core.models import (
     CanonicalAlert,
@@ -182,37 +182,62 @@ class InvestigationResultResponse(ApiModel):
 
 class AlertProcessingResponse(ApiModel):
     processing_id: UUID
-    decision: DecisionResponse
+    state: ProcessingState
+    status_url: str
+    created_at: datetime
+    updated_at: datetime
+    completed_at: datetime | None
+    failed_at: datetime | None
+    decision: DecisionResponse | None
     incident: IncidentResponse | None
     investigation_request: InvestigationRequestResponse | None
     investigation_result: InvestigationResultResponse | None
+    error_category: str | None
+    error_detail: str | None
 
     @classmethod
     def from_application(cls, record: ProcessingRecord) -> Self:
-        value = record.result
+        decision = record.decision
+        incident = record.incident
+        request = record.investigation_request
+        result = record.result
+        investigation_result = (
+            None if result is None else result.investigation_result
+        )
         return cls(
             processing_id=record.processing_id,
-            decision=DecisionResponse.from_domain(value.decision),
+            state=record.state,
+            status_url=f"/v1/processings/{record.processing_id}",
+            created_at=record.created_at,
+            updated_at=record.updated_at,
+            completed_at=record.completed_at,
+            failed_at=record.failed_at,
+            decision=(
+                None if decision is None else DecisionResponse.from_domain(decision)
+            ),
             incident=(
-                IncidentResponse.from_domain(value.incident)
-                if value.incident is not None
-                else None
+                None if incident is None else IncidentResponse.from_domain(incident)
             ),
             investigation_request=(
-                InvestigationRequestResponse.from_domain(value.investigation_request)
-                if value.investigation_request is not None
-                else None
+                None
+                if request is None
+                else InvestigationRequestResponse.from_domain(request)
             ),
             investigation_result=(
-                InvestigationResultResponse.from_domain(value.investigation_result)
-                if value.investigation_result is not None
-                else None
+                None
+                if investigation_result is None
+                else InvestigationResultResponse.from_domain(investigation_result)
             ),
+            error_category=record.error_category,
+            error_detail=record.error_detail,
         )
 
 
 class ApiErrorResponse(ApiModel):
     code: str
     message: str
-    requested_capabilities: tuple[str, ...] | None
-    eligible_backends: tuple[str, ...] | None
+    requested_capabilities: tuple[str, ...] | None = None
+    eligible_backends: tuple[str, ...] | None = None
+    processing_id: UUID | None = None
+    state: ProcessingState | None = None
+    status_url: str | None = None

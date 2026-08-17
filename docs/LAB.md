@@ -52,6 +52,8 @@ The repository-defined Compose deployment runs on `ir-core` with:
 
 The base deployment selects the deterministic mock investigation backend. The Velociraptor override selects the live investigation backend and injects an external API configuration plus one exact host-to-client mapping. These modes are mutually exclusive in runtime composition.
 
+Alert processing uses source-scoped idempotency and durable execution state in PostgreSQL. Callers must retain their `Idempotency-Key` for acknowledgement recovery, and operators may inspect the returned processing-status resource or run the bounded one-shot reconciliation command documented in [DEPLOYMENT.md](DEPLOYMENT.md). No queue, broker, or separate worker is deployed.
+
 The deployed Compose project's PostgreSQL volume is `alert2ir-ws09-live_postgres_data`. This exact current identity ties the data-preservation target to the same deployed project whose bounded service labels are retained by edge cAdvisor; routine lifecycle commands must preserve the volume.
 
 See [APPLICATION.md](APPLICATION.md) for application behavior and [DEPLOYMENT.md](DEPLOYMENT.md) for configuration, migration, startup, acceptance, and data-preserving lifecycle procedures.

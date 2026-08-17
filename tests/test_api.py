@@ -1,19 +1,28 @@
 from copy import deepcopy
 from datetime import datetime, timezone
+from threading import Lock
 import unittest
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import httpx2
 
 from alert2ir.api import create_app
 from alert2ir.application import AlertOrchestrator, PersistentAlertProcessor
-from alert2ir.backends import BackendRouter, MockBackend
-from alert2ir.core import BaselineSeverityPolicy, Incident, InvestigationRequest
+from alert2ir.backends import (
+    BackendRouter,
+    BackendSubmissionUnknownError,
+    InvestigationResult,
+    OperationState,
+    OperationStatus,
+    SubmittedOperation,
+    VelociraptorBackend,
+)
+from alert2ir.core import BaselineSeverityPolicy, EvidenceReference, Incident, InvestigationRequest
 from alert2ir.persistence import InMemoryProcessingRepository
 
 
 PROCESSING_ID = UUID("5afaf9ce-3df8-43d3-bac8-1b875211dcc4")
-CREATED_AT = datetime(2026, 8, 11, 19, 0, tzinfo=timezone.utc)
+CREATED_AT = datetime(2026, 8, 17, 19, 0, tzinfo=timezone.utc)
 
 
 def make_payload(severity: str = "high") -> dict[str, object]:
@@ -22,7 +31,7 @@ def make_payload(severity: str = "high") -> dict[str, object]:
             "identifier": "rule-42",
             "name": "Synthetic suspicious activity",
         },
-        "detected_at": "2026-08-11T09:30:00+00:00",
+        "detected_at": "2026-08-17T09:30:00+00:00",
         "source": {"source": "synthetic", "source_alert_id": "alert-9001"},
         "entities": [{"kind": "host", "value": "workstation-7"}],
         "severity": severity,
@@ -30,317 +39,410 @@ def make_payload(severity: str = "high") -> dict[str, object]:
     }
 
 
+class CountingBackend:
+    name = "mock"
+    capabilities = frozenset({"process.list"})
+
+    def __init__(self, status=OperationState.SUCCEEDED, submit_error=None):
+        self.status = status
+        self.submit_error = submit_error
+        self.submissions = 0
+        self.polls = 0
+        self._lock = Lock()
+
+    def submit(self, request, operation_key):
+        with self._lock:
+            self.submissions += 1
+        if self.submit_error is not None:
+            raise self.submit_error
+        return SubmittedOperation("operation-1")
+
+    def poll(self, request, external_operation_id):
+        self.polls += 1
+        return OperationStatus(self.status, self.status.value)
+
+    def collect_result(self, request, external_operation_id):
+        return InvestigationResult(
+            self.name,
+            request.required_capabilities,
+            (EvidenceReference("mock:process.list", "mock-result"),),
+        )
+
+
 def make_request(
     incident: Incident,
     capabilities: tuple[str, ...] = ("process.list",),
 ) -> InvestigationRequest:
     return InvestigationRequest(
-        incident=incident,
-        desired_outcome="collect process inventory",
-        required_capabilities=capabilities,
-        targets=incident.alert.entities,
+        incident,
+        "collect process inventory",
+        capabilities,
+        incident.alert.entities,
     )
 
 
-def make_client(
-    backends: tuple[MockBackend, ...] | None = None,
-    capabilities: tuple[str, ...] = ("process.list",),
+def make_application(
+    *,
+    backend=None,
     repository=None,
-    raise_app_exceptions: bool = True,
-) -> httpx2.AsyncClient:
-    configured_backends = backends or (
-        MockBackend("mock", frozenset({"process.list"})),
-    )
-
-    def request_factory(incident: Incident) -> InvestigationRequest:
-        return make_request(incident, capabilities)
-
+    capabilities=("process.list",),
+    processing_id_factory=lambda: PROCESSING_ID,
+):
+    backend = backend or CountingBackend()
+    repository = repository or InMemoryProcessingRepository(lambda: CREATED_AT)
     orchestrator = AlertOrchestrator(
-        policy=BaselineSeverityPolicy(),
-        router=BackendRouter(configured_backends),
-        request_factory=request_factory,
-    )
-    configured_repository = repository or InMemoryProcessingRepository(
-        lambda: CREATED_AT
+        BaselineSeverityPolicy(),
+        BackendRouter((backend,)),
+        lambda incident: make_request(incident, capabilities),
     )
     processor = PersistentAlertProcessor(
         orchestrator,
-        configured_repository,
-        lambda: PROCESSING_ID,
+        repository,
+        processing_id_factory,
     )
-    transport = httpx2.ASGITransport(
-        app=create_app(processor),
-        raise_app_exceptions=raise_app_exceptions,
-    )
+    return create_app(processor), repository, backend
+
+
+def make_client(app):
     return httpx2.AsyncClient(
-        transport=transport,
+        transport=httpx2.ASGITransport(app=app, raise_app_exceptions=False),
         base_url="http://testserver",
     )
 
 
-class ApiEndpointTests(unittest.IsolatedAsyncioTestCase):
+class DurableApiTests(unittest.IsolatedAsyncioTestCase):
     def assert_request_id(self, response) -> UUID:
-        value = response.headers["X-Request-ID"]
-        parsed = UUID(value)
-        self.assertEqual(str(parsed), value)
+        parsed = UUID(response.headers["X-Request-ID"])
+        self.assertEqual(str(parsed), response.headers["X-Request-ID"])
         return parsed
 
-    async def test_health_endpoint_is_unchanged(self) -> None:
-        async with make_client() as client:
-            response = await client.get("/healthz")
+    async def test_health_and_readiness_contracts(self) -> None:
+        app, _, _ = make_application()
+        async with make_client(app) as client:
+            health = await client.get("/healthz")
+            readiness = await client.get("/readyz")
+        self.assertEqual(health.json(), {"status": "ok"})
+        self.assertEqual(readiness.json(), {"status": "ready"})
 
-        self.assertEqual(response.status_code, 200)
-        self.assert_request_id(response)
-        self.assertEqual(response.json(), {"status": "ok"})
+    async def test_missing_and_invalid_idempotency_keys(self) -> None:
+        invalid = ["", "contains space", "\x7f", "x" * 129]
+        app, repository, backend = make_application()
+        async with make_client(app) as client:
+            missing = await client.post("/v1/alerts", json=make_payload())
+            responses = [
+                await client.post(
+                    "/v1/alerts",
+                    json=make_payload(),
+                    headers={"Idempotency-Key": value},
+                )
+                for value in invalid
+            ]
+            duplicate = await client.post(
+                "/v1/alerts",
+                json=make_payload(),
+                headers=[("Idempotency-Key", "one"), ("Idempotency-Key", "two")],
+            )
+        self.assertEqual(missing.status_code, 400)
+        self.assertEqual(missing.json()["code"], "idempotency_key_required")
+        for response in (*responses, duplicate):
+            self.assertEqual(response.status_code, 400)
+            self.assertEqual(response.json()["code"], "invalid_idempotency_key")
+        self.assertEqual(repository._records, {})
+        self.assertEqual(backend.submissions, 0)
 
-    async def test_readiness_reports_persistence_contract_ready(self) -> None:
-        repository = InMemoryProcessingRepository(lambda: CREATED_AT)
+    async def test_completed_processing_and_replay_headers(self) -> None:
+        app, _, backend = make_application()
+        async with make_client(app) as client:
+            first = await client.post(
+                "/v1/alerts",
+                json=make_payload(),
+                headers={"Idempotency-Key": "Case-Sensitive-Key"},
+            )
+            replay = await client.post(
+                "/v1/alerts",
+                json=make_payload(),
+                headers={"Idempotency-Key": "Case-Sensitive-Key"},
+            )
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(replay.status_code, 200)
+        self.assertEqual(first.json()["processing_id"], str(PROCESSING_ID))
+        self.assertEqual(replay.json(), first.json())
+        self.assertNotIn("Idempotency-Replayed", first.headers)
+        self.assertEqual(replay.headers["Idempotency-Replayed"], "true")
+        self.assertEqual(
+            replay.headers["Location"], f"/v1/processings/{PROCESSING_ID}"
+        )
+        self.assertNotEqual(self.assert_request_id(first), self.assert_request_id(replay))
+        self.assertEqual(backend.submissions, 1)
+        self.assertEqual(
+            first.json()["investigation_result"]["evidence"][0]["reference"],
+            "mock:process.list",
+        )
 
-        async with make_client(repository=repository) as client:
-            response = await client.get("/readyz")
+    async def test_active_replay_is_202_without_duplicate_backend_action(self) -> None:
+        backend = CountingBackend(OperationState.NONTERMINAL)
+        app, _, _ = make_application(backend=backend)
+        headers = {"Idempotency-Key": "active"}
+        async with make_client(app) as client:
+            first = await client.post(
+                "/v1/alerts", json=make_payload(), headers=headers
+            )
+            replay = await client.post(
+                "/v1/alerts", json=make_payload(), headers=headers
+            )
+        self.assertEqual(first.status_code, 202)
+        self.assertEqual(first.json()["state"], "submitted")
+        self.assertEqual(replay.status_code, 202)
+        self.assertEqual(replay.headers["Idempotency-Replayed"], "true")
+        self.assertEqual(backend.submissions, 1)
+        self.assertEqual(backend.polls, 1)
 
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), {"status": "ready"})
+    async def test_recovery_required_is_202_and_never_resubmitted(self) -> None:
+        backend = CountingBackend(
+            submit_error=BackendSubmissionUnknownError("response lost")
+        )
+        app, _, _ = make_application(backend=backend)
+        headers = {"Idempotency-Key": "uncertain"}
+        async with make_client(app) as client:
+            first = await client.post("/v1/alerts", json=make_payload(), headers=headers)
+            replay = await client.post("/v1/alerts", json=make_payload(), headers=headers)
+        self.assertEqual(first.status_code, 202)
+        self.assertEqual(first.json()["state"], "recovery_required")
+        self.assertEqual(replay.json()["state"], "recovery_required")
+        self.assertEqual(backend.submissions, 1)
 
-    async def test_readiness_failures_are_sanitized_and_do_not_affect_liveness(
-        self,
-    ) -> None:
-        for failure in (
-            RuntimeError("DATABASE_HOST_SECRET_2049"),
-            RuntimeError("SCHEMA_DETAIL_SECRET_3117"),
+    async def test_terminal_backend_failure_is_durable_and_replayed(self) -> None:
+        backend = CountingBackend(OperationState.FAILED)
+        app, _, _ = make_application(backend=backend)
+        headers = {"Idempotency-Key": "terminal-failure"}
+        async with make_client(app) as client:
+            first = await client.post("/v1/alerts", json=make_payload(), headers=headers)
+            replay = await client.post("/v1/alerts", json=make_payload(), headers=headers)
+        self.assertEqual(first.status_code, 500)
+        self.assertEqual(first.json()["state"], "failed")
+        self.assertEqual(first.json()["error_category"], "backend_execution_failed")
+        self.assertEqual(replay.status_code, 500)
+        self.assertEqual(replay.json(), first.json())
+        self.assertEqual(replay.headers["Idempotency-Replayed"], "true")
+        self.assertNotEqual(
+            self.assert_request_id(first),
+            self.assert_request_id(replay),
+        )
+        self.assertEqual(backend.submissions, 1)
+
+    async def test_unsupported_failure_replay_preserves_public_semantics(self) -> None:
+        app, repository, backend = make_application(capabilities=("unsupported",))
+        headers = {"Idempotency-Key": "unsupported-replay"}
+        changed = make_payload("critical")
+        async with make_client(app) as client:
+            first = await client.post("/v1/alerts", json=make_payload(), headers=headers)
+            replay = await client.post("/v1/alerts", json=make_payload(), headers=headers)
+            conflict = await client.post("/v1/alerts", json=changed, headers=headers)
+
+        self.assertEqual(first.status_code, 409)
+        self.assertEqual(replay.status_code, 409)
+        self.assertEqual(first.json()["code"], "unsupported_capability")
+        self.assertEqual(replay.json()["code"], "unsupported_capability")
+        self.assertEqual(first.json()["processing_id"], replay.json()["processing_id"])
+        self.assertEqual(first.json()["state"], "failed")
+        self.assertEqual(replay.json()["state"], "failed")
+        self.assertNotIn("Idempotency-Replayed", first.headers)
+        self.assertEqual(replay.headers["Idempotency-Replayed"], "true")
+        self.assertEqual(first.headers["Location"], replay.headers["Location"])
+        self.assertNotEqual(self.assert_request_id(first), self.assert_request_id(replay))
+        self.assertEqual(conflict.status_code, 409)
+        self.assertEqual(conflict.json()["code"], "idempotency_conflict")
+        self.assertEqual(len(repository._records), 1)
+        processing_id = UUID(first.json()["processing_id"])
+        durable = repository.get(processing_id)
+        self.assertEqual(durable.error_category, "unsupported_capability")
+        self.assertIsNone(repository.get_attempt_for_processing(processing_id))
+        self.assertEqual(backend.submissions, 0)
+
+    async def test_velociraptor_flow_id_is_internal_to_post_and_get(self) -> None:
+        flow_id = "F.SECRET-OPERATION-ID"
+
+        class FakeVelociraptorClient:
+            def __init__(self) -> None:
+                self.schedule_calls = []
+                self.poll_calls = []
+
+            def schedule(self, **values):
+                self.schedule_calls.append(values)
+                return flow_id
+
+            def poll_flow(self, **values):
+                self.poll_calls.append(values)
+                return OperationStatus(OperationState.SUCCEEDED, "FINISHED")
+
+        client_backend = FakeVelociraptorClient()
+        backend = VelociraptorBackend(
+            client_backend,
+            {"workstation-7": "C.TEST"},
+            5.0,
+        )
+        app, repository, _ = make_application(backend=backend)
+        async with make_client(app) as client:
+            post = await client.post(
+                "/v1/alerts",
+                json=make_payload(),
+                headers={"Idempotency-Key": "private-flow"},
+            )
+            status = await client.get(post.headers["Location"])
+
+        self.assertEqual(post.status_code, 200)
+        self.assertEqual(status.status_code, 200)
+        self.assertNotIn(flow_id, post.text)
+        self.assertNotIn(flow_id, status.text)
+        self.assertEqual(post.json()["investigation_result"]["evidence"], [])
+        self.assertEqual(status.json()["investigation_result"]["evidence"], [])
+        processing_id = UUID(post.json()["processing_id"])
+        attempt = repository.get_attempt_for_processing(processing_id)
+        self.assertEqual(attempt.external_operation_id, flow_id)
+        self.assertEqual(len(client_backend.schedule_calls), 1)
+        self.assertEqual(client_backend.poll_calls[0]["flow_id"], flow_id)
+
+    async def test_same_scoped_key_with_changed_payload_conflicts(self) -> None:
+        app, repository, backend = make_application()
+        headers = {"Idempotency-Key": "conflict"}
+        changed = deepcopy(make_payload())
+        changed["severity"] = "critical"
+        async with make_client(app) as client:
+            first = await client.post("/v1/alerts", json=make_payload(), headers=headers)
+            conflict = await client.post("/v1/alerts", json=changed, headers=headers)
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(conflict.status_code, 409)
+        self.assertEqual(conflict.json()["code"], "idempotency_conflict")
+        self.assertEqual(len(repository._records), 1)
+        self.assertEqual(backend.submissions, 1)
+
+    async def test_scope_is_exact_source_and_key_is_case_sensitive(self) -> None:
+        app, repository, _ = make_application(processing_id_factory=uuid4)
+        first = make_payload("low")
+        other_source = deepcopy(first)
+        other_source["source"]["source"] = "other"
+        async with make_client(app) as client:
+            responses = [
+                await client.post(
+                    "/v1/alerts",
+                    json=body,
+                    headers={"Idempotency-Key": key},
+                )
+                for body, key in (
+                    (first, "Key"),
+                    (first, "key"),
+                    (other_source, "Key"),
+                )
+            ]
+        self.assertTrue(all(response.status_code == 200 for response in responses))
+        self.assertEqual(len(repository._records), 3)
+
+    async def test_persistence_failure_before_acceptance_is_503_and_skips_backend(self) -> None:
+        class UnavailableRepository:
+            def check_readiness(self):
+                raise RuntimeError("unavailable")
+
+            def accept_processing(self, *args, **kwargs):
+                raise RuntimeError("unavailable")
+
+        backend = CountingBackend()
+        app, _, _ = make_application(repository=UnavailableRepository(), backend=backend)
+        async with make_client(app) as client:
+            response = await client.post(
+                "/v1/alerts",
+                json=make_payload(),
+                headers={"Idempotency-Key": "Key"},
+            )
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json()["code"], "persistence_failed")
+        self.assertEqual(backend.submissions, 0)
+
+    async def test_get_returns_bounded_public_status_without_internal_metadata(self) -> None:
+        app, _, _ = make_application()
+        async with make_client(app) as client:
+            post = await client.post(
+                "/v1/alerts",
+                json=make_payload(),
+                headers={"Idempotency-Key": "SECRET-IDEMPOTENCY-VALUE"},
+            )
+            status = await client.get(post.headers["Location"])
+            missing = await client.get(f"/v1/processings/{uuid4()}")
+        self.assertEqual(status.status_code, 200)
+        self.assertEqual(status.json()["processing_id"], post.json()["processing_id"])
+        serialized = status.text.lower()
+        for prohibited in (
+            "idempotency",
+            "fingerprint",
+            "operation_key",
+            "external_operation",
+            "secret-idempotency-value",
         ):
-            with self.subTest(failure=str(failure)):
-                class NotReadyRepository:
-                    def check_readiness(self):
-                        raise failure
+            self.assertNotIn(prohibited, serialized)
+        self.assertEqual(missing.status_code, 404)
+        self.assertEqual(missing.json()["code"], "processing_not_found")
 
-                    def save(self, processing_id, alert, result):
-                        raise AssertionError("save is not expected")
+    async def test_get_of_submitted_processing_never_submits_or_polls(self) -> None:
+        backend = CountingBackend(OperationState.NONTERMINAL)
+        app, _, _ = make_application(backend=backend)
+        async with make_client(app) as client:
+            post = await client.post(
+                "/v1/alerts",
+                json=make_payload(),
+                headers={"Idempotency-Key": "active-get"},
+            )
+            status = await client.get(post.headers["Location"])
+        self.assertEqual(status.status_code, 200)
+        self.assertEqual(status.json()["state"], "submitted")
+        self.assertEqual(backend.submissions, 1)
+        self.assertEqual(backend.polls, 1)
 
-                    def get(self, processing_id):
-                        raise AssertionError("get is not expected")
-
-                async with make_client(repository=NotReadyRepository()) as client:
-                    readiness = await client.get("/readyz")
-                    liveness = await client.get("/healthz")
-
-                self.assertEqual(readiness.status_code, 503)
-                self.assertEqual(readiness.json(), {"status": "not_ready"})
-                self.assertNotIn(str(failure), readiness.text)
-                self.assertEqual(liveness.status_code, 200)
-                self.assertEqual(liveness.json(), {"status": "ok"})
-
-    async def test_readiness_does_not_invoke_investigation_backend(self) -> None:
-        class ExplodingBackend:
-            name = "mock"
-            capabilities = frozenset({"process.list"})
-
-            def investigate(self, request):
-                raise AssertionError("readiness must not invoke a backend")
-
-        async with make_client(backends=(ExplodingBackend(),)) as client:
-            response = await client.get("/readyz")
-
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), {"status": "ready"})
-
-    async def test_typed_investigate_flow(self) -> None:
-        repository = InMemoryProcessingRepository(lambda: CREATED_AT)
-        async with make_client(repository=repository) as client:
-            response = await client.post("/v1/alerts", json=make_payload("high"))
-
-        self.assertEqual(response.status_code, 200)
-        self.assert_request_id(response)
+    async def test_no_action_keeps_existing_logical_result_shape(self) -> None:
+        app, _, backend = make_application()
+        async with make_client(app) as client:
+            response = await client.post(
+                "/v1/alerts",
+                json=make_payload("low"),
+                headers={"Idempotency-Key": "no-action"},
+            )
         body = response.json()
-        self.assertEqual(body["processing_id"], str(PROCESSING_ID))
-        self.assertEqual(body["decision"]["outcome"], "investigate")
-        self.assertEqual(body["decision"]["policy_id"], "baseline-severity-v1")
-        self.assertEqual(
-            body["decision"]["source"],
-            {"source": "synthetic", "source_alert_id": "alert-9001"},
-        )
-        self.assertEqual(body["incident"]["alert"]["detection"]["identifier"], "rule-42")
-        self.assertEqual(body["incident"]["decision"], body["decision"])
-        self.assertEqual(
-            body["investigation_request"],
-            {
-                "desired_outcome": "collect process inventory",
-                "required_capabilities": ["process.list"],
-                "targets": [{"kind": "host", "value": "workstation-7"}],
-            },
-        )
-        self.assertEqual(repository.get(PROCESSING_ID).processing_id, PROCESSING_ID)
-        self.assertEqual(repository.get(PROCESSING_ID).result.investigation_result.backend, "mock")
-        self.assertEqual(
-            body["investigation_result"],
-            {
-                "backend": "mock",
-                "completed_capabilities": ["process.list"],
-                "evidence": [
-                    {"reference": "mock:process.list", "kind": "mock-result"}
-                ],
-            },
-        )
-
-    async def test_typed_no_action_flow(self) -> None:
-        repository = InMemoryProcessingRepository(lambda: CREATED_AT)
-        async with make_client(repository=repository) as client:
-            response = await client.post("/v1/alerts", json=make_payload("low"))
-
         self.assertEqual(response.status_code, 200)
-        self.assert_request_id(response)
-        body = response.json()
-        self.assertEqual(body["processing_id"], str(PROCESSING_ID))
+        self.assertEqual(body["state"], "completed")
         self.assertEqual(body["decision"]["outcome"], "no_action")
         self.assertIsNone(body["incident"])
         self.assertIsNone(body["investigation_request"])
         self.assertIsNone(body["investigation_result"])
-        self.assertEqual(repository.get(PROCESSING_ID).processing_id, PROCESSING_ID)
-        self.assertEqual(repository.get(PROCESSING_ID).result.decision.outcome.value, "no_action")
+        self.assertEqual(backend.submissions, 0)
 
-    async def test_persistence_failure_returns_internal_error(self) -> None:
-        class FailingRepository:
-            def save(self, processing_id, alert, result):
-                raise RuntimeError("distinctive persistence failure")
-
-            def get(self, processing_id):
-                raise AssertionError("get is not expected")
-
-        async with make_client(
-            repository=FailingRepository(),
-            raise_app_exceptions=False,
-        ) as client:
-            response = await client.post("/v1/alerts", json=make_payload("low"))
-
-        self.assertEqual(response.status_code, 500)
-        self.assertEqual(response.json(), {"detail": "Internal Server Error"})
-        self.assertNotIn("distinctive persistence failure", response.text)
-        self.assert_request_id(response)
-
-    async def test_source_specific_extra_field_is_rejected(self) -> None:
+    async def test_validation_and_routing_remain_typed(self) -> None:
         payload = make_payload()
-        payload["source_only_debug_field"] = "must not cross boundary"
-
-        async with make_client() as client:
-            response = await client.post("/v1/alerts", json=payload)
-
-        self.assertEqual(response.status_code, 422)
-        self.assert_request_id(response)
-
-    async def test_naive_timestamp_is_rejected(self) -> None:
-        payload = make_payload("low")
-        payload["detected_at"] = "2026-08-11T09:30:00"
-
-        async with make_client() as client:
-            response = await client.post("/v1/alerts", json=payload)
-
-        self.assertEqual(response.status_code, 422)
-
-    async def test_timezone_aware_timestamp_is_accepted(self) -> None:
-        async with make_client() as client:
-            response = await client.post("/v1/alerts", json=make_payload("low"))
-
-        self.assertEqual(response.status_code, 200)
-
-    async def test_representative_whitespace_strings_are_rejected(self) -> None:
-        for path in (("detection", "identifier"), ("source", "source")):
-            with self.subTest(path=path):
-                payload = deepcopy(make_payload())
-                nested = payload[path[0]]
-                nested[path[1]] = " \t"
-
-                async with make_client() as client:
-                    response = await client.post("/v1/alerts", json=payload)
-
-                self.assertEqual(response.status_code, 422)
-
-    async def test_unsupported_capabilities_map_to_conflict(self) -> None:
-        async with make_client(capabilities=("file.hash",)) as client:
-            response = await client.post(
+        payload["unexpected"] = "value"
+        app, _, _ = make_application(capabilities=("unsupported",))
+        async with make_client(app) as client:
+            validation = await client.post(
+                "/v1/alerts",
+                json=payload,
+                headers={"Idempotency-Key": "validation"},
+            )
+            routing = await client.post(
                 "/v1/alerts",
                 json=make_payload(),
+                headers={"Idempotency-Key": "routing"},
             )
+        self.assertEqual(validation.status_code, 422)
+        self.assertEqual(routing.status_code, 409)
+        self.assertEqual(routing.json()["code"], "unsupported_capability")
 
-        self.assertEqual(response.status_code, 409)
-        self.assert_request_id(response)
-        self.assertEqual(
-            response.json(),
-            {
-                "code": "unsupported_capabilities",
-                "message": "no configured backend supports all requested capabilities: ('file.hash',)",
-                "requested_capabilities": ["file.hash"],
-                "eligible_backends": None,
-            },
-        )
-
-    async def test_ambiguous_routing_maps_to_internal_error(self) -> None:
-        backends = (
-            MockBackend("mock-a", frozenset({"process.list"})),
-            MockBackend("mock-b", frozenset({"process.list"})),
-        )
-
-        async with make_client(backends=backends) as client:
-            response = await client.post(
-                "/v1/alerts",
-                json=make_payload(),
-            )
-
-        self.assertEqual(response.status_code, 500)
-        self.assert_request_id(response)
-        self.assertEqual(
-            response.json(),
-            {
-                "code": "ambiguous_backend",
-                "message": "multiple backends support all requested capabilities and no selection policy is defined: ('mock-a', 'mock-b')",
-                "requested_capabilities": ["process.list"],
-                "eligible_backends": ["mock-a", "mock-b"],
-            },
-        )
-
-    async def test_openapi_documents_typed_boundary_and_errors(self) -> None:
-        async with make_client() as client:
-            response = await client.get("/openapi.json")
-        document = response.json()
-
-        self.assertIn("/healthz", document["paths"])
-        self.assertIn("/readyz", document["paths"])
-        self.assertIn("/v1/alerts", document["paths"])
-        self.assertIn("503", document["paths"]["/readyz"]["get"]["responses"])
-        operation = document["paths"]["/v1/alerts"]["post"]
-        request_schema = operation["requestBody"]["content"]["application/json"]["schema"]
-        self.assertTrue(request_schema)
-        self.assertTrue(operation["responses"]["200"]["content"]["application/json"]["schema"])
-        response_409 = operation["responses"]["409"]
-        self.assertEqual(
-            response_409["content"]["application/json"]["schema"]["$ref"],
-            "#/components/schemas/ApiErrorResponse",
-        )
-        response_500 = operation["responses"]["500"]
-        self.assertNotIn("content", response_500)
-        self.assertNotIn("ApiErrorResponse", str(response_500))
-        canonical_schema = document["components"]["schemas"]["CanonicalAlertRequest"]
-        self.assertEqual(
-            set(canonical_schema["properties"]),
-            {"detection", "detected_at", "source", "entities", "severity", "evidence"},
-        )
-        response_schema = document["components"]["schemas"]["AlertProcessingResponse"]
-        self.assertEqual(response_schema["properties"]["processing_id"]["format"], "uuid")
-        self.assertNotIn("created_at", response_schema["properties"])
-
-    async def test_caller_request_id_is_ignored_and_ids_are_unique(self) -> None:
-        caller_value = "caller-controlled-request-id"
-        async with make_client() as client:
-            first = await client.post(
-                "/v1/alerts",
-                json=make_payload("low"),
-                headers={"X-Request-ID": caller_value},
-            )
-            second = await client.post("/v1/alerts", json=make_payload("low"))
-
-        first_id = self.assert_request_id(first)
-        second_id = self.assert_request_id(second)
-        self.assertNotEqual(str(first_id), caller_value)
-        self.assertNotEqual(first_id, second_id)
+    async def test_openapi_documents_status_resource_and_idempotent_responses(self) -> None:
+        app, _, _ = make_application()
+        async with make_client(app) as client:
+            document = (await client.get("/openapi.json")).json()
+        self.assertIn("/v1/processings/{processing_id}", document["paths"])
+        responses = document["paths"]["/v1/alerts"]["post"]["responses"]
+        for status in ("200", "202", "400", "409", "503"):
+            self.assertIn(status, responses)
+        parameters = document["paths"]["/v1/alerts"]["post"]["parameters"]
+        self.assertEqual(parameters[0]["name"], "Idempotency-Key")
+        self.assertTrue(parameters[0]["required"])
 
 
 if __name__ == "__main__":

@@ -2,140 +2,158 @@
 
 ## Purpose
 
-The Alert2IR application accepts normalized security alerts, applies deterministic investigation policy, selects a capability-compatible investigation backend when investigation is required, persists the completed processing state, and returns a bounded HTTP response.
+Alert2IR accepts a validated vendor-neutral alert, commits its logical processing identity before external work, applies deterministic policy, and optionally drives one capability-compatible investigation operation. PostgreSQL is the durable coordination boundary. The application provides replay-safe acceptance, bounded synchronous completion, durable nonterminal status, and one-shot reconciliation without a queue or separate worker.
 
-The application is the Python/FastAPI process. The `core` name identifies that process's Compose service, `src/alert2ir/core` is its domain model/workflow package, and `ir-core` is a lab VM hostname. None of those narrower names is a synonym for the whole application.
+The application is the Python/FastAPI process. `core` is its Compose service, `src/alert2ir/core` is its vendor-neutral domain package, and `ir-core` is a lab VM hostname.
 
-## Canonical alert model
+## Canonical alert and fingerprint
 
-`POST /v1/alerts` accepts a vendor-neutral canonical alert rather than a source-specific event. The request contains:
+`POST /v1/alerts` accepts the existing canonical alert: detection identity, timezone-aware detection time, source provenance, ordered entities, normalized severity, and ordered evidence. Unknown fields are rejected. Source-specific conversion remains outside this repository.
 
-| Concept | Contract |
-| --- | --- |
-| Detection | Required nonblank identifier and optional nonblank name |
-| Detection time | Required timezone-aware `detected_at` value |
-| Source provenance | Required nonblank source and optional nonblank source alert ID |
-| Entities | Ordered `{kind, value}` references; both values are nonblank and kinds are open strings |
-| Severity | Exactly `low`, `medium`, `high`, or `critical` |
-| Evidence | Ordered opaque references with an optional nonblank kind |
+Durable acceptance fingerprints the canonical domain value after validation; raw HTTP JSON is never hashed. Fingerprint version 1 is identified by `alert2ir.canonical-alert-fingerprint.v1` and includes every accepted semantic field. It:
 
-The entities and evidence collections may be empty. Unknown fields are rejected at the API boundary, so vendor payload fields must be normalized before submission. Evidence references do not imply URL semantics, and the canonical alert has no generated canonical-alert identifier.
+- converts time to UTC and emits exactly six fractional digits;
+- represents missing optional values as JSON `null`;
+- preserves order, duplicates, case, and exact validated strings;
+- uses deterministic member ordering and compact JSON encoding;
+- hashes UTF-8 bytes with SHA-256;
+- stores integer version 1 separately from the 32-byte digest.
 
-No source adapter is implemented in this repository. Splunk is a validated detection execution target for the detection work, not an Alert2IR ingestion adapter; an API client must submit the canonical request.
+HTTP member order, JSON whitespace, and equivalent timezone offsets therefore do not change a fingerprint. Any accepted semantic field change does.
 
-## Processing flow
+## Idempotency contract
 
-Request processing follows this order:
+Every POST requires exactly one `Idempotency-Key` header. It is case-sensitive, is not normalized, and must contain 1–128 visible ASCII characters (`0x21`–`0x7e`), with no whitespace or control characters.
+
+The current scope is the exact canonical alert `source`. PostgreSQL enforces:
 
 ```text
-HTTP request validation
-  -> canonical domain conversion
-  -> policy decision
-  -> optional investigation request, backend selection, and execution
-  -> processing ID generation
-  -> completed-record persistence
-  -> HTTP response
+UNIQUE (idempotency_scope, idempotency_key)
 ```
 
-Validation, policy, routing, or investigation-backend failure occurs before a processing ID is generated or persistence is attempted. After orchestration succeeds, the application generates the processing ID and asks the repository to save the accepted alert and completed result once. A persistence failure prevents a successful response.
+The current API is published only on loopback and source is caller-controlled. Source scoping prevents accidental collision in that trusted deployment; it is not authentication or authorization. Broader publication requires an authenticated identity boundary and reviewed principal/source scoping.
 
-## Decision semantics
+The key and fingerprint are internal durable metadata. They are never returned, logged, traced, or used as metric labels.
 
-The `baseline-severity-v1` policy produces one of two outcomes and retains source provenance in its decision:
+## Durable processing flow
 
-- `no_action`: `low` and `medium` severity. The application creates no incident or investigation request and does not select or execute an investigation backend. The completed no-action result is still persisted.
-- `investigate`: `high` and `critical` severity. The application creates an incident, builds an investigation request, selects an eligible investigation backend, executes it synchronously, and persists the complete result.
+```text
+validate canonical alert and idempotency header
+  -> fingerprint canonical domain value
+  -> INSERT accepted processing or resolve uniqueness conflict
+  -> deterministic policy and planning
+  -> persist plan plus execution attempt 1
+  -> atomically claim attempt for submission
+  -> backend submit outside any database transaction
+  -> persist opaque external operation ID
+  -> poll that exact operation once on the synchronous fast path
+  -> atomically persist terminal result/failure, or return durable 202 status
+```
 
-This baseline is deterministic severity policy, not a correlation engine or a risk-scoring claim.
+Only the caller that inserted a new processing runs the POST fast path. A replay reads and returns the current durable state; it does not create an attempt, submit, or poll merely because the caller repeated the request. Interrupted `accepted` or `planned` work is resumed by bounded reconciliation.
 
-## Investigation backend selection
+## Processing states
 
-An investigation request states a desired outcome, one or more required capabilities, and ordered entity targets without naming a vendor. Capability identifiers are nonblank open strings. An investigation backend advertises the capabilities it supports and is eligible when it supports every required capability; selection proceeds only when exactly one backend is eligible.
-
-| Eligible backends | Behavior |
+| State | Meaning |
 | --- | --- |
-| Zero | Fail explicitly as unsupported; the API returns HTTP 409 |
-| One | Select and execute that investigation backend |
-| More than one | Fail explicitly as ambiguous; the API returns HTTP 500 without choosing |
+| `accepted` | Canonical request, scoped key, fingerprint, and processing ID committed; no backend action occurred |
+| `planned` | Investigate decision, vendor-neutral request, backend selection, and attempt 1 committed; no submission occurred |
+| `submitting` | One caller won the atomic submission claim and may be crossing the remote side-effect boundary |
+| `submitted` | A backend operation ID is durable; queued, waiting, running, and polling-timeout work remains here |
+| `completed` | Terminal public result and processing success committed atomically |
+| `failed` | Definitive terminal failure and bounded sanitized error committed atomically |
+| `recovery_required` | Automatic progress cannot safely infer whether to discover, resume, submit, or fail; no automatic resubmission |
 
-Capabilities split across different backends do not satisfy one request. The router defines no priority, fallback, fan-out, or tie-breaking policy.
+`completed` and `failed` are terminal in v1. There is no `timed_out` state and no cancellation or public retry operation.
+
+## Processing and execution attempts
+
+A processing represents one logical request and its public outcome. `execution_attempts` represents backend execution state, including attempt number, backend, Alert2IR operation key, opaque external operation ID, poll observations, and bounded failure/recovery metadata.
+
+V1 creates at most attempt 1. The schema uses `(processing_id, attempt_number)` uniqueness and a partial unique active-attempt index so a future explicitly authorized attempt 2 can be appended without redesign. Replaying POST never creates it.
+
+All transition methods use expected-state conditions. A losing compare-and-set caller re-reads durable state. PostgreSQL transactions are short and never span `submit`, `poll`, or result collection. Completion changes the attempt to completed and stores the public processing result in the same transaction.
+
+Historical `0001_processing_records` rows remain completed processings with their original UUIDs, snapshots, and timestamps. Their idempotency and fingerprint fields are null, and no execution attempts are inferred from historical result evidence.
+
+## Policy and routing
+
+The deterministic `baseline-severity-v1` policy is unchanged: low and medium produce `no_action`; high and critical produce `investigate`. No-action completion is committed directly from `accepted` with no backend call.
+
+Investigation requests remain vendor-neutral and use open-string capabilities. Routing still requires exactly one backend supporting the complete capability set. Unsupported routing is a durable `failed` processing with HTTP 409; ambiguous routing is a durable `failed` processing with HTTP 500. No priority, fallback, fan-out, or split-capability routing is introduced.
+
+## Backend lifecycle
+
+Backends implement three independent operations:
+
+```text
+submit(request, operation_key) -> external operation ID
+poll(request, external operation ID) -> nonterminal | succeeded | failed
+collect_result(request, external operation ID) -> vendor-neutral result
+```
+
+`submit` does not poll. `poll` and `collect_result` never submit. The external operation ID is execution metadata and never enters `CanonicalAlert`, `Decision`, `Incident`, or `InvestigationRequest`. It is not reused as public investigation evidence.
+
+The deterministic mock completes immediately and retains its generic public evidence contract. Velociraptor maps `process.list` to `Windows.System.Pslist`, schedules with `collect_client()`, returns the opaque flow ID, and polls that exact ID through `flows(client_id, flow_id)`. A new process can poll a persisted flow without invoking scheduling. Because v1 has no distinct caller-facing Velociraptor evidence locator, its public result has no evidence reference rather than exposing the flow ID.
+
+The supported Velociraptor API does not establish caller-supplied scheduling idempotency or flow discovery by Alert2IR operation key. If a scheduling request may have crossed the network but no flow ID became durable, Alert2IR records `recovery_required`. It does not submit again. This is duplicate suppression and conservative recovery, not proof of globally exactly-once remote execution.
 
 ## HTTP API
 
 ### `POST /v1/alerts`
 
-The route accepts the canonical alert schema and, after successful persistence, returns HTTP 200 with:
-
-- a server-generated `processing_id`;
-- the policy decision;
-- an incident, investigation request, and investigation result for `investigate`;
-- null investigation fields for `no_action`.
-
-`created_at` and persistence snapshot details are not exposed. The repository implements no public read, list, update, or delete route.
-
 | Status | Meaning |
 | --- | --- |
-| 200 | Processing completed and the result was persisted |
-| 409 | No configured investigation backend supports all requested capabilities |
-| 422 | The request failed schema or canonical-value validation |
-| 500 | Routing was ambiguous, or an internal, investigation-backend, or persistence failure occurred |
+| 200 | Processing completed and its public result is durable |
+| 202 | Processing is `accepted`, `planned`, `submitting`, `submitted`, or `recovery_required` |
+| 400 | Idempotency key is missing, duplicated, or invalid |
+| 409 | Scoped key conflicts with another canonical payload, or capability is unsupported |
+| 422 | Canonical request schema/domain validation failed |
+| 500 | Durable terminal failure, ambiguous routing, or an unexpected internal failure |
+| 503 | Durable acceptance or required persistence is unavailable |
 
-Unsupported and ambiguous routing have bounded typed error responses. Other internal failures return a generic error and do not expose exception text.
+Successful and status responses include `processing_id`, `state`, timestamps, `status_url`, available decision/result values, and bounded error metadata. They include `Location: /v1/processings/<processing_id>`. A replay includes `Idempotency-Replayed: true`. A completed replay returns the same processing ID and durable logical result without backend work. A deterministic durable failure is reconstructed with its public classification: for example, an unsupported-capability replay remains HTTP 409, while durable backend/internal failures retain their existing 5xx semantics.
 
-For each request, middleware generates a new UUID and returns it as `X-Request-ID`, including on request-validation and supported error paths. A caller-supplied `X-Request-ID` is ignored. The request ID is an HTTP-attempt correlation value, not the durable processing ID and not an OpenTelemetry trace ID.
+Every HTTP attempt receives a fresh server UUID in `X-Request-ID`; caller-supplied values remain ignored.
 
-## Liveness and readiness
+### `GET /v1/processings/{processing_id}`
 
-`GET /healthz` is process liveness only. It returns HTTP 200 with `{"status":"ok"}` and performs no PostgreSQL, investigation-backend, or observability dependency check. The Compose healthcheck intentionally uses this route.
+GET returns one bounded public status or 404. It exposes available decision, request, result, terminal timestamps, and sanitized error values. It does not expose the idempotency key, fingerprint, operation key, attempt claim data, backend credentials, or external operation ID. There is no list/search route and no GET-by-idempotency-key. A caller recovers a lost processing ID by replaying the original POST.
 
-`GET /readyz` verifies PostgreSQL connectivity and that the database is at the exact Alembic revision required by the application. It returns HTTP 200 with `{"status":"ready"}` when both checks pass, and a sanitized HTTP 503 response `{"status":"not_ready"}` otherwise. It does not check an investigation backend, Alloy, the central observability host, Prometheus, or Grafana.
+UUID possession is not authorization. Loopback publication remains the current trust assumption.
 
-## Processing identity and persistence
+## Recovery and reconciliation
 
-`processing_id` is the application-generated UUID and primary identity of one durable completed-processing record. It is allocated only after policy evaluation and any investigation-backend execution succeed, immediately before the save attempt. It is distinct from detection identity, `source_alert_id`, request ID, and trace/span identity; it is retained in logs and traces but is not promoted to a telemetry label.
+Application startup launches one bounded, failure-isolated reconciliation pass without delaying liveness/readiness. The query is row-bounded. The pass computes a monotonic deadline, starts no new work after observing an exhausted budget, and passes the smaller of the remaining pass budget and configured backend timeout to submission and polling. A known-operation timeout leaves the processing `submitted`. These controls are the strongest synchronous bound Alert2IR can enforce; a vendor library can still return after its supplied timeout, because v1 does not use unsafe thread or process cancellation. Operators can invoke the same one-shot mechanism:
 
-The application-facing repository stores one immutable completed aggregate: the processing ID, database-assigned timezone-aware `created_at`, accepted canonical alert, decision, and any incident/request/result graph. The deployed application uses the PostgreSQL repository. Each save uses a short transaction after orchestration; no database transaction spans investigation-backend execution. The processing ID is unique, and duplicate insertion fails rather than replacing a record.
+```bash
+python -m alert2ir.cli reconcile --once
+```
 
-The PostgreSQL representation uses an explicit snapshot version and preserves ordered entities, evidence, reasons, targets, and capability values. Migrations and schema constraints are the exact storage authority; they do not create independent identities for the nested domain values.
+Rules are state-safe:
 
-## External-effect and acknowledgement boundaries
+- `accepted` may repeat deterministic planning;
+- `planned` may win the first submission claim;
+- stale `submitting` becomes `recovery_required` because no supported backend discovery exists;
+- `submitted` polls only its durable external ID and may complete/fail/remain submitted;
+- `recovery_required` is not automatically advanced or resubmitted.
 
-An investigation backend may produce a remote effect before Alert2IR can finish local processing. The Velociraptor client, for example, emits `backend.operation.submitted` with the opaque operation reference after one remote flow is scheduled and before terminal polling. A later timeout, remote-status error, or persistence failure does not undo that flow. Consequently, an HTTP failure does not prove that no remote side effect occurred; operators should correlate the operation reference before deciding whether to retry.
+GET is read-only and never initiates submission.
 
-There is a separate persistence/response acknowledgement window. A database commit may succeed even if the client disconnects or does not observe the HTTP 200 response. The application provides no distributed transaction, durable idempotency key, automatic reconciliation, or retry protocol across the remote effect, local record, and HTTP acknowledgement boundaries.
+## Availability, security, and observability
 
-## Supported investigation capabilities
+`/healthz` remains process liveness only. `/readyz` checks PostgreSQL connectivity and exact revision `0002_durable_execution`; it does not wait for reconciliation or remote completion. Startup never runs Alembic.
 
-The runtime request factory asks for the open-string capability `process.list` and copies the alert entities into the investigation targets.
+Durable errors use bounded categories such as `idempotency_conflict`, `unsupported_capability`, `backend_selection_error`, `backend_submission_failed`, `backend_submission_unknown`, `backend_execution_failed`, `backend_timeout`, `backend_protocol_error`, `persistence_failed`, and `recovery_required`. Public detail is fixed and sanitized; arbitrary exception messages are not persisted or returned.
 
-- The deterministic `MockBackend` supports `process.list` without external systems and returns synthetic evidence.
-- The Velociraptor investigation backend supports `process.list` by privately mapping it to process collection. It requires exactly one `host` target with an exact configured host-to-client mapping, executes one synchronous bounded collection call, and returns the fresh opaque collection reference as evidence.
-
-The Velociraptor boundary does not expose process rows in the API result and does not provide discovery, hostname normalization, retry, cancellation, failover, fan-out, or generalized artifact selection.
-
-## Observability and correlation contract
-
-The application emits structured JSON events plus OpenTelemetry traces and metrics. Export is optional and failure-isolated from request processing. Telemetry does not contain raw alert payloads. Request ID, processing ID, trace ID, span ID, and investigation-backend operation reference remain distinct identifiers with different lifetimes.
-
-See the [observability operator guide](OBSERVABILITY.md) for correlation steps, bounded error categories, dashboards, alerts, and recovery procedures.
+Metrics use only bounded state, outcome, backend, and error-category dimensions. Processing, attempt, request, trace, fingerprint, idempotency, source-alert, and external-operation identities are never metric labels. Reconciliation establishes and resets correlation context separately for every work item.
 
 ## Current limitations
 
-- Canonical alerts must be supplied through `/v1/alerts`; there is no automatic Splunk, SIEM, EDR, or webhook ingestion adapter.
-- Request planning is limited to the deterministic `process.list` mapping, and the runtime configures exactly one investigation backend.
-- Request processing, investigation-backend execution, and PostgreSQL access are synchronous on the asynchronous route.
-- The application has no public processing retrieval, retry, durable idempotency, interrupted-work recovery, mutable incident lifecycle, or backend failover.
+- Alert delivery and source adapters remain external.
+- Runtime composition selects one mock or Velociraptor backend and one `process.list` plan.
+- V1 has one automatic attempt, one bounded startup pass, and an operator one-shot command; it has no permanent scheduler, worker service, queue, broker, cancellation, retry endpoint, fallback, or fan-out.
+- Velociraptor flow discovery by operation key is unsupported, so ambiguous scheduling requires verified operator resolution.
+- Source-scoped idempotency assumes trusted loopback callers and is not a broader access-control design.
 
-See the [roadmap](ROADMAP.md) for project direction instead of treating this list as a workstream ledger.
-
-## Sources of truth
-
-Executable source and tests define exact behavior. The principal references are:
-
-- [`src/alert2ir`](../src/alert2ir/) for API, application, domain, backend, persistence, and runtime composition;
-- [`tests`](../tests/) for executable contracts;
-- [`migrations`](../migrations/) for the database schema and migration policy;
-- [architecture](ARCHITECTURE.md) for system-level boundaries;
-- [deployment](DEPLOYMENT.md) for repository-defined Compose operation;
-- [observability](OBSERVABILITY.md) for telemetry and operator procedures;
-- [roadmap](ROADMAP.md) for project direction.
+See [ADR 0012](adr/0012-durable-processing-before-execution.md), [architecture](ARCHITECTURE.md), and [deployment](DEPLOYMENT.md).

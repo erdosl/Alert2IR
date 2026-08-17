@@ -56,12 +56,12 @@ class AlertOrchestratorTests(unittest.TestCase):
             request_factory=fail_if_called,
         )
 
-        result = orchestrator.process(make_alert(Severity.LOW))
+        result = orchestrator.plan(make_alert(Severity.LOW))
 
         self.assertEqual(result.decision.outcome, DecisionOutcome.NO_ACTION)
         self.assertIsNone(result.incident)
         self.assertIsNone(result.investigation_request)
-        self.assertIsNone(result.investigation_result)
+        self.assertIsNone(result.backend)
 
     def test_no_action_with_mismatched_policy_provenance_fails_early(self) -> None:
         class MismatchedPolicy:
@@ -86,7 +86,7 @@ class AlertOrchestratorTests(unittest.TestCase):
             ValueError,
             "decision source must match alert source",
         ):
-            orchestrator.process(make_alert(Severity.LOW))
+            orchestrator.plan(make_alert(Severity.LOW))
 
     def test_supported_investigation_produces_complete_chain(self) -> None:
         alert = make_alert(Severity.HIGH)
@@ -98,7 +98,7 @@ class AlertOrchestratorTests(unittest.TestCase):
             request_factory=make_process_request,
         )
 
-        result = orchestrator.process(alert)
+        result = orchestrator.plan(alert)
 
         self.assertEqual(result.decision.outcome, DecisionOutcome.INVESTIGATE)
         self.assertEqual(result.incident, Incident(alert, result.decision))
@@ -112,15 +112,7 @@ class AlertOrchestratorTests(unittest.TestCase):
             ("process.list",),
         )
         self.assertEqual(result.investigation_request.targets, alert.entities)
-        self.assertEqual(result.investigation_result.backend, "mock")
-        self.assertEqual(
-            result.investigation_result.completed_capabilities,
-            ("process.list",),
-        )
-        self.assertEqual(
-            result.investigation_result.evidence,
-            (EvidenceReference("mock:process.list", "mock-result"),),
-        )
+        self.assertEqual(result.backend.name, "mock")
 
     def test_repeated_processing_is_equal(self) -> None:
         alert = make_alert(Severity.HIGH)
@@ -132,7 +124,7 @@ class AlertOrchestratorTests(unittest.TestCase):
             request_factory=make_process_request,
         )
 
-        self.assertEqual(orchestrator.process(alert), orchestrator.process(alert))
+        self.assertEqual(orchestrator.plan(alert), orchestrator.plan(alert))
 
     def test_unsupported_capabilities_propagate(self) -> None:
         orchestrator = AlertOrchestrator(
@@ -142,7 +134,7 @@ class AlertOrchestratorTests(unittest.TestCase):
         )
 
         with self.assertRaises(UnsupportedCapabilitiesError):
-            orchestrator.process(make_alert(Severity.HIGH))
+            orchestrator.plan(make_alert(Severity.HIGH))
 
     def test_ambiguous_backends_propagate(self) -> None:
         orchestrator = AlertOrchestrator(
@@ -157,7 +149,7 @@ class AlertOrchestratorTests(unittest.TestCase):
         )
 
         with self.assertRaises(AmbiguousBackendError):
-            orchestrator.process(make_alert(Severity.HIGH))
+            orchestrator.plan(make_alert(Severity.HIGH))
 
     def test_mismatched_factory_request_fails_before_routing(self) -> None:
         other_alert = CanonicalAlert(
@@ -189,7 +181,7 @@ class AlertOrchestratorTests(unittest.TestCase):
             ValueError,
             "investigation request incident must match incident",
         ):
-            orchestrator.process(make_alert(Severity.HIGH))
+            orchestrator.plan(make_alert(Severity.HIGH))
 
     def test_unrecognized_decision_outcome_fails_explicitly(self) -> None:
         class FuturePolicy:
@@ -208,7 +200,7 @@ class AlertOrchestratorTests(unittest.TestCase):
         )
 
         with self.assertRaisesRegex(ValueError, "unsupported decision outcome"):
-            orchestrator.process(make_alert(Severity.HIGH))
+            orchestrator.plan(make_alert(Severity.HIGH))
 
 
 class OrchestrationResultInvariantTests(unittest.TestCase):
@@ -239,7 +231,7 @@ class OrchestrationResultInvariantTests(unittest.TestCase):
                 OrchestrationResult(decision, incident, request, result)
 
     def test_investigate_rejects_missing_incident(self) -> None:
-        with self.assertRaisesRegex(ValueError, "requires an incident"):
+        with self.assertRaisesRegex(ValueError, "complete result graph"):
             OrchestrationResult(
                 self.decision,
                 None,

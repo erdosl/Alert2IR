@@ -1,147 +1,171 @@
-from datetime import datetime, timezone
+from concurrent.futures import ThreadPoolExecutor
+from datetime import timedelta
 import unittest
-from uuid import UUID
+from uuid import uuid4
 
 from alert2ir.application import (
-    AlertOrchestrator,
+    ExecutionAttemptState,
     OrchestrationResult,
-    ProcessingRecord,
-    ProcessingRepository,
+    ProcessingState,
 )
-from alert2ir.backends import BackendRouter, MockBackend
-from alert2ir.core import (
-    BaselineSeverityPolicy,
-    CanonicalAlert,
-    DetectionIdentity,
-    Entity,
-    EvidenceReference,
-    Incident,
-    InvestigationRequest,
-    Severity,
-    SourceProvenance,
-)
+from alert2ir.backends import InvestigationResult
+from alert2ir.core import DecisionOutcome, EvidenceReference, Severity
 from alert2ir.persistence import InMemoryProcessingRepository
+from tests.test_durable_processing import (
+    LifecycleBackend,
+    MutableClock,
+    NOW,
+    accept_only,
+    make_alert,
+    plan_only,
+)
 
 
-PROCESSING_ID = UUID("d21c6356-09b6-4ed7-a6e1-97a9fc93f264")
-CREATED_AT = datetime(2026, 8, 11, 12, 0, tzinfo=timezone.utc)
-
-
-def make_alert(severity: Severity, identifier: str = "rule-42") -> CanonicalAlert:
-    return CanonicalAlert(
-        detection=DetectionIdentity(identifier, "Synthetic suspicious activity"),
-        detected_at=datetime(2026, 8, 11, 9, 30, tzinfo=timezone.utc),
-        source=SourceProvenance("synthetic", "alert-9001"),
-        entities=(Entity("host", "workstation-7"),),
-        severity=severity,
-        evidence=(EvidenceReference("record-100", "synthetic-record"),),
-    )
-
-
-def make_request(incident: Incident) -> InvestigationRequest:
-    return InvestigationRequest(
-        incident=incident,
-        desired_outcome="collect process inventory",
-        required_capabilities=("process.list",),
-        targets=incident.alert.entities,
-    )
-
-
-def make_orchestrator() -> AlertOrchestrator:
-    return AlertOrchestrator(
-        policy=BaselineSeverityPolicy(),
-        router=BackendRouter(
-            (MockBackend("mock", frozenset({"process.list"})),)
-        ),
-        request_factory=make_request,
-    )
-
-
-class ProcessingRecordTests(unittest.TestCase):
-    def test_naive_created_at_is_rejected(self) -> None:
-        alert = make_alert(Severity.LOW)
-        result = make_orchestrator().process(alert)
-
-        with self.assertRaisesRegex(ValueError, "timezone-aware"):
-            ProcessingRecord(
-                processing_id=PROCESSING_ID,
-                created_at=datetime(2026, 8, 11, 12, 0),
-                alert=alert,
-                result=result,
-            )
-
-    def test_different_complete_alert_with_same_source_is_rejected(self) -> None:
-        processed_alert = make_alert(Severity.HIGH, identifier="rule-42")
-        supplied_alert = make_alert(Severity.HIGH, identifier="rule-99")
-        self.assertEqual(processed_alert.source, supplied_alert.source)
-        result = make_orchestrator().process(processed_alert)
-
-        with self.assertRaisesRegex(ValueError, "incident alert must match"):
-            ProcessingRecord(
-                processing_id=PROCESSING_ID,
-                created_at=CREATED_AT,
-                alert=supplied_alert,
-                result=result,
-            )
-
-
-class InMemoryProcessingRepositoryTests(unittest.TestCase):
+class InMemoryDurableRepositoryTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.repository: ProcessingRepository = InMemoryProcessingRepository(
-            lambda: CREATED_AT
+        self.clock = MutableClock()
+        self.repository = InMemoryProcessingRepository(self.clock)
+        self.backend = LifecycleBackend()
+
+    def test_idempotent_acceptance_uses_scope_and_key_uniqueness(self) -> None:
+        first = accept_only(self.repository, key="Key")
+        version = first.fingerprint_version
+        digest = first.request_fingerprint
+        replay = self.repository.accept_processing(
+            uuid4(), first.alert, "synthetic", "Key", version, digest
         )
-        self.orchestrator = make_orchestrator()
+        self.assertFalse(replay.created)
+        self.assertEqual(replay.record.processing_id, first.processing_id)
+        self.assertEqual(len(self.repository._records), 1)
 
-    def test_low_flow_retains_separate_complete_alert_and_storage_metadata(self) -> None:
-        alert = make_alert(Severity.LOW)
-        result = self.orchestrator.process(alert)
+    def test_plan_and_attempt_one_are_created_atomically_once(self) -> None:
+        accepted = accept_only(self.repository)
+        first = plan_only(self.repository, self.backend, accepted)
+        second = plan_only(self.repository, self.backend, accepted)
+        self.assertIsNotNone(first)
+        self.assertIsNone(second)
+        self.assertEqual(first.record.state, ProcessingState.PLANNED)
+        self.assertEqual(first.attempt.attempt_number, 1)
+        self.assertEqual(len(self.repository._attempts), 1)
 
-        saved = self.repository.save(PROCESSING_ID, alert, result)
-        retrieved = self.repository.get(PROCESSING_ID)
-
-        self.assertEqual(saved.processing_id, PROCESSING_ID)
-        self.assertEqual(saved.created_at, CREATED_AT)
-        self.assertEqual(saved.alert, alert)
-        self.assertIsNone(saved.result.incident)
-        self.assertEqual(retrieved, saved)
-        self.assertEqual(retrieved.alert, alert)
-
-    def test_high_flow_retains_complete_request_and_result_graph(self) -> None:
-        alert = make_alert(Severity.HIGH)
-        result = self.orchestrator.process(alert)
-
-        saved = self.repository.save(PROCESSING_ID, alert, result)
-
-        self.assertEqual(self.repository.get(PROCESSING_ID), saved)
-        self.assertEqual(saved.result, result)
-        self.assertEqual(saved.result.incident.alert, alert)
-        self.assertEqual(saved.result.investigation_request, result.investigation_request)
-        self.assertEqual(saved.result.investigation_result, result.investigation_result)
-
-    def test_unknown_processing_id_returns_none(self) -> None:
-        self.assertIsNone(
-            self.repository.get(UUID("64a776fa-88c9-4149-9960-15bbb363381c"))
+    def test_concurrent_execution_claim_has_one_winner(self) -> None:
+        planned = plan_only(
+            self.repository, self.backend, accept_only(self.repository)
         )
-
-    def test_existing_processing_id_is_not_overwritten(self) -> None:
-        original_alert = make_alert(Severity.LOW)
-        original_result = self.orchestrator.process(original_alert)
-        original = self.repository.save(
-            PROCESSING_ID,
-            original_alert,
-            original_result,
-        )
-        replacement_alert = make_alert(Severity.HIGH)
-        replacement_result = self.orchestrator.process(replacement_alert)
-
-        with self.assertRaisesRegex(ValueError, "already exists"):
-            self.repository.save(
-                PROCESSING_ID,
-                replacement_alert,
-                replacement_result,
+        with ThreadPoolExecutor(max_workers=8) as executor:
+            claims = list(
+                executor.map(
+                    lambda _: self.repository.claim_attempt_for_submission(
+                        planned.attempt.attempt_id
+                    ),
+                    range(8),
+                )
             )
+        winners = [claim for claim in claims if claim is not None]
+        self.assertEqual(len(winners), 1)
+        self.assertEqual(winners[0].state, ExecutionAttemptState.SUBMITTING)
+        self.assertEqual(
+            self.repository.get(planned.record.processing_id).state,
+            ProcessingState.SUBMITTING,
+        )
 
-        self.assertEqual(self.repository.get(PROCESSING_ID), original)
+    def test_expected_state_cas_prevents_reentry(self) -> None:
+        planned = plan_only(
+            self.repository, self.backend, accept_only(self.repository)
+        )
+        claimed = self.repository.claim_attempt_for_submission(planned.attempt.attempt_id)
+        submitted = self.repository.mark_attempt_submitted(
+            claimed.attempt_id, "operation"
+        )
+        self.assertIsNone(
+            self.repository.claim_attempt_for_submission(planned.attempt.attempt_id)
+        )
+        self.assertIsNone(
+            self.repository.mark_attempt_submitted(claimed.attempt_id, "other")
+        )
+        self.assertEqual(submitted.external_operation_id, "operation")
+
+    def test_completion_stores_attempt_and_public_result_atomically(self) -> None:
+        planned = plan_only(
+            self.repository, self.backend, accept_only(self.repository)
+        )
+        claimed = self.repository.claim_attempt_for_submission(planned.attempt.attempt_id)
+        self.repository.mark_attempt_submitted(claimed.attempt_id, "operation")
+        result = OrchestrationResult(
+            planned.record.decision,
+            planned.record.incident,
+            planned.record.investigation_request,
+            InvestigationResult(
+                self.backend.name,
+                ("process.list",),
+                (EvidenceReference("result", None),),
+            ),
+        )
+        completed = self.repository.complete_processing(claimed.attempt_id, result)
+        self.assertEqual(completed.state, ProcessingState.COMPLETED)
+        self.assertEqual(completed.result, result)
+        self.assertEqual(
+            self.repository.get_attempt(claimed.attempt_id).state,
+            ExecutionAttemptState.COMPLETED,
+        )
+        self.assertIsNone(self.repository.complete_processing(claimed.attempt_id, result))
+
+    def test_terminal_failure_is_atomic_and_cannot_reenter_active_execution(self) -> None:
+        planned = plan_only(
+            self.repository, self.backend, accept_only(self.repository)
+        )
+        failed = self.repository.fail_processing(
+            planned.record.processing_id,
+            frozenset({ProcessingState.PLANNED}),
+            "backend_submission_failed",
+            "definitive failure",
+            planned.attempt.attempt_id,
+        )
+        self.assertEqual(failed.state, ProcessingState.FAILED)
+        self.assertEqual(
+            self.repository.get_attempt(planned.attempt.attempt_id).state,
+            ExecutionAttemptState.FAILED,
+        )
+        self.assertIsNone(
+            self.repository.claim_attempt_for_submission(planned.attempt.attempt_id)
+        )
+
+    def test_timeout_observation_keeps_known_operation_submitted(self) -> None:
+        planned = plan_only(
+            self.repository, self.backend, accept_only(self.repository)
+        )
+        claimed = self.repository.claim_attempt_for_submission(planned.attempt.attempt_id)
+        self.repository.mark_attempt_submitted(claimed.attempt_id, "operation")
+        self.repository.record_poll(
+            claimed.attempt_id,
+            "timeout",
+            "backend_timeout",
+            "known operation poll timed out",
+        )
+        record = self.repository.get(planned.record.processing_id)
+        attempt = self.repository.get_attempt(claimed.attempt_id)
+        self.assertEqual(record.state, ProcessingState.SUBMITTED)
+        self.assertEqual(attempt.state, ExecutionAttemptState.SUBMITTED)
+        self.assertEqual(attempt.external_operation_id, "operation")
+
+    def test_reconcilable_query_is_ordered_bounded_and_stale_aware(self) -> None:
+        accepted = accept_only(self.repository, make_alert(Severity.LOW), "accepted")
+        planned = plan_only(
+            self.repository,
+            self.backend,
+            accept_only(self.repository, key="submitting"),
+        )
+        self.repository.claim_attempt_for_submission(planned.attempt.attempt_id)
+        early = self.repository.find_reconcilable(
+            limit=10,
+            stale_submitting_before=NOW - timedelta(seconds=1),
+        )
+        self.assertEqual([item.processing_id for item in early], [accepted.processing_id])
+        late = self.repository.find_reconcilable(
+            limit=1,
+            stale_submitting_before=NOW,
+        )
+        self.assertEqual(len(late), 1)
 
 
 if __name__ == "__main__":

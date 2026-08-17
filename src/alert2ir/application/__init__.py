@@ -4,15 +4,40 @@ from alert2ir.application.orchestrator import (
     AlertOrchestrator,
     DecisionPolicy,
     OrchestrationResult,
+    PlanningResult,
 )
-from alert2ir.application.persistence import ProcessingRecord, ProcessingRepository
-from alert2ir.application.processing import PersistentAlertProcessor
+from alert2ir.application.persistence import (
+    ExecutionAttempt,
+    ExecutionAttemptState,
+    PlannedProcessing,
+    ProcessingAcceptance,
+    ProcessingRecord,
+    ProcessingRepository,
+    ProcessingState,
+)
+from alert2ir.application.processing import (
+    IdempotencyConflictError,
+    PersistenceUnavailableError,
+    PersistentAlertProcessor,
+    ProcessingOutcome,
+    ReconciliationReport,
+)
 
 __all__ = [
     "AlertOrchestrator",
     "DecisionPolicy",
     "OrchestrationResult",
+    "PlanningResult",
     "PersistentAlertProcessor",
+    "IdempotencyConflictError",
+    "PersistenceUnavailableError",
+    "ProcessingOutcome",
+    "ReconciliationReport",
+    "ExecutionAttempt",
+    "ExecutionAttemptState",
+    "PlannedProcessing",
+    "ProcessingAcceptance",
     "ProcessingRecord",
     "ProcessingRepository",
+    "ProcessingState",
 ]

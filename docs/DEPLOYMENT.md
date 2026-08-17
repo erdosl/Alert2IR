@@ -61,6 +61,8 @@ docker compose run --rm core alembic upgrade head
 
 `alembic upgrade head` is repeatable when the database is already at the required revision. Migration must complete before readiness acceptance.
 
+Durable Execution v1 advances the required revision from `0001_processing_records` to `0002_durable_execution`. Upgrade PostgreSQL first with the reviewed new image/code and migration command, then recreate `core` with that same revision. The migration preserves existing processing UUIDs and completed snapshots, backfills their lifecycle timestamps, leaves idempotency metadata null, and creates no historical execution attempts. Do not start the new application against `0001`; exact-revision readiness rejects it. Do not run the old application against the advanced mutable schema.
+
 ## Start the application
 
 After configuration validation and migration:
@@ -87,6 +89,20 @@ curl -fsS http://127.0.0.1:8000/readyz
 - `/readyz` returns HTTP 200 with `{"status":"ready"}`. This proves PostgreSQL connectivity and the required Alembic/schema revision.
 
 The `core` container healthcheck intentionally calls `/healthz`; Docker health does not replace the separate `/readyz` deployment-acceptance check. Readiness does not depend on an investigation backend or the observability platform.
+
+After startup, the application launches one bounded failure-isolated reconciliation pass. It does not delay liveness/readiness or wait for every remote operation. Review its bounded telemetry when incomplete work exists.
+
+## Durable processing operation
+
+Every alert caller must send a valid `Idempotency-Key`. Preserve the same key and canonical body when retrying after a lost acknowledgement. A completed replay returns the same processing ID; an active replay returns durable status without creating another attempt.
+
+Inspect one known processing through its returned `Location` path. For a bounded operator-triggered reconciliation pass, use the same application image and environment as the deployment:
+
+```bash
+docker compose run --rm core python -m alert2ir.cli reconcile --once
+```
+
+This command may plan accepted work, claim planned attempt 1, or poll a known external operation. A stale unknown submission becomes `recovery_required`; the command never blindly resubmits it. It is a one-shot operator mechanism, not a scheduler or worker daemon.
 
 ## Investigation backend modes
 
@@ -138,7 +154,7 @@ For an application revision change:
 6. Run `docker compose up -d core` to recreate the application service when required.
 7. Verify container state, `/healthz`, and `/readyz`.
 
-Migrations are forward-only: the baseline migration provides no supported downgrade. An older application revision is therefore not automatically safe against an advanced schema. Assess application/schema compatibility and data recovery before any rollback; this repository defines no arbitrary downgrade guarantee.
+Migrations are forward-only: neither the baseline nor Durable Execution migration provides a supported downgrade. An older application revision is not compatible with the mutable advanced lifecycle schema. Rollback requires a reviewed data restore or forward repair; retain a verified database backup before upgrade.
 
 ## Destructive reset boundary
 

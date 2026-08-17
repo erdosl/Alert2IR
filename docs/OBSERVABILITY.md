@@ -120,6 +120,7 @@ Prometheus routes alerts through Alertmanager to the internal `lab-null` receive
 | `trace_id` | OpenTelemetry trace identity | Structured logs and Tempo |
 | `span_id` | Active span identity | Structured logs |
 | `processing_id` | Durable application/persistence identity | Response, PostgreSQL, and structured logs |
+| `attempt_id` | Internal execution-attempt correlation | Selected structured reconciliation/execution events only |
 | Backend operation reference | Opaque remote-operation identity | Safe `backend.operation.submitted` event |
 
 These identifiers have different lifetimes and must not be substituted for each other. Processing and request identifiers are structured fields, not Prometheus or Loki stream labels.
@@ -136,7 +137,7 @@ These identifiers have different lifetimes and must not be substituted for each 
    ```
 
 3. Read `trace_id` from a structured event and use the provisioned derived field to open Tempo.
-4. Review the stable span path: `POST /v1/alerts`, `alert2ir.process`, optional `backend.investigate` and backend-specific span, then `persistence.save`.
+4. Review the HTTP span and bounded application evidence for acceptance, durable transitions, backend submission/polling, and completion.
 5. Use trace-to-logs to return to the surrounding Loki context.
 
 The UUID is synthetic. Never put runtime identifiers into Git documentation.
@@ -147,13 +148,13 @@ Search `processing_id` as a parsed JSON field in the same bounded Loki stream. U
 
 ### Backend remote-operation lookup
 
-`backend.operation.submitted` appears after a valid remote operation reference exists and before terminal polling. Search the opaque reference as a JSON field when determining whether remote work may outlive a later timeout or persistence failure. It is not a metric label, default span attribute, or Loki stream label. The event and ordering are deterministically tested; no live exercise is required for routine validation.
+`backend.operation.submitted` appears after a valid remote operation reference exists and before terminal polling. Search the opaque reference as a JSON field when determining whether remote work may outlive a later timeout or persistence failure. This narrowly scoped operator event does not make the operation reference public investigation evidence. The reference is not a metric label, default span attribute, or Loki stream label. The event and ordering are deterministically tested; no live exercise is required for routine validation.
 
 ## Error-category interpretation
 
 | Category | Operator interpretation |
 | --- | --- |
-| `input_validation` | FastAPI/Pydantic rejected the request |
+| `validation_error` | FastAPI/Pydantic rejected the canonical request |
 | `routing_unsupported` | No investigation backend supports the required capabilities |
 | `routing_ambiguous` | More than one investigation backend matched without a unique route |
 | `backend_target` | The investigation backend could not resolve or accept the target |
@@ -166,6 +167,8 @@ Search `processing_id` as a parsed JSON field in the same bounded Loki stream. U
 | `persistence_internal` | Another persistence-internal failure occurred |
 | `internal_error` | An unexpected application failure crossed the safe boundary |
 
+Durable Execution adds these bounded categories: `validation_error`, `idempotency_conflict`, `unsupported_capability`, `backend_selection_error`, `backend_submission_failed`, `backend_submission_unknown`, `backend_execution_failed`, `backend_protocol_error`, `persistence_failed`, and `recovery_required`. `backend_timeout` now means a known operation remains `submitted`; `backend_submission_unknown` means automatic resubmission is unsafe.
+
 Telemetry never derives dimensions from arbitrary exception messages or class names.
 
 ## Telemetry safety and cardinality
@@ -173,6 +176,10 @@ Telemetry never derives dimensions from arbitrary exception messages or class na
 Application telemetry excludes raw alert payloads, target values, source alert identifiers and titles, commands, credentials, DSNs, certificates, tokens, raw backend results, and arbitrary exception text.
 
 Correlation identifiers remain structured fields. Metrics and stream labels use only bounded dimensions such as host, controlled service identity, decision, outcome, capability, operation, and error category.
+
+Durable lifecycle metrics are `alert2ir.processing.transitions`, `alert2ir.idempotency.requests`, `alert2ir.backend.submissions`, `alert2ir.reconciliation.operations`, `alert2ir.processing.stale`, and `alert2ir.processing.recovery_required`. Their dimensions are restricted to bounded state, transition, outcome, backend, and error-category values. Idempotency keys, fingerprints, processing/attempt/external IDs, source alert IDs, and trace IDs are never metric labels.
+
+Reconciliation creates and resets correlation context for each row so processing or attempt identity cannot leak into the next non-HTTP work item. Idempotency keys and fingerprints are excluded from logs and traces as well as metrics.
 
 ## Alloy recovery
 

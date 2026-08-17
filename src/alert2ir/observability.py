@@ -38,12 +38,16 @@ _REQUEST_ID: ContextVar[str | None] = ContextVar(
 _PROCESSING_ID: ContextVar[str | None] = ContextVar(
     "alert2ir_processing_id", default=None
 )
+_ATTEMPT_ID: ContextVar[str | None] = ContextVar(
+    "alert2ir_attempt_id", default=None
+)
 _ERROR_CATEGORY: ContextVar[str | None] = ContextVar(
     "alert2ir_error_category", default=None
 )
 
 _EVENT_FIELDS = frozenset(
     {
+        "attempt_id",
         "backend",
         "capabilities",
         "capability",
@@ -60,6 +64,8 @@ _EVENT_FIELDS = frozenset(
         "persistence",
         "processing_id",
         "request_id",
+        "state",
+        "to_state",
         "target_count",
     }
 )
@@ -67,6 +73,45 @@ _BACKENDS = frozenset({"mock", "velociraptor"})
 _CAPABILITIES = frozenset({"process.list"})
 _DECISIONS = frozenset({"investigate", "no_action", "unknown"})
 _OUTCOMES = frozenset({"success", "timeout", "error"})
+_STATES = frozenset(
+    {
+        "accepted",
+        "planned",
+        "submitting",
+        "submitted",
+        "completed",
+        "failed",
+        "recovery_required",
+        "unknown",
+    }
+)
+_ERROR_CATEGORIES = frozenset(
+    {
+        "validation_error",
+        "idempotency_key_required",
+        "invalid_idempotency_key",
+        "idempotency_conflict",
+        "unsupported_capability",
+        "backend_selection_error",
+        "backend_submission_failed",
+        "backend_submission_unknown",
+        "backend_execution_failed",
+        "backend_timeout",
+        "backend_protocol_error",
+        "persistence_failed",
+        "recovery_required",
+        "routing_unsupported",
+        "routing_ambiguous",
+        "backend_target",
+        "backend_execution",
+        "persistence_unavailable",
+        "persistence_timeout",
+        "persistence_constraint",
+        "persistence_mapping",
+        "persistence_internal",
+        "internal_error",
+    }
+)
 _SAFE_SPAN_ATTRIBUTES = frozenset(
     {
         "alert2ir.backend",
@@ -133,6 +178,10 @@ def outcome_for_error(category: str) -> str:
     return "timeout" if category.endswith("_timeout") else "error"
 
 
+def bounded_error_category(value: str) -> str:
+    return value if value in _ERROR_CATEGORIES else "internal_error"
+
+
 def classify_error(error: BaseException, *, stage: str) -> str:
     """Map concrete failures into the shared bounded telemetry vocabulary."""
 
@@ -142,15 +191,26 @@ def classify_error(error: BaseException, *, stage: str) -> str:
         AmbiguousBackendError,
         UnsupportedCapabilitiesError,
     )
+    from alert2ir.backends.base import (
+        BackendProtocolError,
+        BackendSubmissionRejectedError,
+        BackendSubmissionUnknownError,
+    )
     from alert2ir.backends.velociraptor import (
         VelociraptorCollectionError,
         VelociraptorTargetError,
     )
 
     if isinstance(error, UnsupportedCapabilitiesError):
-        return "routing_unsupported"
+        return "unsupported_capability"
     if isinstance(error, AmbiguousBackendError):
-        return "routing_ambiguous"
+        return "backend_selection_error"
+    if isinstance(error, BackendSubmissionUnknownError):
+        return "backend_submission_unknown"
+    if isinstance(error, BackendSubmissionRejectedError):
+        return "backend_submission_failed"
+    if isinstance(error, BackendProtocolError):
+        return "backend_protocol_error"
     if isinstance(error, VelociraptorTargetError):
         return "backend_target"
     if isinstance(error, TimeoutError):
@@ -180,11 +240,13 @@ def request_context(request_id: str) -> Iterator[None]:
 
     request_token = _REQUEST_ID.set(request_id)
     processing_token = _PROCESSING_ID.set(None)
+    attempt_token = _ATTEMPT_ID.set(None)
     error_token = _ERROR_CATEGORY.set(None)
     try:
         yield
     finally:
         _ERROR_CATEGORY.reset(error_token)
+        _ATTEMPT_ID.reset(attempt_token)
         _PROCESSING_ID.reset(processing_token)
         _REQUEST_ID.reset(request_token)
 
@@ -201,12 +263,42 @@ def current_error_category() -> str | None:
     return _ERROR_CATEGORY.get()
 
 
-def set_processing_id(value: str) -> None:
+def current_attempt_id() -> str | None:
+    return _ATTEMPT_ID.get()
+
+
+def set_processing_id(value: str | None) -> None:
     _PROCESSING_ID.set(value)
 
 
-def set_error_category(value: str) -> None:
-    _ERROR_CATEGORY.set(value)
+def set_attempt_id(value: str | None) -> None:
+    _ATTEMPT_ID.set(value)
+
+
+def set_error_category(value: str | None) -> None:
+    _ERROR_CATEGORY.set(
+        None if value is None else bounded_error_category(value)
+    )
+
+
+@contextmanager
+def reconciliation_context(
+    processing_id: str,
+    attempt_id: str | None = None,
+) -> Iterator[None]:
+    """Set and reset all correlation values for one non-HTTP work item."""
+
+    request_token = _REQUEST_ID.set(None)
+    processing_token = _PROCESSING_ID.set(processing_id)
+    attempt_token = _ATTEMPT_ID.set(attempt_id)
+    error_token = _ERROR_CATEGORY.set(None)
+    try:
+        yield
+    finally:
+        _ERROR_CATEGORY.reset(error_token)
+        _ATTEMPT_ID.reset(attempt_token)
+        _PROCESSING_ID.reset(processing_token)
+        _REQUEST_ID.reset(request_token)
 
 
 class JsonEventLogger:
@@ -230,10 +322,13 @@ class JsonEventLogger:
         }
         request_id = current_request_id()
         processing_id = current_processing_id()
+        attempt_id = current_attempt_id()
         if request_id is not None:
             payload["request_id"] = request_id
         if processing_id is not None:
             payload["processing_id"] = processing_id
+        if attempt_id is not None:
+            payload["attempt_id"] = attempt_id
 
         span_context = trace.get_current_span().get_span_context()
         if span_context.is_valid:
@@ -362,6 +457,36 @@ class ApplicationObservability:
             unit="s",
             description="Persistence duration",
         )
+        self._transitions = meter.create_counter(
+            "alert2ir.processing.transitions",
+            unit="1",
+            description="Durable processing state transitions",
+        )
+        self._idempotency = meter.create_counter(
+            "alert2ir.idempotency.requests",
+            unit="1",
+            description="Bounded idempotency outcomes",
+        )
+        self._submissions = meter.create_counter(
+            "alert2ir.backend.submissions",
+            unit="1",
+            description="Backend submission attempts",
+        )
+        self._reconciliation = meter.create_counter(
+            "alert2ir.reconciliation.operations",
+            unit="1",
+            description="Bounded reconciliation work",
+        )
+        self._stale = meter.create_counter(
+            "alert2ir.processing.stale",
+            unit="1",
+            description="Stale durable processing observations",
+        )
+        self._recovery_required = meter.create_counter(
+            "alert2ir.processing.recovery_required",
+            unit="1",
+            description="Processings requiring verified recovery",
+        )
 
     @staticmethod
     def monotonic() -> float:
@@ -399,8 +524,74 @@ class ApplicationObservability:
     ) -> dict[str, str]:
         attributes = dict(base)
         if error_category is not None:
-            attributes["error_category"] = error_category
+            attributes["error_category"] = bounded_error_category(error_category)
         return attributes
+
+    def record_transition(
+        self,
+        *,
+        state: str,
+        to_state: str,
+        outcome: str = "success",
+        error_category: str | None = None,
+    ) -> None:
+        attributes = self._metric_attributes(
+            {
+                "state": state if state in _STATES else "unknown",
+                "to_state": to_state if to_state in _STATES else "unknown",
+                "outcome": outcome if outcome in _OUTCOMES else "error",
+            },
+            error_category,
+        )
+        self._transitions.add(1, attributes)
+
+    def record_idempotency(self, outcome: str) -> None:
+        bounded = outcome if outcome in {"accepted", "replayed", "conflict"} else "error"
+        self._idempotency.add(1, {"outcome": bounded})
+
+    def record_submission(
+        self,
+        *,
+        backend: str,
+        outcome: str,
+        error_category: str | None = None,
+    ) -> None:
+        attributes = self._metric_attributes(
+            {
+                "backend": bounded_backend(backend),
+                "outcome": outcome if outcome in _OUTCOMES else "error",
+            },
+            error_category,
+        )
+        self._submissions.add(1, attributes)
+
+    def record_reconciliation(
+        self,
+        *,
+        state: str,
+        outcome: str,
+        error_category: str | None = None,
+    ) -> None:
+        attributes = self._metric_attributes(
+            {
+                "state": state if state in _STATES else "unknown",
+                "outcome": outcome if outcome in _OUTCOMES else "error",
+            },
+            error_category,
+        )
+        self._reconciliation.add(1, attributes)
+
+    def record_stale(self, state: str) -> None:
+        self._stale.add(1, {"state": state if state in _STATES else "unknown"})
+
+    def record_recovery_required(self, *, backend: str, error_category: str) -> None:
+        self._recovery_required.add(
+            1,
+            {
+                "backend": bounded_backend(backend),
+                "error_category": bounded_error_category(error_category),
+            },
+        )
 
     def record_processing(
         self,

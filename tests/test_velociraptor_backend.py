@@ -105,7 +105,6 @@ from alert2ir.core import (
     CanonicalAlert,
     DetectionIdentity,
     Entity,
-    EvidenceReference,
     Incident,
     InvestigationRequest,
     Severity,
@@ -178,7 +177,7 @@ class VelociraptorBackendDeclarationTests(unittest.TestCase):
 
 
 class VelociraptorBackendExecutionTests(unittest.TestCase):
-    def test_process_list_collects_once_and_returns_existing_result_shape(self) -> None:
+    def test_process_list_collects_once_without_public_operation_evidence(self) -> None:
         client = RecordingCollectionClient("F.OPAQUE-COLLECTION")
         backend = make_backend(client)
         request = make_request(
@@ -193,10 +192,7 @@ class VelociraptorBackendExecutionTests(unittest.TestCase):
         )
         self.assertEqual(result.backend, "velociraptor")
         self.assertEqual(result.completed_capabilities, ("process.list",))
-        self.assertEqual(
-            result.evidence,
-            (EvidenceReference("F.OPAQUE-COLLECTION", "collection"),),
-        )
+        self.assertEqual(result.evidence, ())
 
     def test_unsupported_direct_execution_uses_existing_convention(self) -> None:
         request = make_request(required_capabilities=("file.hash",))

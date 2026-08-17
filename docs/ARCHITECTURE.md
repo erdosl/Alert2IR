@@ -9,43 +9,38 @@ The [project definition](PROJECT.md) owns mission and non-goals. The [applicatio
 ## Current logical architecture
 
 ```text
-Canonical alert request
-        |
-        v
-Alert2IR API validation and domain conversion
-        |
-        v
-Deterministic severity policy
-        |
-        +--------------------+
-        |                    |
-        v                    v
-   no_action             investigate
-                             |
-                             v
-                    investigation request
-                             |
-                             v
-                   capability-based router
-                             |
-                             v
-                  one investigation backend
-                             |
-                             v
-                       backend result
-        |                    |
-        +---------+----------+
-                  v
-       completed orchestration
+Canonical alert request + idempotency key
                   |
                   v
-   processing identity and completed aggregate
+       validation and fingerprint
                   |
                   v
-          PostgreSQL persistence
+ accepted processing committed in PostgreSQL
                   |
                   v
-              API response
+ deterministic policy and capability routing
+          |                       |
+          v                       v
+ no_action completion       plan + attempt committed
+                                    |
+                                    v
+                           atomic submission claim
+                                    |
+                                    v
+                     backend submit outside transaction
+                                    |
+                                    v
+                       external operation ID committed
+                                    |
+                                    v
+                         exact-operation poll/result
+          |                         |
+          +------------+------------+
+                       v
+             durable terminal result
+                       |
+                       v
+        HTTP 200 or durable 202 + status GET
 ```
 
 The Alert2IR application is a Python/FastAPI process. Its `src/alert2ir/core` package contains the vendor-neutral domain model and workflow contracts; it is not a separate service or the name of the whole application. The `core` name is reserved for the Compose service that runs the application.
@@ -79,7 +74,9 @@ Runtime composition provides exactly one investigation backend: the deterministi
 
 ## Persistence and availability boundaries
 
-PostgreSQL is the current durable store for completed processing aggregates. Persistence follows policy evaluation and any investigation-backend execution, uses a migration-managed schema, and assigns a durable processing identity before the save attempt. Detailed ordering, transaction, uniqueness, remote-effect, and HTTP-acknowledgement semantics belong in the [application reference](APPLICATION.md).
+PostgreSQL is the durable identity, state, and concurrency boundary. A processing containing the canonical alert, source-scoped idempotency key, versioned fingerprint, and server UUID commits before planning or an external effect. Execution attempts are separate rows. Unique constraints suppress duplicate logical acceptance, partial uniqueness limits active attempts, and expected-state updates select one submitter. No transaction or lock spans a backend network call.
+
+Completed `0001` rows remain readable historical processings with null idempotency metadata and no inferred attempt history. The new application requires exact revision `0002_durable_execution`. Detailed states, constraints, replay, status, and recovery semantics belong in the [application reference](APPLICATION.md) and [ADR 0012](adr/0012-durable-processing-before-execution.md).
 
 The availability endpoints deliberately expose different failure domains:
 
@@ -116,20 +113,20 @@ Telemetry export is failure-isolated from application processing, liveness, and 
 
 | Failure domain | Architectural effect |
 | --- | --- |
-| Investigation backend | An investigation request can fail without a completed local record. A submitted remote operation can nevertheless outlive a later timeout or persistence failure; the application reference defines this acknowledgement window. |
-| PostgreSQL | Readiness fails when connectivity or schema revision is wrong. A persistence failure prevents completion acknowledgement and may follow an already-submitted remote operation. |
+| Investigation backend | A definitive failure is durable. A known operation remains resumable after timeout/restart. An ambiguous submission without a durable ID becomes `recovery_required` and is not resubmitted. |
+| PostgreSQL | Readiness fails when connectivity or schema revision is wrong. No backend work begins unless acceptance committed. Failure after remote submission may leave durable `submitting`; stale reconciliation conservatively requires recovery. |
 | Local Alloy | Application processing, `/healthz`, and `/readyz` remain independent; telemetry can be delayed or lost during bounded non-blocking degradation. |
 | Central observability platform | Prometheus, Loki, Tempo, Grafana, and Alertmanager are operator facilities, not application dependencies. |
 | Detection platform | Detection execution or search can fail without changing the canonical Alert2IR API contract; alert delivery remains an external concern. |
 
-The architecture defines no high-availability, automatic retry, reconciliation, failover, fan-out, or arbitrary rollback guarantee.
+The architecture defines one row- and deadline-bounded startup reconciliation pass and one operator-triggered pass. Alert2IR propagates the remaining pass budget to supported backend submission and polling deadlines and starts no new work after observing exhaustion; synchronous vendor code may still overrun a supplied timeout. It defines no permanent scheduler, automatic submission retry, high availability, failover, fan-out, or arbitrary rollback guarantee.
 
 ## Trust and security boundaries
 
 - External alert input crosses the API validation boundary before becoming a canonical domain value.
 - PostgreSQL contains internal application state and is not published by the repository-defined Compose deployment.
 - Database and investigation-backend credentials, certificates, and live target mappings remain external secrets and must not enter Git.
-- Velociraptor calls cross an external-effect boundary; their opaque operation references are retained for correlation.
+- Velociraptor calls cross an external-effect boundary; opaque flow IDs remain execution metadata and are excluded from normal public status and investigation evidence.
 - Native Alloy access to Docker and containerd metadata is highly privileged and belongs only on trusted lab hosts.
 - The reference deployment publishes the application on host loopback; broader exposure requires an independently reviewed access-control and transport boundary.
 - Authorization for security testing is governed by [LAB_SCOPE.md](LAB_SCOPE.md), not inferred from network reachability or component capability.
@@ -138,7 +135,7 @@ The architecture defines no high-availability, automatic retry, reconciliation, 
 
 The [lab inventory](LAB.md) maps these logical contracts onto `ir-core`, `obs01`, and the other owned systems. Alternate deployments may place the application, database, telemetry collector, and observability backends differently while preserving the same boundaries.
 
-Intentional extension points are source adapters, policy implementations, investigation capabilities and backends, persistence implementations, and OpenTelemetry-compatible destinations. They do not imply that generalized source ingestion, correlation, asynchronous workers, commercial backends, Kubernetes, queues, caches, or distributed processing exist. Proposed work and deferrals belong in the [roadmap](ROADMAP.md).
+Intentional extension points are source adapters, policy implementations, investigation capabilities and backends, persistence implementations, and OpenTelemetry-compatible destinations. They do not imply that generalized source ingestion, correlation, permanent asynchronous workers, commercial backends, Kubernetes, queues, caches, or distributed processing exist. Database duplicate suppression does not prove globally exactly-once remote execution. Proposed work and deferrals belong in the [roadmap](ROADMAP.md).
 
 ## Related references
 

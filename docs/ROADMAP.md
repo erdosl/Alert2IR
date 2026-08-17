@@ -25,6 +25,7 @@ Workstream numbering communicates a useful progression but is not a rigid serial
 | WS13 — CrowdStrike | Deferred | Optional integration requires trial/license access and is not a dependency of Alert2IR operation. |
 | WS14 — Packer | Next | Evaluate and implement reproducible machine images where image lifecycle provides demonstrated value. |
 | WS15 — osquery / Extended Backends | Planned | Add capability-oriented investigation backends only when concrete use cases justify them. |
+| WS16 — Durable Execution | Complete | Source-scoped idempotent acceptance, canonical fingerprints, processing/attempt lifecycle, exact-operation resume, status retrieval, and bounded reconciliation delivered without a queue or worker service. |
 
 ## Next actionable workstream
 

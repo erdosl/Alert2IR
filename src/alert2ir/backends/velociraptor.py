@@ -10,14 +10,21 @@ from numbers import Real
 from pathlib import Path
 from types import MappingProxyType
 from typing import Protocol
+from uuid import UUID
 
 import grpc
 import pyvelociraptor
 from pyvelociraptor import api_pb2, api_pb2_grpc
 
-from alert2ir.backends.base import InvestigationResult
+from alert2ir.backends.base import (
+    BackendSubmissionRejectedError,
+    BackendSubmissionUnknownError,
+    InvestigationResult,
+    OperationState,
+    OperationStatus,
+    SubmittedOperation,
+)
 from alert2ir.backends.router import UnsupportedCapabilitiesError
-from alert2ir.core.models import EvidenceReference
 from alert2ir.core.workflow import InvestigationRequest
 from alert2ir.observability import (
     ApplicationObservability,
@@ -54,7 +61,7 @@ class VelociraptorConfigurationError(ValueError):
     """Raised when backend construction receives invalid configuration."""
 
 
-class VelociraptorTargetError(Exception):
+class VelociraptorTargetError(BackendSubmissionRejectedError):
     """Raised when a request cannot resolve one supported host target."""
 
 
@@ -62,19 +69,29 @@ class VelociraptorCollectionError(Exception):
     """Raised when collection execution or its return contract fails."""
 
 
-class VelociraptorCollectionClient(Protocol):
-    """Product-specific seam for one completed, retrievable collection."""
+class VelociraptorSubmissionUnknownError(BackendSubmissionUnknownError):
+    """Scheduling may have created a flow, but no reliable flow ID is known."""
 
-    def collect(
+
+class VelociraptorCollectionClient(Protocol):
+    """Product-specific seam for scheduling and exact-flow polling."""
+
+    def schedule(
         self,
         *,
         client_id: str,
         artifact: str,
         timeout_seconds: float,
-    ) -> str:
-        """Return a nonblank opaque reference after results are retrievable."""
-        ...
+    ) -> str: ...
 
+    def poll_flow(
+        self,
+        *,
+        client_id: str,
+        artifact: str,
+        flow_id: str,
+        timeout_seconds: float,
+    ) -> OperationStatus: ...
 
 def _vql_string_literal(value: str) -> str:
     if not isinstance(value, str) or not value.strip():
@@ -85,7 +102,7 @@ def _vql_string_literal(value: str) -> str:
 
 
 class PyVelociraptorCollectionClient:
-    """Certificate-authenticated client for one synchronous collection."""
+    """Certificate-authenticated client for split scheduling and flow polling."""
 
     def __init__(
         self,
@@ -197,7 +214,13 @@ class PyVelociraptorCollectionClient:
                 rows.extend(batch)
         except VelociraptorCollectionError:
             raise
-        except grpc.RpcError:
+        except grpc.RpcError as error:
+            try:
+                deadline_exceeded = error.code() == grpc.StatusCode.DEADLINE_EXCEEDED
+            except Exception:
+                deadline_exceeded = False
+            if deadline_exceeded:
+                raise TimeoutError("backend poll deadline exceeded") from None
             raise VelociraptorCollectionError(
                 "Velociraptor API query failed"
             ) from None
@@ -220,6 +243,143 @@ class PyVelociraptorCollectionClient:
     def _wait_for_next_poll(self, deadline: float) -> None:
         remaining = self._deadline_remaining(deadline)
         time.sleep(min(_POLL_INTERVAL_SECONDS, remaining))
+
+    def _query_once(
+        self,
+        vql: str,
+        *,
+        timeout_seconds: float,
+    ) -> list[dict[str, object]]:
+        channel = None
+        try:
+            try:
+                credentials = grpc.ssl_channel_credentials(
+                    root_certificates=self._ca_certificate.encode("utf-8"),
+                    private_key=self._client_private_key.encode("utf-8"),
+                    certificate_chain=self._client_cert.encode("utf-8"),
+                )
+                channel = grpc.secure_channel(
+                    self._api_connection_string,
+                    credentials,
+                    options=(("grpc.ssl_target_name_override", _TARGET_NAME_OVERRIDE),),
+                )
+                stub = api_pb2_grpc.APIStub(channel)
+            except Exception:
+                raise BackendSubmissionRejectedError(
+                    "backend channel could not be created"
+                ) from None
+            return self._run_query(stub, vql, timeout_seconds=timeout_seconds)
+        finally:
+            if channel is not None:
+                channel.close()
+
+    def schedule(
+        self,
+        *,
+        client_id: str,
+        artifact: str,
+        timeout_seconds: float,
+    ) -> str:
+        """Schedule one flow and return its ID without polling."""
+
+        timeout = self._validate_timeout(timeout_seconds)
+        client_literal = _vql_string_literal(client_id)
+        artifact_literal = _vql_string_literal(artifact)
+        timeout_literal = json.dumps(timeout, allow_nan=False)
+        vql = f"""\
+LET collection <= collect_client(
+    client_id={client_literal},
+    artifacts=[{artifact_literal}],
+    timeout={timeout_literal})
+
+SELECT
+    collection.flow_id AS flow_id,
+    collection.request.client_id AS client_id,
+    collection.request.artifacts AS artifacts
+FROM scope()
+"""
+        try:
+            rows = self._query_once(vql, timeout_seconds=timeout)
+        except BackendSubmissionRejectedError:
+            raise
+        except Exception:
+            raise VelociraptorSubmissionUnknownError(
+                "Velociraptor scheduling outcome is unknown"
+            ) from None
+        if len(rows) != 1:
+            raise VelociraptorSubmissionUnknownError(
+                "Velociraptor scheduling outcome is unknown"
+            )
+        row = rows[0]
+        flow_id = row.get("flow_id")
+        if (
+            not isinstance(flow_id, str)
+            or not flow_id.strip()
+            or not flow_id.startswith("F.")
+            or row.get("client_id") != client_id
+            or not self._validate_artifacts(row.get("artifacts"), artifact)
+        ):
+            raise VelociraptorSubmissionUnknownError(
+                "Velociraptor scheduling outcome is unknown"
+            )
+        self._observability.backend_operation_submitted(flow_id)
+        return flow_id
+
+    def poll_flow(
+        self,
+        *,
+        client_id: str,
+        artifact: str,
+        flow_id: str,
+        timeout_seconds: float,
+    ) -> OperationStatus:
+        """Poll exactly one known flow without scheduling VQL."""
+
+        timeout = self._validate_timeout(timeout_seconds)
+        client_literal = _vql_string_literal(client_id)
+        _vql_string_literal(artifact)
+        flow_literal = _vql_string_literal(flow_id)
+        vql = f"""\
+SELECT
+    session_id,
+    state,
+    request.client_id AS client_id,
+    request.artifacts AS artifacts,
+    status
+FROM flows(
+    client_id={client_literal},
+    flow_id={flow_literal})
+"""
+        rows = self._query_once(vql, timeout_seconds=timeout)
+        if not rows:
+            return OperationStatus(OperationState.NONTERMINAL, "UNSEEN")
+        if len(rows) != 1:
+            raise VelociraptorCollectionError(
+                "Velociraptor flow lookup returned an unexpected row count"
+            )
+        row = rows[0]
+        if (
+            row.get("session_id") != flow_id
+            or row.get("client_id") != client_id
+            or not self._validate_artifacts(row.get("artifacts"), artifact)
+        ):
+            raise VelociraptorCollectionError(
+                "Velociraptor flow lookup returned unverifiable identity"
+            )
+        state = row.get("state")
+        if not isinstance(state, str):
+            raise VelociraptorCollectionError(
+                "Velociraptor flow returned a malformed or unknown state"
+            )
+        if state in _TERMINAL_SUCCESS_FLOW_STATES:
+            return OperationStatus(OperationState.SUCCEEDED, state)
+        if state in _TERMINAL_FAILURE_FLOW_STATES:
+            return OperationStatus(OperationState.FAILED, state)
+        if state in _NONTERMINAL_FLOW_STATES:
+            return OperationStatus(OperationState.NONTERMINAL, state)
+        raise VelociraptorCollectionError(
+            "Velociraptor flow returned a malformed or unknown state"
+        )
 
     def collect(
         self,
@@ -409,7 +569,7 @@ class VelociraptorBackend:
     def capabilities(self) -> frozenset[str]:
         return frozenset({_PROCESS_LIST_CAPABILITY})
 
-    def investigate(self, request: InvestigationRequest) -> InvestigationResult:
+    def _resolve_client_id(self, request: InvestigationRequest) -> str:
         if not set(request.required_capabilities) <= self.capabilities:
             raise UnsupportedCapabilitiesError(request.required_capabilities)
 
@@ -425,18 +585,89 @@ class VelociraptorBackend:
             )
 
         try:
-            client_id = self.host_client_ids[target.value]
+            return self.host_client_ids[target.value]
         except KeyError as exc:
             raise VelociraptorTargetError(
                 "host target has no configured Velociraptor client mapping"
             ) from exc
+
+    def _effective_timeout(self, timeout_seconds: float | None) -> float:
+        if timeout_seconds is None:
+            return self.collection_timeout_seconds
+        if (
+            isinstance(timeout_seconds, bool)
+            or not isinstance(timeout_seconds, Real)
+            or not isfinite(float(timeout_seconds))
+            or timeout_seconds <= 0
+        ):
+            raise VelociraptorConfigurationError(
+                "operation timeout must be a finite positive number"
+            )
+        return min(self.collection_timeout_seconds, float(timeout_seconds))
+
+    def submit(
+        self,
+        request: InvestigationRequest,
+        operation_key: UUID,
+        *,
+        timeout_seconds: float | None = None,
+    ) -> SubmittedOperation:
+        # The current supported API cannot discover a flow by operation_key.
+        del operation_key
+        client_id = self._resolve_client_id(request)
+        flow_id = self.client.schedule(
+            client_id=client_id,
+            artifact=_PROCESS_LIST_ARTIFACT,
+            timeout_seconds=self._effective_timeout(timeout_seconds),
+        )
+        return SubmittedOperation(flow_id)
+
+    def poll(
+        self,
+        request: InvestigationRequest,
+        external_operation_id: str,
+        *,
+        timeout_seconds: float | None = None,
+    ) -> OperationStatus:
+        client_id = self._resolve_client_id(request)
+        return self.client.poll_flow(
+            client_id=client_id,
+            artifact=_PROCESS_LIST_ARTIFACT,
+            flow_id=external_operation_id,
+            timeout_seconds=self._effective_timeout(timeout_seconds),
+        )
+
+    def collect_result(
+        self,
+        request: InvestigationRequest,
+        external_operation_id: str,
+    ) -> InvestigationResult:
+        self._resolve_client_id(request)
+        if (
+            not isinstance(external_operation_id, str)
+            or not external_operation_id.strip()
+        ):
+            raise VelociraptorCollectionError(
+                "known collection reference is blank or invalid"
+            )
+        return InvestigationResult(
+            backend=self.name,
+            completed_capabilities=request.required_capabilities,
+            evidence=(),
+        )
+
+    def investigate(self, request: InvestigationRequest) -> InvestigationResult:
+        """Legacy synchronous helper kept outside the durable application path."""
+
+        client_id = self._resolve_client_id(request)
 
         observability = self.observability
         if observability is None:  # Defensive for static type narrowing.
             observability = no_op_observability()
         with observability.span("velociraptor.collect") as span:
             try:
-                collection_reference = self.client.collect(
+                legacy_collect = getattr(self.client, "collect")
+                collection_reference = legacy_collect(
                     client_id=client_id,
                     artifact=_PROCESS_LIST_ARTIFACT,
                     timeout_seconds=self.collection_timeout_seconds,
@@ -462,10 +693,5 @@ class VelociraptorBackend:
         return InvestigationResult(
             backend=self.name,
             completed_capabilities=request.required_capabilities,
-            evidence=(
-                EvidenceReference(
-                    reference=collection_reference,
-                    kind="collection",
-                ),
-            ),
+            evidence=(),
         )

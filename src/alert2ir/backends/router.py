@@ -47,3 +47,11 @@ class BackendRouter:
                 tuple(backend.name for backend in eligible),
             )
         return eligible[0]
+
+    def get(self, name: str) -> InvestigationBackend | None:
+        """Resolve a previously persisted backend selection exactly by name."""
+
+        matches = tuple(backend for backend in self.backends if backend.name == name)
+        if len(matches) == 1:
+            return matches[0]
+        return None

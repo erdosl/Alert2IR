@@ -1,16 +1,19 @@
 # Alert2IR
 
-Alert2IR is a vendor-neutral, detection-driven incident-response orchestration project. It accepts canonical security alerts, applies deterministic investigation policy, optionally invokes one capability-compatible investigation backend, persists completed processing, and returns a bounded API response. It does not replace a SIEM, EDR, forensic platform, or full SOAR product.
+Alert2IR is a vendor-neutral, detection-driven incident-response orchestration project. It durably accepts idempotent canonical alerts before external work, applies deterministic investigation policy, optionally drives one capability-compatible backend operation, and exposes bounded result/status retrieval. It does not replace a SIEM, EDR, forensic platform, full SOAR product, or distributed job platform.
 
 The current application path is:
 
 ```text
-canonical alert through POST /v1/alerts
-  -> validation and deterministic policy
-  -> optional capability-based investigation
-  -> PostgreSQL persistence
-  -> API response
+canonical alert + Idempotency-Key through POST /v1/alerts
+  -> validation and canonical fingerprint
+  -> accepted processing committed in PostgreSQL
+  -> deterministic policy and durable attempt planning
+  -> claimed submit, durable external operation ID, exact-operation poll
+  -> HTTP 200 or durable 202 + GET /v1/processings/{processing_id}
 ```
+
+PostgreSQL uniqueness suppresses duplicate logical acceptance, and an atomic attempt claim permits at most one automatic submission attempt in Durable Execution v1. A known operation is restart-resumable. An ambiguous remote submission becomes `recovery_required` and is never automatically resubmitted. These database guarantees do not prove globally exactly-once remote execution.
 
 Sigma is the canonical detection-as-code format, Splunk is the validated detection execution target, the deterministic mock investigation backend keeps application behavior testable without a live lab, and Velociraptor provides the implemented `process.list` investigation path. Detection execution and Alert2IR ingestion are separate: no Splunk-to-Alert2IR source adapter is implemented.
 
@@ -54,7 +57,7 @@ PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src \
   .venv/bin/python -m unittest discover -v
 ```
 
-Without `ALERT2IR_TEST_DATABASE_URL`, the six PostgreSQL migration/persistence tests skip. Point that variable only at a disposable test database when those integrations are required; never use a production, shared, or live-lab database.
+Without `ALERT2IR_TEST_DATABASE_URL`, the nine PostgreSQL migration/persistence tests skip. Point that variable only at a disposable test database when those integrations are required; never use a production, shared, or live-lab database.
 
 The ordinary environment intentionally excludes Sigma dependencies, so its two Sigma modules also skip. The [detection guide](docs/DETECTIONS.md) documents the separate pinned environment and 13 deterministic Sigma contracts.
 
