@@ -1,0 +1,214 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://alert2ir.test/schemas/dns-infrastructure-acceptance-v1.json",
+  "title": "Alert2IR DNS infrastructure acceptance evidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "acceptance_id",
+    "timestamp_utc",
+    "repository",
+    "pre_state",
+    "server",
+    "firewall",
+    "endpoints",
+    "rollback",
+    "overall_status",
+    "event22_attack_simulation_run"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "acceptance_id": {"type": "string", "format": "uuid"},
+    "timestamp_utc": {"type": "string", "format": "date-time"},
+    "repository": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["head", "branch", "working_tree_preexisting_changes_preserved"],
+      "properties": {
+        "head": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "branch": {"const": "main"},
+        "working_tree_preexisting_changes_preserved": {"const": true}
+      }
+    },
+    "pre_state": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["discovery_ufw_expectation", "observed_ufw_state", "default_incoming", "default_outgoing", "stored_allowance_count", "management_source"],
+      "properties": {
+        "discovery_ufw_expectation": {"const": "active"},
+        "observed_ufw_state": {"const": "inactive"},
+        "default_incoming": {"const": "deny"},
+        "default_outgoing": {"const": "allow"},
+        "stored_allowance_count": {"const": 0},
+        "management_source": {"const": "192.168.56.1"}
+      }
+    },
+    "server": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["host", "address", "interface", "bind_package_version", "service_unit", "service_active", "service_enabled", "config_hashes", "zone_hash", "listeners", "recursion", "forwarders", "authorized_clients", "authoritative_tests", "systemd_resolved_unchanged"],
+      "properties": {
+        "host": {"const": "dev01"},
+        "address": {"const": "192.168.56.64"},
+        "interface": {"const": "enp0s8"},
+        "bind_package_version": {"type": "string", "minLength": 1},
+        "service_unit": {"type": "string", "enum": ["named.service", "bind9.service"]},
+        "service_active": {"const": true},
+        "service_enabled": {"const": true},
+        "config_hashes": {
+          "type": "object",
+          "additionalProperties": {"$ref": "#/$defs/sha256"},
+          "minProperties": 3
+        },
+        "zone_hash": {"$ref": "#/$defs/sha256"},
+        "listeners": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["udp", "tcp", "prohibited_listener_count"],
+          "properties": {
+            "udp": {"const": ["192.168.56.64:53"]},
+            "tcp": {"const": ["192.168.56.64:53"]},
+            "prohibited_listener_count": {"const": 0}
+          }
+        },
+        "recursion": {"const": false},
+        "forwarders": {"const": []},
+        "authorized_clients": {"const": ["192.168.56.60", "192.168.56.62"]},
+        "authoritative_tests": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["soa", "known_a", "owned_nxdomain", "outside_refused", "unauthorized_source"],
+          "properties": {
+            "soa": {"$ref": "#/$defs/result"},
+            "known_a": {"$ref": "#/$defs/result"},
+            "owned_nxdomain": {"$ref": "#/$defs/result"},
+            "outside_refused": {"$ref": "#/$defs/result"},
+            "unauthorized_source": {"$ref": "#/$defs/result"}
+          }
+        },
+        "systemd_resolved_unchanged": {"const": true}
+      }
+    },
+    "firewall": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["active", "default_incoming", "rules", "broader_exposure", "existing_ssh_preserved", "new_ssh_reconnection"],
+      "properties": {
+        "active": {"const": true},
+        "default_incoming": {"const": "deny"},
+        "rules": {
+          "type": "array",
+          "minItems": 5,
+          "maxItems": 5,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/firewall_rule"}
+        },
+        "broader_exposure": {"const": false},
+        "existing_ssh_preserved": {"const": true},
+        "new_ssh_reconnection": {"type": "string", "enum": ["pass", "pending", "fail"]}
+      }
+    },
+    "endpoints": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {"$ref": "#/$defs/endpoint"}
+    },
+    "rollback": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["linux_check", "windows_exact_guid_removal", "management_rule_safe_default"],
+      "properties": {
+        "linux_check": {"$ref": "#/$defs/result"},
+        "windows_exact_guid_removal": {"$ref": "#/$defs/result"},
+        "management_rule_safe_default": {"const": "retain_unless_alternate_management_verified"}
+      }
+    },
+    "overall_status": {
+      "type": "string",
+      "enum": ["pass", "blocked", "review_required", "fail_leakage", "fail_listener", "fail_firewall", "fail_nrpt", "fail_authoritative"]
+    },
+    "event22_attack_simulation_run": {"const": false}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "result": {"type": "string", "enum": ["pass", "blocked", "review_required", "fail"]},
+    "firewall_rule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "destination", "interface", "protocol", "port", "comment"],
+      "properties": {
+        "source": {"type": "string", "format": "ipv4"},
+        "destination": {"const": "192.168.56.64"},
+        "interface": {"const": "enp0s8"},
+        "protocol": {"type": "string", "enum": ["tcp", "udp"]},
+        "port": {"type": "integer", "enum": [22, 53]},
+        "comment": {"type": "string", "pattern": "^Alert2IR (management SSH|DNS win11-0[12] (UDP|TCP))$"}
+      }
+    },
+    "dns_snapshot": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["interface", "address_family", "servers"],
+        "properties": {
+          "interface": {"type": "string", "minLength": 1},
+          "address_family": {"type": "string", "enum": ["IPv4", "IPv6"]},
+          "servers": {"type": "array", "items": {"type": "string"}}
+        }
+      }
+    },
+    "path_test": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["query_name", "client_result", "packets_to_dev01", "packets_to_nat", "packets_to_other_ipv4", "packets_to_ipv6", "packets_to_vpn", "raw_capture_deleted", "result"],
+      "properties": {
+        "query_name": {"type": "string", "pattern": "^[a-z0-9-]+\\.alert2ir\\.test$"},
+        "client_result": {"type": "string", "enum": ["answer_192.168.56.61", "authoritative_nxdomain", "resolution_failure"]},
+        "packets_to_dev01": {"type": "integer", "minimum": 0},
+        "packets_to_nat": {"const": 0},
+        "packets_to_other_ipv4": {"const": 0},
+        "packets_to_ipv6": {"const": 0},
+        "packets_to_vpn": {"const": 0},
+        "raw_capture_deleted": {"const": true},
+        "result": {"const": "pass"}
+      }
+    },
+    "ordinary_test": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["query_name", "client_result", "packets_to_nat", "packets_to_dev01", "raw_capture_deleted", "result"],
+      "properties": {
+        "query_name": {"const": "splunk.lab.test"},
+        "client_result": {"const": "answer_192.168.56.61"},
+        "packets_to_nat": {"const": 1},
+        "packets_to_dev01": {"const": 0},
+        "raw_capture_deleted": {"const": true},
+        "result": {"const": "pass"}
+      }
+    },
+    "endpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["host", "host_only_address", "interface_dns_pre", "interface_dns_post", "interface_dns_unchanged", "local_nrpt", "effective_nrpt", "rule_guid", "success_path", "nxdomain_path", "unavailable_server", "ordinary_dns", "recovery_lookup", "result"],
+      "properties": {
+        "host": {"type": "string", "enum": ["win11-01", "win11-02"]},
+        "host_only_address": {"type": "string", "enum": ["192.168.56.60", "192.168.56.62"]},
+        "interface_dns_pre": {"$ref": "#/$defs/dns_snapshot"},
+        "interface_dns_post": {"$ref": "#/$defs/dns_snapshot"},
+        "interface_dns_unchanged": {"const": true},
+        "local_nrpt": {"const": ".alert2ir.test -> 192.168.56.64"},
+        "effective_nrpt": {"const": ".alert2ir.test -> 192.168.56.64"},
+        "rule_guid": {"type": "string", "minLength": 1},
+        "success_path": {"$ref": "#/$defs/path_test"},
+        "nxdomain_path": {"$ref": "#/$defs/path_test"},
+        "unavailable_server": {"$ref": "#/$defs/path_test"},
+        "ordinary_dns": {"$ref": "#/$defs/ordinary_test"},
+        "recovery_lookup": {"$ref": "#/$defs/result"},
+        "result": {"$ref": "#/$defs/result"}
+      }
+    }
+  }
+}

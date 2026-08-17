@@ -1,0 +1,21 @@
+title: Alert2IR Script Host Child Ancestry Validation
+id: d1e4f829-7c81-4e72-b3e9-4acbb72d74ec
+status: test
+description: Validates a bounded PowerShell child whose immediate parent is the Windows console script host.
+author: Alert2IR
+date: 2026-08-17
+logsource:
+  product: windows
+  category: process_creation
+detection:
+  selection:
+    ParentImage|endswith: '\cscript.exe'
+    Image|endswith: '\powershell.exe'
+    CommandLine|contains: 'Start-Sleep -Seconds 5'
+  condition: selection
+falsepositives:
+  - Legitimate VBScript automation that launches this bounded PowerShell pattern
+level: informational
+tags:
+  - attack.execution
+  - attack.t1059.005

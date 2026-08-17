@@ -16,3 +16,6 @@ ADRs record accepted decisions that shape more than one part of Alert2IR. They d
 | [0010](0010-host-responsibilities.md) | Development, runtime, and hypervisor separation |
 | [0011](0011-observability-architecture.md) | OpenTelemetry and a failure-isolated reference observability platform |
 | [0012](0012-durable-processing-before-execution.md) | Durable idempotent processing before external execution and separate execution attempts |
+| `0013-bounded-attack-simulation-breadth.md` | Seven-scenario bounded breadth portfolio, local safe wrappers, and versioned evidence authorities |
+| `0014-dev01-authoritative-dns-and-windows-nrpt.md` | Native authoritative-only BIND on dev01, exact UFW exposure, and endpoint-local fail-closed Windows NRPT |
+| `0015-bounded-live-attack-simulation-coverage.md` | Preserve static breadth while deliberately deferring PowerShell-wrapper live execution under the current Windows baseline |

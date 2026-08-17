@@ -1,0 +1,20 @@
+title: Alert2IR Benign Alternate Stream Validation
+id: 5f0c3a6e-4cc9-47fc-8303-c1433b78220b
+status: test
+description: Validates stream-hash telemetry for the repository-reviewed run-scoped benign ADS behavior.
+author: Alert2IR
+date: 2026-08-17
+logsource:
+  product: windows
+  category: create_stream_hash
+detection:
+  selection_path:
+    TargetFilename|startswith: 'C:\Windows\Temp\Alert2IR-ADS-'
+  selection_stream:
+    TargetFilename|contains: ':Alert2IR-'
+  condition: selection_path and selection_stream
+falsepositives:
+  - Repository-controlled validation activity using the same reserved prefix
+level: informational
+tags:
+  - attack.t1564.004

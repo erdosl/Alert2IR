@@ -1,0 +1,13 @@
+$TTL 300
+@   IN SOA dev01.alert2ir.test. hostmaster.alert2ir.test. (
+        2026081701
+        300
+        120
+        604800
+        300
+)
+
+    IN NS  dev01.alert2ir.test.
+
+dev01   IN A  192.168.56.64
+splunk  IN A  192.168.56.61

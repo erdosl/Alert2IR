@@ -1,0 +1,45 @@
+name: Alert2IR Splunk XML Sysmon Tier 1 breadth
+priority: 20
+allowed_backends:
+  - splunk
+transformations:
+  - id: alert2ir_splunk_xml_sysmon_network_connection
+    type: add_condition
+    conditions:
+      source: XmlWinEventLog:Microsoft-Windows-Sysmon/Operational
+      sourcetype: XmlWinEventLog
+      EventCode: 3
+    rule_conditions:
+      - type: logsource
+        product: windows
+        category: network_connection
+  - id: alert2ir_splunk_xml_sysmon_file_event
+    type: add_condition
+    conditions:
+      source: XmlWinEventLog:Microsoft-Windows-Sysmon/Operational
+      sourcetype: XmlWinEventLog
+      EventCode: 11
+    rule_conditions:
+      - type: logsource
+        product: windows
+        category: file_event
+  - id: alert2ir_splunk_xml_sysmon_create_stream_hash
+    type: add_condition
+    conditions:
+      source: XmlWinEventLog:Microsoft-Windows-Sysmon/Operational
+      sourcetype: XmlWinEventLog
+      EventCode: 15
+    rule_conditions:
+      - type: logsource
+        product: windows
+        category: create_stream_hash
+  - id: alert2ir_splunk_xml_sysmon_dns_query
+    type: add_condition
+    conditions:
+      source: XmlWinEventLog:Microsoft-Windows-Sysmon/Operational
+      sourcetype: XmlWinEventLog
+      EventCode: 22
+    rule_conditions:
+      - type: logsource
+        product: windows
+        category: dns_query

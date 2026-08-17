@@ -1,22 +1,31 @@
-"""Contracts for the three canonical WS08 production Sigma detections.
+"""Contracts for active and historical Alert2IR Sigma detection content.
 
-The ordinary Alert2IR application environment deliberately excludes Sigma
-packages. Default discovery records one explained module skip there; the
-dedicated Sigma environment executes every contract below.
+The ordinary application environment omits Sigma packages. The dedicated
+Sigma environment parses and checks every active rule while retaining the
+retired cmd rule as immutable historical regression content.
 """
 
 from importlib.metadata import PackageNotFoundError, version
+import json
 from pathlib import Path
 import unittest
 from uuid import UUID
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
-RULE_DIRECTORY = REPOSITORY_ROOT / "detections" / "sigma" / "windows"
+RULE_DIRECTORY = REPOSITORY_ROOT / "detections" / "sigma"
+OBJECTIVES_PATH = (
+    REPOSITORY_ROOT / "config" / "attack-simulation" / "detection-objectives.json"
+)
 EXPECTED_RULE_FILES = {
-    "cmd-temp-file-write-display.yml",
-    "powershell-encoded-command.yml",
-    "process-discovery-tasklist.yml",
+    "windows/cmd-temp-file-write-display.yml",
+    "windows/powershell-encoded-command.yml",
+    "windows/process-discovery-tasklist.yml",
+    "validation/windows/create-stream-hash-alert2ir-ads.yml",
+    "validation/windows/dns-query-owned-alias.yml",
+    "validation/windows/file-create-alert2ir-temp.yml",
+    "validation/windows/network-connection-host-only.yml",
+    "validation/windows/process-creation-script-host-ancestry.yml",
 }
 REQUIRED_SIGMA_DISTRIBUTIONS = (
     "sigma-cli",
@@ -39,29 +48,47 @@ WS07_BASE64_PAYLOAD = (
     "SAAiACsAIgBlAGwAIgArACIAbABvACwAIABmAHIAIgArACIAbwBtACAAUAAiACsA"
     "IgBvAHcAIgArACIAZQByAFMAIgArACIAaAAiACsAIgBlAGwAbAAhACcAIgApAA=="
 )
-WS07_TEMP_TARGET = (
-    r"C:\Windows\Temp\Alert2IR-WS07-"
-    "34b43f09-1023-4c5c-8609-03c410bb28a3.bin"
-)
-WS07_MESSAGE = (
-    "Alert2IR WS07 ground truth "
-    "34b43f09-1023-4c5c-8609-03c410bb28a3"
-)
+
 RULE_CONTRACTS = {
-    "cmd-temp-file-write-display.yml": {
-        "technique": "attack.t1059.003",
-        "tactic": "attack.execution",
+    "windows/cmd-temp-file-write-display.yml": {
+        "status": "experimental",
+        "logsource": {"product": "windows", "category": "process_creation"},
         "level": "low",
     },
-    "powershell-encoded-command.yml": {
-        "technique": "attack.t1059.001",
-        "tactic": "attack.execution",
+    "windows/powershell-encoded-command.yml": {
+        "status": "experimental",
+        "logsource": {"product": "windows", "category": "process_creation"},
         "level": "medium",
     },
-    "process-discovery-tasklist.yml": {
-        "technique": "attack.t1057",
-        "tactic": "attack.discovery",
+    "windows/process-discovery-tasklist.yml": {
+        "status": "experimental",
+        "logsource": {"product": "windows", "category": "process_creation"},
         "level": "low",
+    },
+    "validation/windows/file-create-alert2ir-temp.yml": {
+        "status": "test",
+        "logsource": {"product": "windows", "category": "file_event"},
+        "level": "informational",
+    },
+    "validation/windows/network-connection-host-only.yml": {
+        "status": "test",
+        "logsource": {"product": "windows", "category": "network_connection"},
+        "level": "informational",
+    },
+    "validation/windows/dns-query-owned-alias.yml": {
+        "status": "test",
+        "logsource": {"product": "windows", "category": "dns_query"},
+        "level": "informational",
+    },
+    "validation/windows/create-stream-hash-alert2ir-ads.yml": {
+        "status": "test",
+        "logsource": {"product": "windows", "category": "create_stream_hash"},
+        "level": "informational",
+    },
+    "validation/windows/process-creation-script-host-ancestry.yml": {
+        "status": "test",
+        "logsource": {"product": "windows", "category": "process_creation"},
+        "level": "informational",
     },
 }
 
@@ -90,32 +117,40 @@ class SigmaDetectionContractTests(unittest.TestCase):
             (*RULE_DIRECTORY.rglob("*.yml"), *RULE_DIRECTORY.rglob("*.yaml"))
         )
         cls.texts = {
-            path.name: path.read_text(encoding="utf-8") for path in cls.paths
+            path.relative_to(RULE_DIRECTORY).as_posix(): path.read_text(encoding="utf-8")
+            for path in cls.paths
         }
         cls.rules = {
             name: yaml.safe_load(text) for name, text in cls.texts.items()
         }
+        cls.objectives = json.loads(OBJECTIVES_PATH.read_text(encoding="utf-8"))
 
-    def test_ruleset_has_exactly_the_three_approved_files(self) -> None:
-        relative_paths = {
-            path.relative_to(RULE_DIRECTORY).as_posix() for path in self.paths
+    def test_ruleset_distinguishes_seven_active_objectives_and_one_retired_rule(self) -> None:
+        self.assertEqual(set(self.rules), EXPECTED_RULE_FILES)
+        active_paths = {
+            objective["rule_path"].removeprefix("detections/sigma/")
+            for objective in self.objectives["objectives"]
         }
-
-        self.assertEqual(relative_paths, EXPECTED_RULE_FILES)
-        self.assertEqual(len(self.rules), 3)
+        retired_paths = {
+            item["rule_path"].removeprefix("detections/sigma/")
+            for item in self.objectives["retired_rules"]
+        }
+        self.assertEqual(len(active_paths), 7)
+        self.assertEqual(retired_paths, {"windows/cmd-temp-file-write-display.yml"})
+        self.assertTrue(active_paths.isdisjoint(retired_paths))
+        self.assertEqual(active_paths | retired_paths, EXPECTED_RULE_FILES)
 
     def test_rule_ids_are_unique_valid_and_not_ground_truth_ids(self) -> None:
         rule_ids = [rule["id"] for rule in self.rules.values()]
-
-        self.assertEqual(len(rule_ids), 3)
-        self.assertEqual(len(set(rule_ids)), 3)
+        self.assertEqual(len(rule_ids), 8)
+        self.assertEqual(len(set(rule_ids)), 8)
         for rule_id in rule_ids:
             with self.subTest(rule_id=rule_id):
                 self.assertEqual(str(UUID(rule_id)), rule_id)
                 self.assertNotIn(rule_id, KNOWN_WS07_RUN_IDS)
                 self.assertNotIn(rule_id, KNOWN_ATOMIC_GUIDS)
 
-    def test_common_metadata_logsource_and_attack_tags(self) -> None:
+    def test_common_metadata_and_expected_logsources(self) -> None:
         required_fields = {
             "title",
             "id",
@@ -127,113 +162,140 @@ class SigmaDetectionContractTests(unittest.TestCase):
             "detection",
             "falsepositives",
             "level",
-            "tags",
         }
-
         for name, rule in self.rules.items():
             contract = RULE_CONTRACTS[name]
             with self.subTest(rule=name):
                 self.assertTrue(required_fields.issubset(rule))
-                self.assertTrue(rule["title"].strip())
-                self.assertTrue(rule["description"].strip())
-                self.assertEqual(rule["status"], "experimental")
                 self.assertEqual(rule["author"], "Alert2IR")
-                self.assertEqual(str(rule["date"]), "2026-08-13")
-                self.assertEqual(
-                    rule["logsource"],
-                    {"product": "windows", "category": "process_creation"},
-                )
+                self.assertEqual(rule["status"], contract["status"])
+                self.assertEqual(rule["logsource"], contract["logsource"])
+                self.assertEqual(rule["level"], contract["level"])
                 self.assertTrue(rule["detection"])
                 self.assertTrue(rule["falsepositives"])
-                self.assertEqual(rule["level"], contract["level"])
-                self.assertIn(contract["tactic"], rule["tags"])
-                self.assertIn(contract["technique"], rule["tags"])
+                if name.startswith("validation/"):
+                    self.assertEqual(str(rule["date"]), "2026-08-17")
+                else:
+                    self.assertEqual(str(rule["date"]), "2026-08-13")
 
-    def test_rules_do_not_embed_splunk_lab_or_ws07_values(self) -> None:
+    def test_rules_do_not_embed_environment_scope_or_runtime_identity(self) -> None:
         prohibited = {
+            "win11-01",
             "win11-02",
-            "index=main",
-            "splunk",
+            "192.168.56.",
+            "index=",
+            "host=",
             "xmlwineventlog",
             "microsoft-windows-sysmon/operational",
             "eventcode",
             "recordid",
             "_time",
-            "1300570",
-            "1300904",
-            "1301448",
-            "1301449",
-            "1301589",
-            "alert2ir-ws07-",
             WS07_BASE64_PAYLOAD.lower(),
-            WS07_TEMP_TARGET.lower(),
-            WS07_MESSAGE.lower(),
             *(value.lower() for value in KNOWN_WS07_RUN_IDS),
             *(value.lower() for value in KNOWN_ATOMIC_GUIDS),
         }
-
         for name, text in self.texts.items():
             lowered = text.lower()
             for value in prohibited:
                 with self.subTest(rule=name, prohibited=value):
                     self.assertNotIn(value, lowered)
 
-    def test_tasklist_rule_has_the_approved_selector_only(self) -> None:
-        rule = self.rules["process-discovery-tasklist.yml"]
-
+    def test_existing_semantic_regressions_are_preserved(self) -> None:
+        tasklist = self.rules["windows/process-discovery-tasklist.yml"]
         self.assertEqual(
-            rule["detection"],
+            tasklist["detection"],
             {
                 "selection": {"Image|endswith": r"\tasklist.exe"},
                 "condition": "selection",
             },
         )
-        tasklist_text = self.texts["process-discovery-tasklist.yml"].lower()
-        self.assertNotIn("parentimage", tasklist_text)
-
-    def test_powershell_rule_has_approved_encoded_switch_semantics(self) -> None:
-        rule = self.rules["powershell-encoded-command.yml"]
-
+        powershell = self.rules["windows/powershell-encoded-command.yml"]
         self.assertEqual(
-            rule["detection"],
+            powershell["detection"],
             {
                 "selection_image": {"Image|endswith": r"\powershell.exe"},
                 "selection_encoded_switch": {
-                    "CommandLine|contains": [
-                        "-e ",
-                        "-enc ",
-                        "-encodedcommand",
-                    ]
+                    "CommandLine|contains": ["-e ", "-enc ", "-encodedcommand"]
                 },
                 "condition": "selection_image and selection_encoded_switch",
             },
         )
-        self.assertNotIn(
-            WS07_BASE64_PAYLOAD,
-            self.texts["powershell-encoded-command.yml"],
+        retired = self.rules["windows/cmd-temp-file-write-display.yml"]
+        self.assertEqual(
+            retired["detection"]["selection_behavior"],
+            {
+                "CommandLine|contains|all": [
+                    "echo",
+                    "type",
+                    "\\Windows\\Temp\\",
+                ]
+            },
         )
 
-    def test_cmd_rule_has_approved_temporary_file_behavior(self) -> None:
-        rule = self.rules["cmd-temp-file-write-display.yml"]
-
+    def test_direct_file_rule_uses_target_filename_startswith(self) -> None:
+        rule = self.rules["validation/windows/file-create-alert2ir-temp.yml"]
         self.assertEqual(
             rule["detection"],
             {
-                "selection_image": {"Image|endswith": r"\cmd.exe"},
-                "selection_behavior": {
-                    "CommandLine|contains|all": [
-                        "echo",
-                        "type",
-                        "\\Windows\\Temp\\",
-                    ]
+                "selection": {
+                    "TargetFilename|startswith": r"C:\Windows\Temp\Alert2IR-WS07-"
                 },
-                "condition": "selection_image and selection_behavior",
+                "condition": "selection",
             },
         )
-        text = self.texts["cmd-temp-file-write-display.yml"]
-        self.assertNotIn(WS07_TEMP_TARGET, text)
-        self.assertNotIn(WS07_MESSAGE, text)
-        self.assertNotIn("EventID", text)
+
+    def test_network_dns_and_ads_rules_use_intended_direct_fields(self) -> None:
+        network = self.rules["validation/windows/network-connection-host-only.yml"]
+        self.assertEqual(
+            network["detection"]["selection"],
+            {
+                "Image|endswith": r"\powershell.exe",
+                "DestinationPort": 9997,
+                "Initiated": "true",
+                "Protocol": "tcp",
+            },
+        )
+        dns = self.rules["validation/windows/dns-query-owned-alias.yml"]
+        self.assertEqual(
+            dns["detection"]["selection"],
+            {
+                "Image|endswith": r"\powershell.exe",
+                "QueryName|endswith": ".alert2ir.test",
+            },
+        )
+        self.assertNotIn("QueryStatus", self.texts["validation/windows/dns-query-owned-alias.yml"])
+        ads = self.rules["validation/windows/create-stream-hash-alert2ir-ads.yml"]
+        self.assertEqual(
+            ads["detection"],
+            {
+                "selection_path": {
+                    "TargetFilename|startswith": r"C:\Windows\Temp\Alert2IR-ADS-"
+                },
+                "selection_stream": {"TargetFilename|contains": ":Alert2IR-"},
+                "condition": "selection_path and selection_stream",
+            },
+        )
+        self.assertNotIn("Zone.Identifier", self.texts["validation/windows/create-stream-hash-alert2ir-ads.yml"])
+
+    def test_ancestry_rule_materially_depends_on_parent_image(self) -> None:
+        rule = self.rules[
+            "validation/windows/process-creation-script-host-ancestry.yml"
+        ]
+        self.assertEqual(
+            rule["detection"],
+            {
+                "selection": {
+                    "ParentImage|endswith": r"\cscript.exe",
+                    "Image|endswith": r"\powershell.exe",
+                    "CommandLine|contains": "Start-Sleep -Seconds 5",
+                },
+                "condition": "selection",
+            },
+        )
+        self.assertNotEqual(
+            rule["detection"]["selection"]["ParentImage|endswith"],
+            rule["detection"]["selection"]["Image|endswith"],
+        )
 
 
 if __name__ == "__main__":

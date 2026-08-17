@@ -1,0 +1,86 @@
+{
+  "schema_version": 1,
+  "server": {
+    "host": "dev01",
+    "ipv4": "192.168.56.64",
+    "interface": "enp0s8",
+    "nat_ipv4": "10.0.2.15",
+    "listeners": {
+      "ipv4": [
+        "192.168.56.64"
+      ],
+      "ipv6": []
+    }
+  },
+  "zone": {
+    "name": "alert2ir.test.",
+    "recursion": false,
+    "forwarders": [],
+    "dynamic_update": false,
+    "zone_transfer": false,
+    "records": {
+      "dev01.alert2ir.test.": "192.168.56.64",
+      "splunk.alert2ir.test.": "192.168.56.61"
+    }
+  },
+  "clients": [
+    {
+      "host": "win11-01",
+      "ipv4": "192.168.56.60"
+    },
+    {
+      "host": "win11-02",
+      "ipv4": "192.168.56.62"
+    }
+  ],
+  "nrpt_contract": "config/windows/nrpt-alert2ir.test.json",
+  "firewall": {
+    "default_incoming": "deny",
+    "management": {
+      "source_ipv4": "192.168.56.1",
+      "destination_ipv4": "192.168.56.64",
+      "interface": "enp0s8",
+      "protocol": "tcp",
+      "destination_port": 22,
+      "comment": "Alert2IR management SSH"
+    },
+    "dns": [
+      {
+        "client": "win11-01",
+        "source_ipv4": "192.168.56.60",
+        "destination_ipv4": "192.168.56.64",
+        "interface": "enp0s8",
+        "protocol": "udp",
+        "destination_port": 53,
+        "comment": "Alert2IR DNS win11-01 UDP"
+      },
+      {
+        "client": "win11-01",
+        "source_ipv4": "192.168.56.60",
+        "destination_ipv4": "192.168.56.64",
+        "interface": "enp0s8",
+        "protocol": "tcp",
+        "destination_port": 53,
+        "comment": "Alert2IR DNS win11-01 TCP"
+      },
+      {
+        "client": "win11-02",
+        "source_ipv4": "192.168.56.62",
+        "destination_ipv4": "192.168.56.64",
+        "interface": "enp0s8",
+        "protocol": "udp",
+        "destination_port": 53,
+        "comment": "Alert2IR DNS win11-02 UDP"
+      },
+      {
+        "client": "win11-02",
+        "source_ipv4": "192.168.56.62",
+        "destination_ipv4": "192.168.56.64",
+        "interface": "enp0s8",
+        "protocol": "tcp",
+        "destination_port": 53,
+        "comment": "Alert2IR DNS win11-02 TCP"
+      }
+    ]
+  }
+}

@@ -1,0 +1,21 @@
+acl "alert2ir-approved-clients" {
+    192.168.56.60;
+    192.168.56.62;
+};
+
+options {
+    directory "/var/cache/bind";
+
+    listen-on { 192.168.56.64; };
+    listen-on-v6 { none; };
+
+    recursion no;
+    allow-recursion { none; };
+    allow-query { none; };
+    allow-query-cache { none; };
+    dnssec-validation no;
+    session-keyfile none;
+
+    allow-transfer { none; };
+    notify no;
+};

@@ -1,0 +1,16 @@
+title: Alert2IR Synthetic Unrelated File Delete Fixture
+id: 36099b80-f540-4b00-95cb-e3cd7293fb65
+status: test
+description: Proves the Tier 1 breadth pipeline does not map an unrelated Windows logsource.
+author: Alert2IR
+date: 2026-08-17
+logsource:
+  product: windows
+  category: file_delete
+detection:
+  selection:
+    TargetFilename|endswith: '\Alert2IRUnrelatedFixture.tmp'
+  condition: selection
+falsepositives:
+  - Test fixture only
+level: informational

@@ -1,0 +1,19 @@
+title: Alert2IR Host-Only TCP Connection Validation
+id: 0340ce23-5a97-4f4d-b8e0-37d854fc8810
+status: test
+description: Validates outbound TCP connection fields for a reviewed PowerShell wrapper and exact approved-listener port.
+author: Alert2IR
+date: 2026-08-17
+logsource:
+  product: windows
+  category: network_connection
+detection:
+  selection:
+    Image|endswith: '\powershell.exe'
+    DestinationPort: 9997
+    Initiated: 'true'
+    Protocol: 'tcp'
+  condition: selection
+falsepositives:
+  - Legitimate PowerShell TCP connections to the same destination port
+level: informational

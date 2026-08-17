@@ -1,0 +1,242 @@
+{
+  "schema_version": 1,
+  "acceptance_id": "2f770f89-d84f-47b9-a633-17e42454b01c",
+  "timestamp_utc": "2026-08-17T19:05:56Z",
+  "repository": {
+    "head": "6ce059b0d27c5550de24ce3f198e5cf8340b2636",
+    "branch": "main",
+    "working_tree_preexisting_changes_preserved": true
+  },
+  "pre_state": {
+    "discovery_ufw_expectation": "active",
+    "observed_ufw_state": "inactive",
+    "default_incoming": "deny",
+    "default_outgoing": "allow",
+    "stored_allowance_count": 0,
+    "management_source": "192.168.56.1"
+  },
+  "server": {
+    "host": "dev01",
+    "address": "192.168.56.64",
+    "interface": "enp0s8",
+    "bind_package_version": "1:9.18.39-0ubuntu0.24.04.5",
+    "service_unit": "named.service",
+    "service_active": true,
+    "service_enabled": true,
+    "config_hashes": {
+      "named.conf": "0291ddff496d6c6547dca6900584c8f27dcecf5682e59f7b4b81adaa01f5968f",
+      "named.conf.options": "def6c9e0fcd3b7f7048996531ea7ccf972f5796b9ecd753dfb45f1a29e2d6561",
+      "named.conf.local": "a77309f684a49f1037af7a492b68b02e02851e5c79861c0e1fc901b552f735d9",
+      "systemd_override": "709d0a451b6815dd1ff111815e47a78a4486fcc7d4a74dfee3dabd9540efc35c"
+    },
+    "zone_hash": "81ff2818e06ac9683dda10c31dd6d572a2362308e9af08b2f878ca207128d4dd",
+    "listeners": {
+      "udp": ["192.168.56.64:53"],
+      "tcp": ["192.168.56.64:53"],
+      "prohibited_listener_count": 0
+    },
+    "recursion": false,
+    "forwarders": [],
+    "authorized_clients": ["192.168.56.60", "192.168.56.62"],
+    "authoritative_tests": {
+      "soa": "pass",
+      "known_a": "pass",
+      "owned_nxdomain": "pass",
+      "outside_refused": "pass",
+      "unauthorized_source": "pass"
+    },
+    "systemd_resolved_unchanged": true
+  },
+  "firewall": {
+    "active": true,
+    "default_incoming": "deny",
+    "rules": [
+      {
+        "source": "192.168.56.1",
+        "destination": "192.168.56.64",
+        "interface": "enp0s8",
+        "protocol": "tcp",
+        "port": 22,
+        "comment": "Alert2IR management SSH"
+      },
+      {
+        "source": "192.168.56.60",
+        "destination": "192.168.56.64",
+        "interface": "enp0s8",
+        "protocol": "udp",
+        "port": 53,
+        "comment": "Alert2IR DNS win11-01 UDP"
+      },
+      {
+        "source": "192.168.56.60",
+        "destination": "192.168.56.64",
+        "interface": "enp0s8",
+        "protocol": "tcp",
+        "port": 53,
+        "comment": "Alert2IR DNS win11-01 TCP"
+      },
+      {
+        "source": "192.168.56.62",
+        "destination": "192.168.56.64",
+        "interface": "enp0s8",
+        "protocol": "udp",
+        "port": 53,
+        "comment": "Alert2IR DNS win11-02 UDP"
+      },
+      {
+        "source": "192.168.56.62",
+        "destination": "192.168.56.64",
+        "interface": "enp0s8",
+        "protocol": "tcp",
+        "port": 53,
+        "comment": "Alert2IR DNS win11-02 TCP"
+      }
+    ],
+    "broader_exposure": false,
+    "existing_ssh_preserved": true,
+    "new_ssh_reconnection": "pending"
+  },
+  "endpoints": [
+    {
+      "host": "win11-01",
+      "host_only_address": "192.168.56.60",
+      "interface_dns_pre": [
+        {"interface": "Ethernet", "address_family": "IPv4", "servers": []},
+        {"interface": "Ethernet", "address_family": "IPv6", "servers": ["fec0:0:0:ffff::1", "fec0:0:0:ffff::2", "fec0:0:0:ffff::3"]},
+        {"interface": "NAT", "address_family": "IPv4", "servers": ["10.0.2.3"]},
+        {"interface": "NAT", "address_family": "IPv6", "servers": []},
+        {"interface": "Loopback Pseudo-Interface 1", "address_family": "IPv4", "servers": []},
+        {"interface": "Loopback Pseudo-Interface 1", "address_family": "IPv6", "servers": ["fec0:0:0:ffff::1", "fec0:0:0:ffff::2", "fec0:0:0:ffff::3"]}
+      ],
+      "interface_dns_post": [
+        {"interface": "Ethernet", "address_family": "IPv4", "servers": []},
+        {"interface": "Ethernet", "address_family": "IPv6", "servers": ["fec0:0:0:ffff::1", "fec0:0:0:ffff::2", "fec0:0:0:ffff::3"]},
+        {"interface": "NAT", "address_family": "IPv4", "servers": ["10.0.2.3"]},
+        {"interface": "NAT", "address_family": "IPv6", "servers": []},
+        {"interface": "Loopback Pseudo-Interface 1", "address_family": "IPv4", "servers": []},
+        {"interface": "Loopback Pseudo-Interface 1", "address_family": "IPv6", "servers": ["fec0:0:0:ffff::1", "fec0:0:0:ffff::2", "fec0:0:0:ffff::3"]}
+      ],
+      "interface_dns_unchanged": true,
+      "local_nrpt": ".alert2ir.test -> 192.168.56.64",
+      "effective_nrpt": ".alert2ir.test -> 192.168.56.64",
+      "rule_guid": "{151C64C2-E1EE-431C-905B-4D48D6E05406}",
+      "success_path": {
+        "query_name": "splunk.alert2ir.test",
+        "client_result": "answer_192.168.56.61",
+        "packets_to_dev01": 1,
+        "packets_to_nat": 0,
+        "packets_to_other_ipv4": 0,
+        "packets_to_ipv6": 0,
+        "packets_to_vpn": 0,
+        "raw_capture_deleted": true,
+        "result": "pass"
+      },
+      "nxdomain_path": {
+        "query_name": "probe-6b689c32-b93d-4b1a-b551-85dc4826d183.alert2ir.test",
+        "client_result": "authoritative_nxdomain",
+        "packets_to_dev01": 1,
+        "packets_to_nat": 0,
+        "packets_to_other_ipv4": 0,
+        "packets_to_ipv6": 0,
+        "packets_to_vpn": 0,
+        "raw_capture_deleted": true,
+        "result": "pass"
+      },
+      "unavailable_server": {
+        "query_name": "failure-66510b53-5a22-46d4-bc26-05309defd4b8.alert2ir.test",
+        "client_result": "resolution_failure",
+        "packets_to_dev01": 3,
+        "packets_to_nat": 0,
+        "packets_to_other_ipv4": 0,
+        "packets_to_ipv6": 0,
+        "packets_to_vpn": 0,
+        "raw_capture_deleted": true,
+        "result": "pass"
+      },
+      "ordinary_dns": {
+        "query_name": "splunk.lab.test",
+        "client_result": "answer_192.168.56.61",
+        "packets_to_nat": 1,
+        "packets_to_dev01": 0,
+        "raw_capture_deleted": true,
+        "result": "pass"
+      },
+      "recovery_lookup": "pass",
+      "result": "pass"
+    },
+    {
+      "host": "win11-02",
+      "host_only_address": "192.168.56.62",
+      "interface_dns_pre": [
+        {"interface": "NAT", "address_family": "IPv4", "servers": ["10.0.2.3"]},
+        {"interface": "NAT", "address_family": "IPv6", "servers": []},
+        {"interface": "Ethernet", "address_family": "IPv4", "servers": []},
+        {"interface": "Ethernet", "address_family": "IPv6", "servers": ["fec0:0:0:ffff::1", "fec0:0:0:ffff::2", "fec0:0:0:ffff::3"]},
+        {"interface": "Loopback Pseudo-Interface 1", "address_family": "IPv4", "servers": []},
+        {"interface": "Loopback Pseudo-Interface 1", "address_family": "IPv6", "servers": ["fec0:0:0:ffff::1", "fec0:0:0:ffff::2", "fec0:0:0:ffff::3"]}
+      ],
+      "interface_dns_post": [
+        {"interface": "NAT", "address_family": "IPv4", "servers": ["10.0.2.3"]},
+        {"interface": "NAT", "address_family": "IPv6", "servers": []},
+        {"interface": "Ethernet", "address_family": "IPv4", "servers": []},
+        {"interface": "Ethernet", "address_family": "IPv6", "servers": ["fec0:0:0:ffff::1", "fec0:0:0:ffff::2", "fec0:0:0:ffff::3"]},
+        {"interface": "Loopback Pseudo-Interface 1", "address_family": "IPv4", "servers": []},
+        {"interface": "Loopback Pseudo-Interface 1", "address_family": "IPv6", "servers": ["fec0:0:0:ffff::1", "fec0:0:0:ffff::2", "fec0:0:0:ffff::3"]}
+      ],
+      "interface_dns_unchanged": true,
+      "local_nrpt": ".alert2ir.test -> 192.168.56.64",
+      "effective_nrpt": ".alert2ir.test -> 192.168.56.64",
+      "rule_guid": "{9E945235-6E85-4C0F-8538-DE807CD8197E}",
+      "success_path": {
+        "query_name": "splunk.alert2ir.test",
+        "client_result": "answer_192.168.56.61",
+        "packets_to_dev01": 1,
+        "packets_to_nat": 0,
+        "packets_to_other_ipv4": 0,
+        "packets_to_ipv6": 0,
+        "packets_to_vpn": 0,
+        "raw_capture_deleted": true,
+        "result": "pass"
+      },
+      "nxdomain_path": {
+        "query_name": "probe-9281e10b-7a8b-4bae-bec5-d2ced05fd574.alert2ir.test",
+        "client_result": "authoritative_nxdomain",
+        "packets_to_dev01": 1,
+        "packets_to_nat": 0,
+        "packets_to_other_ipv4": 0,
+        "packets_to_ipv6": 0,
+        "packets_to_vpn": 0,
+        "raw_capture_deleted": true,
+        "result": "pass"
+      },
+      "unavailable_server": {
+        "query_name": "failure-030dcd16-0af3-461d-8388-0701c72a0dc5.alert2ir.test",
+        "client_result": "resolution_failure",
+        "packets_to_dev01": 3,
+        "packets_to_nat": 0,
+        "packets_to_other_ipv4": 0,
+        "packets_to_ipv6": 0,
+        "packets_to_vpn": 0,
+        "raw_capture_deleted": true,
+        "result": "pass"
+      },
+      "ordinary_dns": {
+        "query_name": "splunk.lab.test",
+        "client_result": "answer_192.168.56.61",
+        "packets_to_nat": 1,
+        "packets_to_dev01": 0,
+        "raw_capture_deleted": true,
+        "result": "pass"
+      },
+      "recovery_lookup": "pass",
+      "result": "pass"
+    }
+  ],
+  "rollback": {
+    "linux_check": "pass",
+    "windows_exact_guid_removal": "pass",
+    "management_rule_safe_default": "retain_unless_alternate_management_verified"
+  },
+  "overall_status": "pass",
+  "event22_attack_simulation_run": false
+}

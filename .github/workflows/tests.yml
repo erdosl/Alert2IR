@@ -51,6 +51,8 @@ jobs:
 
       - name: Install dependencies
         run: |
+          sudo apt-get update
+          sudo apt-get install --yes bind9-utils
           python -m pip install --requirement requirements-dev.txt
           python -m pip check
 

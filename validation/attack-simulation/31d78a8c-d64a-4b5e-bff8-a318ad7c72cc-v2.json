@@ -1,0 +1,95 @@
+{
+  "schema": "alert2ir-ground-truth-v2",
+  "run_id": "31d78a8c-d64a-4b5e-bff8-a318ad7c72cc",
+  "scenario_id": "alert2ir.ws07.windows.cmd-file-write.v1",
+  "alert2ir_commit": "6ce059b0d27c5550de24ce3f198e5cf8340b2636",
+  "operator_role": "lab-admin",
+  "endpoint_ref": "endpoint-owned-canary",
+  "endpoint": {
+    "inventory_name": "win11-02",
+    "computer_name": "WIN11-02",
+    "host_only_ipv4": "192.168.56.62",
+    "interface": "Ethernet"
+  },
+  "clock_evidence": {
+    "operator_before_utc": "2026-08-17T14:47:33.926440Z",
+    "endpoint_utc": "2026-08-17T14:47:34.395593Z",
+    "operator_after_utc": "2026-08-17T14:47:34.628170Z"
+  },
+  "execution": {
+    "start_utc": "2026-08-17T14:47:43.210912Z",
+    "end_utc": "2026-08-17T14:47:43.626994Z",
+    "exit_code": 0,
+    "result": "succeeded"
+  },
+  "pre_state": [
+    {
+      "subject_ref": "subject-temporary-file",
+      "status": "absent",
+      "checked_at_utc": "2026-08-17T14:47:34.395593Z"
+    }
+  ],
+  "cleanup": {
+    "required": true,
+    "subject_ref": "subject-temporary-file",
+    "action_summary": "Deleted only the exact run-scoped temporary file.",
+    "action_at_utc": "2026-08-17T14:49:31.216219Z",
+    "exit_code": 0,
+    "result": "succeeded"
+  },
+  "post_state_verification": {
+    "status": "verified_absent",
+    "checked_at_utc": "2026-08-17T14:49:32.010063Z",
+    "subject_ref": "subject-temporary-file",
+    "residual_artifact": false
+  },
+  "telemetry_window": {
+    "start_utc": "2026-08-17T14:47:38Z",
+    "end_utc": "2026-08-17T14:49:35Z"
+  },
+  "events": [
+    {
+      "expectation_id": "temporary_file_create",
+      "event_ref": "event-temporary-file-create",
+      "role": "primary",
+      "phase": "execution",
+      "state": "observed",
+      "channel": "Microsoft-Windows-Sysmon/Operational",
+      "event_id": 11,
+      "record_id": 1757566,
+      "timestamp_utc": "2026-08-17T14:47:43.502082Z",
+      "process_ref": "process-temporary-file-creator",
+      "parent_process_ref": null,
+      "relationship_to": null
+    },
+    {
+      "expectation_id": "temporary_file_process",
+      "event_ref": "event-temporary-file-process",
+      "role": "secondary",
+      "phase": "execution",
+      "state": "observed",
+      "channel": "Microsoft-Windows-Sysmon/Operational",
+      "event_id": 1,
+      "record_id": 1757564,
+      "timestamp_utc": "2026-08-17T14:47:43.452408Z",
+      "process_ref": "process-temporary-file-creator",
+      "parent_process_ref": null,
+      "relationship_to": "event-temporary-file-create"
+    },
+    {
+      "expectation_id": "temporary_file_delete",
+      "event_ref": "event-temporary-file-delete",
+      "role": "cleanup",
+      "phase": "cleanup",
+      "state": "observed",
+      "channel": "Microsoft-Windows-Sysmon/Operational",
+      "event_id": 26,
+      "record_id": 1757773,
+      "timestamp_utc": "2026-08-17T14:49:31.440434Z",
+      "process_ref": "process-temporary-file-cleanup",
+      "parent_process_ref": null,
+      "relationship_to": "event-temporary-file-create"
+    }
+  ],
+  "deviations": []
+}

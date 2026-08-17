@@ -1,0 +1,114 @@
+{
+  "schema_version": 2,
+  "status_vocabulary": {
+    "static": [
+      "implemented"
+    ],
+    "live": [
+      "validated_historical",
+      "validated_live",
+      "live_deferred"
+    ]
+  },
+  "objectives": [
+    {
+      "positive_scenario_id": "alert2ir.ws07.windows.process-discovery-tasklist.v1",
+      "primary_expectation_id": "tasklist_process",
+      "rule_path": "detections/sigma/windows/process-discovery-tasklist.yml",
+      "rule_id": "78441abe-99b0-4e6e-bd85-d52748e59d0e",
+      "pipeline_path": "config/sigma/pipelines/alert2ir-splunk-xml-sysmon.yml",
+      "content_class": "production_intent",
+      "static_status": "implemented",
+      "live_status": "validated_historical",
+      "live_status_reason": "The original WS07 ground truth and process-detection evidence remain immutable historical authority.",
+      "expected_result": "attributable_match"
+    },
+    {
+      "positive_scenario_id": "alert2ir.ws07.windows.powershell-command.v1",
+      "primary_expectation_id": "powershell_process",
+      "rule_path": "detections/sigma/windows/powershell-encoded-command.yml",
+      "rule_id": "aebe017f-0dc6-4cae-8f07-6dc611963471",
+      "pipeline_path": "config/sigma/pipelines/alert2ir-splunk-xml-sysmon.yml",
+      "content_class": "production_intent",
+      "static_status": "implemented",
+      "live_status": "validated_historical",
+      "live_status_reason": "The original WS07 ground truth and process-detection evidence remain immutable historical authority.",
+      "expected_result": "attributable_match"
+    },
+    {
+      "positive_scenario_id": "alert2ir.ws07.windows.cmd-file-write.v1",
+      "primary_expectation_id": "temporary_file_create",
+      "rule_path": "detections/sigma/validation/windows/file-create-alert2ir-temp.yml",
+      "rule_id": "90bd7482-4d55-4c86-87c7-449fa789fc87",
+      "pipeline_path": "config/sigma/pipelines/alert2ir-splunk-xml-sysmon-breadth.yml",
+      "content_class": "validation_only",
+      "static_status": "implemented",
+      "live_status": "validated_live",
+      "live_status_reason": "Direct Event 11 detection, Event 26 cleanup, and independent post-state verification are VALIDATED-LIVE.",
+      "expected_result": "attributable_match"
+    },
+    {
+      "positive_scenario_id": "alert2ir.tier1.windows.host-only-tcp.v1",
+      "primary_expectation_id": "tcp_connection",
+      "rule_path": "detections/sigma/validation/windows/network-connection-host-only.yml",
+      "rule_id": "0340ce23-5a97-4f4d-b8e0-37d854fc8810",
+      "pipeline_path": "config/sigma/pipelines/alert2ir-splunk-xml-sysmon-breadth.yml",
+      "content_class": "validation_only",
+      "static_status": "implemented",
+      "live_status": "live_deferred",
+      "live_status_reason": "Deferred by project decision: the current Windows endpoint baseline does not permit repository .ps1 execution, and Alert2IR will not weaken, bypass, or add a script-signing/trust infrastructure solely for additional attack-simulation coverage.",
+      "expected_result": "attributable_match"
+    },
+    {
+      "positive_scenario_id": "alert2ir.tier1.windows.owned-alias-dns.v1",
+      "primary_expectation_id": "dns_query",
+      "rule_path": "detections/sigma/validation/windows/dns-query-owned-alias.yml",
+      "rule_id": "26acb1c2-ae4a-494a-9c6e-290470e38953",
+      "pipeline_path": "config/sigma/pipelines/alert2ir-splunk-xml-sysmon-breadth.yml",
+      "content_class": "validation_only",
+      "static_status": "implemented",
+      "live_status": "live_deferred",
+      "live_status_reason": "Deferred by project decision: the DNS/NRPT prerequisite is VALIDATED-LIVE, but the current Windows endpoint baseline does not permit repository .ps1 execution, and Alert2IR will not weaken, bypass, or add a script-signing/trust infrastructure solely for additional attack-simulation coverage.",
+      "live_prerequisites": {
+        "dns_nrpt_infrastructure": "validated_live"
+      },
+      "expected_result": "attributable_match"
+    },
+    {
+      "positive_scenario_id": "alert2ir.tier1.windows.benign-ads.v1",
+      "primary_expectation_id": "ads_stream_hash",
+      "rule_path": "detections/sigma/validation/windows/create-stream-hash-alert2ir-ads.yml",
+      "rule_id": "5f0c3a6e-4cc9-47fc-8303-c1433b78220b",
+      "pipeline_path": "config/sigma/pipelines/alert2ir-splunk-xml-sysmon-breadth.yml",
+      "content_class": "validation_only",
+      "static_status": "implemented",
+      "live_status": "live_deferred",
+      "live_status_reason": "Deferred by project decision: the current Windows endpoint baseline does not permit repository .ps1 execution, and Alert2IR will not weaken, bypass, or add a script-signing/trust infrastructure solely for additional attack-simulation coverage.",
+      "expected_result": "attributable_match"
+    },
+    {
+      "positive_scenario_id": "alert2ir.tier1.windows.script-host-ancestry.v1",
+      "primary_expectation_id": "ancestry_child_process",
+      "rule_path": "detections/sigma/validation/windows/process-creation-script-host-ancestry.yml",
+      "rule_id": "d1e4f829-7c81-4e72-b3e9-4acbb72d74ec",
+      "pipeline_path": "config/sigma/pipelines/alert2ir-splunk-xml-sysmon.yml",
+      "content_class": "validation_only",
+      "control_variant_id": "alert2ir.tier1.windows.script-host-ancestry.control-benign-parent.v1",
+      "static_status": "implemented",
+      "live_status": "live_deferred",
+      "live_status_reason": "Deferred by project decision: the current Windows endpoint baseline does not permit repository .ps1 execution, and Alert2IR will not weaken, bypass, or add a script-signing/trust infrastructure solely for additional attack-simulation coverage.",
+      "control_static_status": "implemented",
+      "control_live_status": "live_deferred",
+      "expected_result": "attributable_match"
+    }
+  ],
+  "retired_rules": [
+    {
+      "rule_path": "detections/sigma/windows/cmd-temp-file-write-display.yml",
+      "rule_id": "f769367f-7f3c-4ea4-8e68-fc39f93fd0a8",
+      "retired_from_active_portfolio": true,
+      "preserved_semantics": "CommandLine contains|all regression",
+      "historical_evidence_path": "validation/detection/t1059-003-cmd-temp-file-write-display.json"
+    }
+  ]
+}

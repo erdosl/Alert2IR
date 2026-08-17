@@ -15,7 +15,7 @@ canonical alert + Idempotency-Key through POST /v1/alerts
 
 PostgreSQL uniqueness suppresses duplicate logical acceptance, and an atomic attempt claim permits at most one automatic submission attempt in Durable Execution v1. A known operation is restart-resumable. An ambiguous remote submission becomes `recovery_required` and is never automatically resubmitted. These database guarantees do not prove globally exactly-once remote execution.
 
-Sigma is the canonical detection-as-code format, Splunk is the validated detection execution target, the deterministic mock investigation backend keeps application behavior testable without a live lab, and Velociraptor provides the implemented `process.list` investigation path. Detection execution and Alert2IR ingestion are separate: no Splunk-to-Alert2IR source adapter is implemented.
+Sigma is the canonical detection-as-code format, Splunk is the validated detection execution target, the deterministic mock investigation backend keeps application behavior testable without a live lab, and Velociraptor provides the implemented `process.list` investigation path. The repository defines seven primary attack-simulation scenarios, one ancestry control, and deterministic Sysmon Event 1/3/11/15/22 translation coverage. Direct Event 11 detection and Event 26 cleanup are **VALIDATED-LIVE**. Authoritative `alert2ir.test` DNS and fail-closed Windows NRPT are also **VALIDATED-LIVE**, satisfying the Event 22 infrastructure prerequisite. Event 3/15/22 and ancestry positive/control remain implemented and statically verified, but their PowerShell-wrapper-dependent live execution is deliberately deferred under the unchanged Windows endpoint baseline. Detection execution and Alert2IR ingestion are separate: no authenticated Splunk-to-Alert2IR source adapter or delivery path is implemented.
 
 ## Start here
 
@@ -36,6 +36,7 @@ Application users and developers should begin with the [application and API cont
 | Understand controlled attack scenarios and ground truth | [Attack simulation](docs/ATTACK_SIMULATION.md) |
 | Understand endpoint telemetry policy | [Sysmon telemetry](docs/SYSMON.md) |
 | Collect bounded Windows endpoint inventory | [Windows endpoint inventory](docs/WINDOWS_ENDPOINT_INVENTORY.md) |
+| Operate or validate authoritative DNS and Windows NRPT | `config/dns/README.md` |
 | Apply the repository-owned Windows desired state | [Puppet environment](infra/puppet/README.md) |
 | Understand accepted architectural rationale | [Architecture decision records](docs/adr/README.md) |
 | See completed, deferred, and next work | [Roadmap](docs/ROADMAP.md) |
@@ -59,9 +60,9 @@ PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src \
 
 Without `ALERT2IR_TEST_DATABASE_URL`, the nine PostgreSQL migration/persistence tests skip. Point that variable only at a disposable test database when those integrations are required; never use a production, shared, or live-lab database.
 
-The ordinary environment intentionally excludes Sigma dependencies, so its two Sigma modules also skip. The [detection guide](docs/DETECTIONS.md) documents the separate pinned environment and 13 deterministic Sigma contracts.
+The ordinary environment intentionally excludes Sigma dependencies, so its two Sigma modules also skip. The [detection guide](docs/DETECTIONS.md) documents the separate pinned environment and 19 deterministic Sigma contracts.
 
-The GitHub Actions `Tests` workflow runs the full Python suite with ephemeral PostgreSQL and runs the Sigma contracts in a separate job. Routine CI requires neither a commercial product nor the owned live lab. Green CI does not claim live Splunk or Velociraptor behavior, Windows execution, Puppet convergence, production readiness, or broad infrastructure validation.
+The GitHub Actions `Tests` workflow installs Ubuntu's BIND validation utilities, runs the full Python and DNS contract suite with ephemeral PostgreSQL, and runs the Sigma contracts in a separate job. Routine CI requires neither a commercial product nor the owned live lab and never applies BIND, UFW, or NRPT. Green CI does not claim live Splunk or Velociraptor behavior, Windows scenario execution, Puppet convergence, production readiness, or unrecorded infrastructure behavior.
 
 ## License
 

@@ -1,0 +1,78 @@
+{
+  "schema_version": 1,
+  "fixtures": [
+    {
+      "name": "no_rule",
+      "local": [],
+      "effective": [],
+      "expected": []
+    },
+    {
+      "name": "exact_rule",
+      "local": [
+        {"display_name": "Alert2IR-Lab-DNS-alert2ir.test", "namespace": ".alert2ir.test", "name_servers": ["192.168.56.64"], "direct_access": false}
+      ],
+      "effective": [
+        {"display_name": "Alert2IR-Lab-DNS-alert2ir.test", "namespace": ".alert2ir.test", "name_servers": ["192.168.56.64"], "direct_access": false}
+      ],
+      "expected": []
+    },
+    {
+      "name": "duplicate_rule",
+      "local": [
+        {"display_name": "Alert2IR-Lab-DNS-alert2ir.test", "namespace": ".alert2ir.test", "name_servers": ["192.168.56.64"], "direct_access": false},
+        {"display_name": "Alert2IR-Lab-DNS-alert2ir.test", "namespace": ".alert2ir.test", "name_servers": ["192.168.56.64"], "direct_access": false}
+      ],
+      "effective": [],
+      "expected": ["duplicate_display_name"]
+    },
+    {
+      "name": "same_namespace_conflict",
+      "local": [
+        {"display_name": "Other", "namespace": ".alert2ir.test", "name_servers": ["10.0.2.3"], "direct_access": false}
+      ],
+      "effective": [],
+      "expected": ["same_namespace_conflict"]
+    },
+    {
+      "name": "more_specific_conflict",
+      "local": [
+        {"display_name": "Other", "namespace": ".sub.alert2ir.test", "name_servers": ["10.0.2.3"], "direct_access": false}
+      ],
+      "effective": [],
+      "expected": ["more_specific_conflict"]
+    },
+    {
+      "name": "broad_test_conflict",
+      "local": [
+        {"display_name": "Other", "namespace": ".test", "name_servers": ["10.0.2.3"], "direct_access": false}
+      ],
+      "effective": [],
+      "expected": ["broad_test_rule"]
+    },
+    {
+      "name": "root_conflict",
+      "local": [
+        {"display_name": "Other", "namespace": ".", "name_servers": ["10.0.2.3"], "direct_access": false}
+      ],
+      "effective": [],
+      "expected": ["root_catch_all_rule"]
+    },
+    {
+      "name": "gpo_conflict",
+      "local": [],
+      "effective": [
+        {"display_name": "Policy", "namespace": ".alert2ir.test", "name_servers": ["10.0.2.3"], "direct_access": false}
+      ],
+      "expected": ["gpo_or_effective_policy_conflict"]
+    },
+    {
+      "name": "vpn_directaccess_conflict",
+      "local": [
+        {"display_name": "VPN", "namespace": ".alert2ir.test", "name_servers": ["10.0.2.3"], "direct_access": true}
+      ],
+      "effective": [],
+      "expected": ["directaccess_or_vpn_conflict"]
+    }
+  ]
+}

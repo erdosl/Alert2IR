@@ -1,0 +1,269 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:alert2ir:attack-simulation:live-attestation:v1",
+  "title": "Alert2IR sanitized live acceptance prerequisite attestation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "attestation_id",
+    "alert2ir_commit",
+    "endpoint",
+    "clock_evidence",
+    "sysmon",
+    "splunk",
+    "scenario_prerequisites"
+  ],
+  "properties": {
+    "schema": {
+      "const": "alert2ir-live-attestation-v1"
+    },
+    "attestation_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "alert2ir_commit": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "endpoint": {
+      "$ref": "#/$defs/endpoint"
+    },
+    "clock_evidence": {
+      "$ref": "#/$defs/clockEvidence"
+    },
+    "sysmon": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "attested_at_utc",
+        "tracked_policy_sha256",
+        "active_configuration_sha256",
+        "tracked_policy_matches_active",
+        "service_state",
+        "operational_channel_enabled",
+        "required_event_ids",
+        "registry_status"
+      ],
+      "properties": {
+        "attested_at_utc": {
+          "$ref": "#/$defs/utcTimestamp"
+        },
+        "tracked_policy_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "active_configuration_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "tracked_policy_matches_active": {
+          "type": "boolean"
+        },
+        "service_state": {
+          "enum": [
+            "running",
+            "stopped",
+            "unknown"
+          ]
+        },
+        "operational_channel_enabled": {
+          "type": "boolean"
+        },
+        "required_event_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "integer"
+          }
+        },
+        "registry_status": {
+          "enum": [
+            "excluded",
+            "active",
+            "unknown"
+          ]
+        }
+      }
+    },
+    "splunk": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "attested_at_utc",
+        "server_ref",
+        "version",
+        "build",
+        "endpoint_ref",
+        "source",
+        "sourcetype",
+        "validation_window",
+        "result_count",
+        "latest_event_utc",
+        "status"
+      ],
+      "properties": {
+        "attested_at_utc": {
+          "$ref": "#/$defs/utcTimestamp"
+        },
+        "server_ref": {
+          "type": "string",
+          "pattern": "^server-[a-z0-9-]+$"
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "build": {
+          "type": "string",
+          "minLength": 1
+        },
+        "endpoint_ref": {
+          "type": "string",
+          "pattern": "^endpoint-[a-z0-9-]+$"
+        },
+        "source": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sourcetype": {
+          "type": "string",
+          "minLength": 1
+        },
+        "validation_window": {
+          "$ref": "#/$defs/timeWindow"
+        },
+        "result_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "latest_event_utc": {
+          "$ref": "#/$defs/utcTimestamp"
+        },
+        "status": {
+          "enum": [
+            "passed",
+            "blocked"
+          ]
+        }
+      }
+    },
+    "scenario_prerequisites": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "powershell_wrapper_execution",
+        "tcp_target",
+        "dns_containment"
+      ],
+      "properties": {
+        "powershell_wrapper_execution": {
+          "$ref": "#/$defs/prerequisite"
+        },
+        "tcp_target": {
+          "$ref": "#/$defs/prerequisite"
+        },
+        "dns_containment": {
+          "$ref": "#/$defs/prerequisite"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "utcTimestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "timeWindow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "start_utc",
+        "end_utc"
+      ],
+      "properties": {
+        "start_utc": {
+          "$ref": "#/$defs/utcTimestamp"
+        },
+        "end_utc": {
+          "$ref": "#/$defs/utcTimestamp"
+        }
+      }
+    },
+    "endpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "inventory_name",
+        "computer_name",
+        "host_only_ipv4",
+        "interface"
+      ],
+      "properties": {
+        "inventory_name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "computer_name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "host_only_ipv4": {
+          "type": "string",
+          "format": "ipv4"
+        },
+        "interface": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "clockEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operator_before_utc",
+        "endpoint_utc",
+        "operator_after_utc"
+      ],
+      "properties": {
+        "operator_before_utc": {
+          "$ref": "#/$defs/utcTimestamp"
+        },
+        "endpoint_utc": {
+          "$ref": "#/$defs/utcTimestamp"
+        },
+        "operator_after_utc": {
+          "$ref": "#/$defs/utcTimestamp"
+        }
+      }
+    },
+    "prerequisite": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "checked_at_utc",
+        "status",
+        "summary"
+      ],
+      "properties": {
+        "checked_at_utc": {
+          "$ref": "#/$defs/utcTimestamp"
+        },
+        "status": {
+          "enum": [
+            "passed",
+            "blocked"
+          ]
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}

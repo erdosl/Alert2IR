@@ -1,0 +1,19 @@
+title: Alert2IR Temporary File Creation Validation
+id: 90bd7482-4d55-4c86-87c7-449fa789fc87
+status: test
+description: Validates direct Windows file-create telemetry for the reviewed Alert2IR temporary-file prefix.
+author: Alert2IR
+date: 2026-08-17
+logsource:
+  product: windows
+  category: file_event
+detection:
+  selection:
+    TargetFilename|startswith: 'C:\Windows\Temp\Alert2IR-WS07-'
+  condition: selection
+falsepositives:
+  - Repository-controlled validation activity using the same reserved prefix
+level: informational
+tags:
+  - attack.execution
+  - attack.t1059.003

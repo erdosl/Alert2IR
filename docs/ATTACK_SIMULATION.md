@@ -2,100 +2,117 @@
 
 ## Purpose and authority
 
-This guide describes the repository's controlled Windows scenario contract: authorized scope, reviewed actions, safety properties, expected local telemetry, cleanup, and sanitized ground-truth evidence.
+This guide describes Alert2IR's repository-static Windows attack-simulation portfolio, safety boundary, provenance, and sanitized ground-truth contracts. It is not an attack runner and does not authorize endpoint execution.
 
-[`config/attack-simulation/scenarios.json`](../config/attack-simulation/scenarios.json) is the executable scenario authority. [`tests/test_attack_simulation_contract.py`](../tests/test_attack_simulation_contract.py) validates that manifest and the committed records under [`validation/attack-simulation/`](../validation/attack-simulation/). This document is not an attack runner and does not itself authorize execution.
+The authorities are deliberately separate:
 
-Detection authoring and Splunk comparison belong in [DETECTIONS.md](DETECTIONS.md). Current host roles belong in [LAB.md](LAB.md).
-
-## Authorization and safety boundary
-
-Security testing is permitted only on the owned systems and for the activities defined in [LAB_SCOPE.md](LAB_SCOPE.md). External targets, Internet systems, third-party infrastructure, and any system absent from that authorization are out of scope.
-
-Every current scenario is deliberately bounded:
-
-- Windows only, with literal reviewed commands derived from pinned Atomic Red Team definitions;
-- no prerequisite acquisition, download, credential, or external target;
-- no reboot, logoff, security-control change, service change, account change, firewall change, scheduled-task change, or registry change;
-- no network requirement;
-- no persistent effect except the one explicitly temporary file, which requires exact cleanup and independent absence verification.
-
-Stop before execution if the Git revision, scenario provenance, endpoint identity, resolved command, safety flags, or cleanup scope differs from the reviewed manifest. Also stop for an unexpected prerequisite, target collision, insufficient telemetry health, unrelated residual state that makes attribution unsafe, or any risk of committing raw/private evidence.
-
-## Current scenario set
-
-The manifest contains exactly three reviewed scenarios:
-
-| Scenario | ATT&CK | Controlled action | Expected observable ground truth | Cleanup |
-| --- | --- | --- | --- | --- |
-| `alert2ir.ws07.windows.process-discovery-tasklist.v1` | T1057 | Run `tasklist` through the reviewed command-prompt executable | Sysmon process creation, event ID 1 | No persistent effect expected |
-| `alert2ir.ws07.windows.powershell-command.v1` | T1059.001 | Run the manifest's reviewed benign encoded PowerShell command through command prompt | Sysmon process creation, event ID 1; PowerShell Operational activity is non-guaranteed | No persistent effect expected |
-| `alert2ir.ws07.windows.cmd-file-write.v1` | T1059.003 | Create and display one run-scoped file beneath `C:\Windows\Temp` through command prompt | Sysmon process creation, file creation, and detected deletion: IDs 1, 11, and 26 | Delete exactly the resolved file and independently verify absence |
-
-The manifest owns the exact Atomic commit, test GUIDs, definition paths and hashes, executor, command templates, inputs, safety flags, pre-state, cleanup, and expected telemetry. Do not copy a mutable upstream `latest` definition or substitute a locally edited command.
-
-The repository does not install an Atomic Red Team checkout, use Invoke-AtomicRedTeam, acquire prerequisites automatically, or provide generalized attack orchestration. No command may add an execution-policy bypass that is absent from the reviewed manifest.
-
-## Execution prerequisites
-
-Any new physical execution requires a separately reviewed and authorized plan. Before running one scenario:
-
-1. identify the intended endpoint independently by computer name and host-only address;
-2. use a clean reviewed Git revision and verify the exact manifest bytes and pinned Atomic provenance;
-3. resolve all manifest inputs and require that no placeholder remains;
-4. verify the Sysmon service and Operational channel are healthy;
-5. capture a bounded clock comparison with the operator host because synchronized Windows time is not assumed;
-6. confirm every pre-state condition, including absence of the resolved file target where applicable;
-7. confirm that the command affects no target beyond the manifest's bounded scope;
-8. define the local telemetry window and evidence-handling path before execution.
-
-`win11-02` is the lab canary role. Canary-first use does not replace explicit authorization or physical-identity verification.
-
-## Execution and cleanup contract
-
-Run only the exact resolved command from the reviewed manifest, once per approved scenario/run. Record timezone-aware UTC bounds, exit status, actual execution context, resolved inputs, and deviations. Do not rewrite and rerun a scenario merely to improve an observation.
-
-For the temporary-file scenario:
-
-- require the exact resolved target to be absent before execution;
-- allow only creation of that target as the planned persistent host effect;
-- run only the manifest's exact cleanup command;
-- verify the exact target is absent independently after cleanup;
-- check for residual files matching the project prefix without deleting unrelated content.
-
-If required cleanup fails, stop, preserve bounded evidence, and escalate. Never broaden a cleanup command to a directory or wildcard merely to obtain a passing result.
-
-## Ground-truth evidence contract
-
-Each sanitized version 1 record binds one run to one committed scenario. It retains:
-
-| Concept | Evidence requirement |
+| Path | Authority |
 | --- | --- |
-| Identity | Canonical run and scenario identifiers plus non-personal operator role |
-| Endpoint | Approved inventory name, computer name, host-only address, and interface |
-| Provenance | Scenario technique and pinned Atomic source identity |
-| Execution | Exact resolved command/inputs, actual elevation, UTC bounds, exit code, and outcome |
-| Preconditions | Explicit preflight and prerequisite state |
-| Cleanup | Required command/result and independent post-state verification |
-| Timing | Operator/endpoint clock evidence and bounded telemetry window |
-| Telemetry | Expected-item accounting using sanitized channel, event ID, record ID, and UTC time references |
-| Deviations | Honest bounded differences from the reviewed expectation |
+| [`config/attack-simulation/scenarios.json`](../config/attack-simulation/scenarios.json) | Attack behavior, safety, run identity, cleanup plan, and expected telemetry |
+| `config/attack-simulation/detection-objectives.json` | Scenario-to-detection objective, active/retired state, control association, and static/live portfolio status |
+| `config/attack-simulation/ground-truth-v2.schema.json` | Sanitized multi-event ground truth |
+| [`validation/attack-simulation/`](../validation/attack-simulation/) | Immutable historical v1 plus sanitized live v2 run/attestation evidence |
+| `tools/windows/attack-simulation/` | Reviewed Alert2IR-local safe wrappers and script template |
 
-Observation states distinguish `observed`, `missing_expected`, `not_available`, and `unexpected`. Missing non-guaranteed telemetry does not invalidate a successful process execution, and expected telemetry must never be fabricated.
+Detection authoring and Splunk evidence belong in [DETECTIONS.md](DETECTIONS.md). Future investigation value does not expand the current Alert2IR `process.list` runtime capability.
 
-The three committed records demonstrate the current evidence schema. They are immutable validation artifacts, not templates to edit for a new run; a new authorized execution requires a new record and independent review.
+## Implementation and evidence status
 
-## Evidence handling and privacy
+The seven-scenario portfolio, wrappers, contracts, rules, and mappings remain **VERIFIED-CODE**. The 2026-08-17 authorized acceptance established active endpoint/Sysmon/Splunk prerequisites and completed one new **VALIDATED-LIVE** direct Event 11 run with **VALIDATED-LIVE** Event 26 cleanup and independent post-state verification. A later infrastructure-only workstream **VALIDATED-LIVE** authoritative `alert2ir.test` DNS, local NRPT on both endpoints, success containment, and unavailable-server no-leak behavior.
 
-Committed ground truth excludes raw event XML and messages, command output, process inventories, personal usernames, credentials, unrelated registry content, raw file bytes, and private endpoint data. Store only the bounded facts accepted by the evidence contract. Raw evidence, if operationally retained, remains outside Git under approved lab handling.
+Event 3, Event 15, Event 22, ancestry positive, and ancestry negative-control live execution are **DEFERRED BY PROJECT DECISION**. The current Windows endpoint baseline does not permit repository `.ps1` execution. Alert2IR will not weaken or bypass that baseline, introduce a script-signing/trust infrastructure solely for attack-simulation coverage, or rewrite the scenarios to evade the boundary. Event 22's DNS prerequisite is satisfied; its remaining live boundary is wrapper execution, not DNS containment.
 
-The contract tests verify scenario identity and provenance, safety flags, command resolution, exact cleanup scope, closed evidence objects, authorized endpoint tuples, UTC timestamps, telemetry accounting, privacy constraints, and the canonical evidence set. They do not execute a scenario, parse upstream Atomic YAML, or prove a detection.
+The three preserved WS07 records remain **VALIDATED-HISTORICAL** for their exact original behavior and observations. That label does not transfer live validation to a new detection objective, mapping, scenario, or control.
 
-## Current telemetry constraints
+## Seven-primary-scenario portfolio
 
-- Security event 4688 is unavailable under the current process-creation audit policy.
-- Comprehensive PowerShell Script Block Logging is not established, so PowerShell Operational evidence is non-guaranteed.
-- Puppet proves staged Sysmon XML bytes, not active Sysmon configuration equality.
-- Windows Time is not assumed to be synchronized; each execution requires measured clock evidence.
+The manifest contains exactly seven primary scenarios and one companion control that is not counted as a primary:
 
-These constraints describe ground-truth interpretation and do not authorize instrumentation changes. See [SYSMON.md](SYSMON.md) for the endpoint collection policy and [DETECTIONS.md](DETECTIONS.md) for detection validation against this ground truth.
+| Primary scenario | Risk | Primary expected telemetry | Static status |
+| --- | --- | ---: | --- |
+| Existing Process Discovery — tasklist | A | Sysmon 1 | Historical run retained; active production-intent objective |
+| Existing Encoded PowerShell | A | Sysmon 1 | Historical run retained; active production-intent objective |
+| Existing temporary file | B | Sysmon 11 | **VALIDATED-LIVE** direct rule, related Event 1, Event 26, and exact cleanup |
+| Owned host-only TCP | A | Sysmon 3 | Implemented; live execution deliberately deferred |
+| Controlled owned-alias DNS | A | Sysmon 22 | Implemented; DNS prerequisite VALIDATED-LIVE; live scenario deliberately deferred |
+| Benign run-scoped NTFS alternate stream | B | Sysmon 15 | Implemented; live execution deliberately deferred |
+| Benign script-host ancestry | B | Sysmon 1 ancestry | Implemented; positive/control live execution deliberately deferred |
+
+The ancestry companion uses the same harmless bounded PowerShell `Start-Sleep` child behavior under a PowerShell parent rather than `cscript.exe`. It has an independent control identity and future validation window. The ancestry rule must return zero attributable matches for that control; environmental matches are retained and classified, and any attributable rule match is `fail_control_matched`.
+
+## Safety classes
+
+- **Class A — bounded stateless:** no planned persistent host state; any network activity is a single bounded owned-lab operation.
+- **Class B — uniquely identified reversible temporary state:** every resource is run-scoped, pre-state is known, cleanup names only the exact resource, cleanup status is recorded, and post-state is checked independently.
+- **Class C — sensitive state:** not permitted in the active Tier 1 portfolio.
+
+Every active item explicitly rejects downloads, C2, credentials, external targets, NAT/Internet destinations, persistence, privilege escalation, service/account/firewall/scheduled-task/registry changes, reboot, and logoff. Cleanup plans set `wildcard_allowed` to false. The ADS wrapper writes a static benign marker but never executes stream content. The ancestry wrapper uses a hash-pinned VBScript template and one bounded harmless child; it performs no download, connection, bypass, persistence, elevation, or sensitive mutation.
+
+The TCP definition accepts only an operator-approved address inside `192.168.56.0/24` and the reviewed port `9997`; the 2026-08-17 acceptance separately approved the exact listener and proved the direct host-only route. The DNS definition uses `splunk.alert2ir.test` beneath the exact `.alert2ir.test` NRPT namespace and rejects answers outside the host-only range. Infrastructure acceptance proves that namespace remains on the owned path in both success and server-failure conditions. Neither prerequisite changes the deliberate wrapper-execution deferral.
+
+## Provenance and immutable content
+
+Provenance is per scenario:
+
+- `atomic` items retain the exact repository, commit, definition path/hash, and test GUID. The three original pins remain unchanged and never use `latest`.
+- `alert2ir_local` items identify the Alert2IR repository path, definition hash, local wrapper version, and wrapper hash. The ancestry script template has its own reviewed artifact hash.
+
+Local wrappers are intentionally not presented as exact upstream Atomic tests. ATT&CK identifiers on ADS and VBScript ancestry are conceptual behavior context. Before any future authorized execution, stage the exact repository bytes at the manifest's reviewed endpoint path and verify the committed hashes; do not substitute an edited local script.
+
+`Invoke-Alert2IRHostOnlyTcp.ps1`, `Invoke-Alert2IROwnedAliasDns.ps1`, `Invoke-Alert2IRBenignAds.ps1`, `Invoke-Alert2IRScriptHostAncestry.ps1`, and `Alert2IR-AncestryChild.vbs` remain reviewed behavior definitions, provenance anchors, static implementations, and future re-evaluation assets. Their code validity is independent of their deferred runtime status. They are not signed, encoded, converted to inline delivery, rewritten, or deleted by this closure.
+
+## Run identity, telemetry, and relationships
+
+`run_identity.unique_inputs` declares the resource names or markers that must differ per run. Class B paths and ADS stream names contain the canonical run UUID. Network and DNS wrappers also accept a run UUID for secondary process attribution without adding it to a canonical detection.
+
+Every expected telemetry item has a stable `expectation_id`, role, phase, and minimum/maximum cardinality. Roles are `primary`, `secondary`, `cleanup`, or `related`; phases are `execution`, `investigation_window`, or `cleanup`. A null maximum means legitimate multiplicity is allowed. Detection-neutral relationships express `same_process`, `same_resource`, and `parent_of` without embedding Splunk, Sigma, or investigation-product fields in the scenario authority.
+
+PowerShell Operational activity remains non-guaranteed. Registry and Security 4688 are not claimed. Expected Sysmon field names in static rules do not prove current Splunk Add-on extraction.
+
+## Ground-truth v1 and v2
+
+The three committed v1 records are immutable historical evidence. Their Atomic pins, run IDs, commands, sanitized Sysmon references, cleanup proof, deviations, and clock bracketing are not regenerated or rewritten.
+
+The v2 schema adds sanitized event aliases and relationship evidence:
+
+```text
+expectation_id, event_ref, role, phase, state
+channel, event_id, record_id, timestamp_utc
+process_ref, parent_process_ref, relationship_to
+```
+
+Local aliases such as `event-*`, `process-*`, and `subject-*` replace unnecessary raw identifiers. V2 keeps execution and telemetry windows distinct, records the approved endpoint tuple and operator/endpoint clock bracket, and permits multi-event windows longer than one second. Contract tests require execution start before end, events inside the telemetry window, cleanup events after the cleanup action, and UTC-aware times. Failed/blocked runs retain explicit missing-primary state and a deviation instead of being made to satisfy positive cardinality.
+
+For Class B evidence, v2 requires known pre-state, an exact subject, cleanup action/time/exit code/result, independent post-state status/time/subject, and a residual-artifact value. Residual state must fail or require review. Cleanup may never widen to wildcard, traversal, directory, broad-prefix, or unrelated process deletion.
+
+Committed evidence continues to exclude raw XML, process inventories, command output, script contents, credentials, user secrets, DNS cache dumps, and unrelated endpoint state.
+
+## Bounded stopping condition
+
+The breadth workstream is complete when the seven primary scenarios and one ancestry control remain statically valid, Event 11 and Event 26 remain VALIDATED-LIVE, DNS/NRPT infrastructure remains VALIDATED-LIVE, deferred scenarios retain their rules/mappings/contracts, and the deliberate deferral rationale remains explicit. Live Event 3/15/22 or ancestry acceptance is not a completion requirement. Breadth coverage is intentionally asymmetric between static validation and live endpoint execution.
+
+The execution-policy discovery branch is closed by `docs/adr/0015-bounded-live-attack-simulation-coverage.md`. `AllSigned` plus Authenticode infrastructure, `RemoteSigned`, inline wrapper delivery, execution-policy bypass or mutation, and replacement implementations solely for coverage are rejected. The current Windows endpoint baseline remains unchanged. Revisit live wrapper execution only if an independent endpoint-baseline requirement later establishes an approved trusted script-execution model.
+
+If such an independent trigger occurs, any physical execution would still require a separate reviewed plan under [LAB_SCOPE.md](LAB_SCOPE.md), identity and clock bracketing, active Sysmon/configuration attestation, exact wrapper/hash verification, pre-state checks, bounded local telemetry windows, and exact post-state verification. The existing DNS infrastructure record is prerequisite evidence, not Event 22 scenario ground truth.
+
+Ordinary CI performs only schema, provenance, hashing, privacy, cleanup-safety, Sigma parsing, and deterministic translation checks. It never executes attacks, endpoint commands, live searches, cleanup, endpoint configuration, Alert2IR POSTs, or investigation-backend calls.
+
+## 2026-08-17 live acceptance
+
+The sanitized prerequisite attestation is `validation/attack-simulation/live-attestation-2026-08-17-win11-02.json`. It proves the tracked Sysmon policy hash matched the active configuration, the service and Operational channel were active, required Event 1/3/11/15/22/26 categories were available, registry remained excluded, and the expected Splunk source/sourcetype path was receiving current canary events.
+
+Run `31d78a8c-d64a-4b5e-bff8-a318ad7c72cc` established the first live non-process breadth milestone. Event 11 record `1757566` was attributable to the exact run-scoped file and related to Event 1 record `1757564`; the deterministic Sigma-derived bounded search returned that primary, and Event 26 record `1757773` followed exact cleanup. Independent post-state verification found no residual artifact. The v2 ground truth and detection records remain sanitized and contain no raw XML, raw ProcessGuid, command output, credentials, or unrelated rows.
+
+TCP run `f3aa96e4-4df1-4323-a4f3-b90a277eabba` preserves the blocked attempt: route/listener containment passed, the wrapper process was observed, the wrapper did not start under effective `Restricted` policy, and no attributable Event 3 was created. No execution-policy bypass was attempted. DNS produced no scenario run during that acceptance because containment then failed before query generation. Infrastructure record `validation/infrastructure/dns/dns-infrastructure-2f770f89-d84f-47b9-a633-17e42454b01c.json` subsequently satisfies only the DNS prerequisite; Event 22 remains not run. The other PowerShell-wrapper scenarios were not retried against the already-established execution-policy blocker.
+
+Those records remain truthful historical/live evidence of what occurred. The current portfolio status is a project deferral, not a claim that DNS is blocked or an invitation to solve the wrapper prerequisite.
+
+## Staging-directory integrity
+
+The independent desired ACL for `C:\ProgramData\Alert2IR\AttackSimulation` is recorded in `config/windows/attack-simulation-staging-acl.json`: Administrators and SYSTEM have full control, Users have read-and-execute, inherited write access is removed, and standard users cannot create or replace staged assets. This closure adds only the repository contract and static tests. It does not change live endpoint ACLs, and the current Puppet catalog does not own this path. Live remediation belongs to a future separately authorized endpoint-hardening change and does not reopen the execution-policy decision.
+
+## Explicit deferrals
+
+Event 3 live acceptance, Event 22 live attack/detection acceptance, Event 15 live acceptance, ancestry positive, and ancestry negative control are deliberately deferred under the unchanged Windows execution baseline. They remain implemented, reviewed, and statically validated; they are not failed, unsupported, or abandoned.
+
+Registry remains blocked by the separate telemetry-policy decision because IDs 12–14 are disabled. PowerShell 4103/4104 remains blocked by logging, forwarding, and privacy policy. Named pipes remain Tier 2. Class C and high-risk service, task, WMI persistence, driver, raw-read, remote-thread, tampering, external C2/download, and high-volume activity remain out of scope.

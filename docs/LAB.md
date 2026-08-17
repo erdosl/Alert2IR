@@ -20,7 +20,7 @@ All six virtual machines use the host-only `192.168.56.0/24` lab network. NAT in
 | `splunk` | `192.168.56.61` | Ubuntu Server | Detection execution and validation platform | Splunk Enterprise |
 | `win11-02` | `192.168.56.62` | Windows 11 | Canary and investigation target | Sysmon, Splunk Universal Forwarder, Velociraptor client |
 | `ir-core` | `192.168.56.63` | Ubuntu Server | Alert2IR application and investigation host | Alert2IR `core`, PostgreSQL, native Alloy, native Velociraptor |
-| `dev01` | `192.168.56.64` | Ubuntu | Development and lab administration | Repository checkout and validation tools |
+| `dev01` | `192.168.56.64` | Ubuntu | Development and lab administration | Repository checkout, validation tools, native authoritative BIND 9 |
 | `obs01` | `192.168.56.65` | Ubuntu Server | Central observability host | Native Alloy, Prometheus, Loki, Tempo, Grafana, Alertmanager |
 
 The hostnames identify reference-lab machines, not logical application components. In particular, `ir-core` is a VM hostname, while `core` is the Compose service running the Alert2IR application.
@@ -30,6 +30,7 @@ The hostnames identify reference-lab machines, not logical application component
 | From | To | Relationship |
 | --- | --- | --- |
 | `dev01` | Owned lab hosts | Repository development, controlled management, and validation over the host-only network |
+| `win11-01`, `win11-02` | `dev01` | Local NRPT routes only `.alert2ir.test` to authoritative UDP/TCP `53` on `192.168.56.64` |
 | `win11-01`, `win11-02` | `splunk` | Sysmon Operational events forwarded to the Splunk receiving service on TCP `9997` |
 | Local operator on `ir-core` | Alert2IR application | Loopback-only API publication on `127.0.0.1:8000` |
 | Alert2IR `core` service | PostgreSQL | Internal Compose-network database connection; PostgreSQL has no published host port |
@@ -37,8 +38,17 @@ The hostnames identify reference-lab machines, not logical application component
 | `win11-02` | Velociraptor frontend on `ir-core` | Enrolled endpoint communication for the current investigation target |
 | Native Alloy on `ir-core` | Native Alloy on `obs01` | Metrics, logs, and traces forwarded to the central observability gateways |
 | Operator on `dev01` | Grafana on `obs01` | Dashboard and alert inspection on TCP `3000` |
+| Physical-host operator source `192.168.56.1` | `dev01` | Exact host-only management SSH exception on TCP `22`; not an approved DNS client |
 
 Host firewall policy limits these relationships to their intended lab sources. Exact listeners, container networks, and collector pipelines are owned by deployment and component configuration rather than duplicated here.
+
+## Authoritative DNS and Windows NRPT
+
+`dev01` runs native packaged BIND 9 authoritative-only for `alert2ir.test.` on `192.168.56.64:53` over UDP and TCP. It has no NAT/wildcard/IPv6 listener, recursion, forwarding, transfer, dynamic update, or command channel. The zone contains only `dev01.alert2ir.test -> 192.168.56.64` and `splunk.alert2ir.test -> 192.168.56.61`. UFW default-deny and the BIND ACL independently restrict DNS to `win11-01` and `win11-02`.
+
+Each Windows endpoint has exactly one local `.alert2ir.test -> 192.168.56.64` NRPT rule. Interface DNS remains unchanged. All-NIC packet capture proved success and authoritative NXDOMAIN used only `dev01`; with `named.service` stopped, each endpoint sent three retries only to `dev01`, failed resolution, and sent zero packets for the owned name to NAT, other IPv4, IPv6, or VPN resolvers. Ordinary `splunk.lab.test` continued through `10.0.2.3`. The sanitized **VALIDATED-LIVE** authority is `validation/infrastructure/dns/dns-infrastructure-2f770f89-d84f-47b9-a633-17e42454b01c.json`; raw captures were deleted.
+
+Implementation re-attestation superseded the discovery expectation that UFW was active: it was inactive with default incoming deny and zero stored allowances. The exact `.1 -> .64:22` management exception was approved before activation and the existing session survived; effective policy is exact, while a fresh connection from `.1` could not be originated by this execution environment and remains explicitly pending rather than fabricated.
 
 ## Alert2IR deployment
 
@@ -60,9 +70,13 @@ See [APPLICATION.md](APPLICATION.md) for application behavior and [DEPLOYMENT.md
 
 ## Detection and endpoint telemetry
 
-Sysmon on both Windows endpoints supplies host telemetry through Splunk Universal Forwarder to `splunk`. Canonical Sigma rules live under [`detections/sigma`](../detections/sigma/); the repository-owned pipeline under [`config/sigma`](../config/sigma/) derives the validated Splunk searches for the initial Windows process-creation cases. Sanitized deterministic and live evidence remains under [`validation/attack-simulation`](../validation/attack-simulation/) and [`validation/detection`](../validation/detection/).
+Sysmon on both Windows endpoints supplies host telemetry through Splunk Universal Forwarder to `splunk`. Canonical Sigma rules live under [`detections/sigma`](../detections/sigma/); narrow repository-owned pipelines under [`config/sigma`](../config/sigma/) preserve the historically validated Event 1 process mapping and statically implement Event 3, 11, 15, and 22 mappings. Sanitized historical live evidence remains under [`validation/attack-simulation`](../validation/attack-simulation/) and [`validation/detection`](../validation/detection/).
+
+The repository defines seven primary attack-simulation scenarios plus one ancestry negative-control variant. Authorized acceptance on 2026-08-17 attested `win11-02`, active Sysmon policy equality, and current Splunk forwarding, then **VALIDATED-LIVE** the direct Event 11 objective, Event 26 cleanup, and independent post-state verification. The authoritative DNS/NRPT workstream separately **VALIDATED-LIVE** Event 22's DNS infrastructure prerequisite on both endpoints. Event 3/15/22 and ancestry positive/control remain statically implemented, but their PowerShell-wrapper-dependent live execution is **DEFERRED BY PROJECT DECISION** under the unchanged endpoint execution baseline. Event 22 is not DNS-blocked.
 
 Splunk is a validated detection execution target. It is not an Alert2IR alert-ingestion source, and the repository implements no Splunk-to-`/v1/alerts` adapter. Canonical alert delivery remains an external caller responsibility.
+
+The staging path `C:\ProgramData\Alert2IR\AttackSimulation` has a repository-only desired ACL contract under `config/windows/attack-simulation-staging-acl.json`. No endpoint ACL remediation was applied by the breadth closure, and Puppet does not currently own that path.
 
 The [attack-simulation reference](ATTACK_SIMULATION.md) owns controlled ground-truth provenance, [SYSMON.md](SYSMON.md) owns the endpoint collection profile, and [WINDOWS_ENDPOINT_INVENTORY.md](WINDOWS_ENDPOINT_INVENTORY.md) owns the read-only inventory procedure. Detailed detection authoring guidance remains outside this topology document.
 
@@ -93,6 +107,7 @@ The observability path is failure-isolated: neither local Alloy nor the central 
 
 - [LAB_SCOPE.md](LAB_SCOPE.md) is the sole authorization boundary for controlled security activity.
 - Database credentials, Velociraptor trust material, private endpoint inventories, and other secrets remain outside Git.
+- Raw DNS packet captures and unrelated resolver/firewall inventories remain outside Git; only sanitized counts and exact owned tuples are retained.
 - Sanitized validation artifacts may preserve deterministic evidence; raw endpoint or product data must not be committed.
 - The host-only network and loopback API publication reduce exposure but do not replace authentication, authorization, or transport review for any broader deployment.
 - Native Alloy access to Docker and containerd metadata is privileged and is confined to trusted lab hosts.

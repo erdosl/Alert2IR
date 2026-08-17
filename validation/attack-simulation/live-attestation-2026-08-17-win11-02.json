@@ -1,0 +1,66 @@
+{
+  "schema": "alert2ir-live-attestation-v1",
+  "attestation_id": "ad33d90f-282c-44f4-a452-fea3d375e3ba",
+  "alert2ir_commit": "6ce059b0d27c5550de24ce3f198e5cf8340b2636",
+  "endpoint": {
+    "inventory_name": "win11-02",
+    "computer_name": "WIN11-02",
+    "host_only_ipv4": "192.168.56.62",
+    "interface": "Ethernet"
+  },
+  "clock_evidence": {
+    "operator_before_utc": "2026-08-17T14:43:57.632921Z",
+    "endpoint_utc": "2026-08-17T14:43:59.611342Z",
+    "operator_after_utc": "2026-08-17T14:43:59.805854Z"
+  },
+  "sysmon": {
+    "attested_at_utc": "2026-08-17T14:46:52.320291Z",
+    "tracked_policy_sha256": "71b792bfdbe3e3fc0ede56a6b9dd680c0a708c06130f54d1fa5b9c15267b9932",
+    "active_configuration_sha256": "71b792bfdbe3e3fc0ede56a6b9dd680c0a708c06130f54d1fa5b9c15267b9932",
+    "tracked_policy_matches_active": true,
+    "service_state": "running",
+    "operational_channel_enabled": true,
+    "required_event_ids": [
+      1,
+      3,
+      11,
+      15,
+      22,
+      26
+    ],
+    "registry_status": "excluded"
+  },
+  "splunk": {
+    "attested_at_utc": "2026-08-17T14:46:52.910078Z",
+    "server_ref": "server-owned-splunk",
+    "version": "10.4.1",
+    "build": "5a009d941268",
+    "endpoint_ref": "endpoint-owned-canary",
+    "source": "XmlWinEventLog:Microsoft-Windows-Sysmon/Operational",
+    "sourcetype": "XmlWinEventLog",
+    "validation_window": {
+      "start_utc": "2026-08-17T14:31:52Z",
+      "end_utc": "2026-08-17T14:46:52Z"
+    },
+    "result_count": 1245,
+    "latest_event_utc": "2026-08-17T14:46:51.847000Z",
+    "status": "passed"
+  },
+  "scenario_prerequisites": {
+    "powershell_wrapper_execution": {
+      "checked_at_utc": "2026-08-17T14:54:40.745629Z",
+      "status": "blocked",
+      "summary": "Effective PowerShell execution policy is Restricted; no bypass or policy change was attempted."
+    },
+    "tcp_target": {
+      "checked_at_utc": "2026-08-17T14:53:00Z",
+      "status": "passed",
+      "summary": "The exact owned Splunk listener on TCP 9997 is reached directly over the connected host-only route without a gateway."
+    },
+    "dns_containment": {
+      "checked_at_utc": "2026-08-17T14:56:06.888182Z",
+      "status": "blocked",
+      "summary": "The owned alias has no local hosts mapping or host-only resolver; the only configured resolver is attached to the NAT interface, so no query was generated."
+    }
+  }
+}

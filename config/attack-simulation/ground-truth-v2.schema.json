@@ -1,0 +1,413 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:alert2ir:attack-simulation:ground-truth:v2",
+  "title": "Alert2IR sanitized attack-simulation ground truth v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "run_id",
+    "scenario_id",
+    "alert2ir_commit",
+    "operator_role",
+    "endpoint_ref",
+    "endpoint",
+    "clock_evidence",
+    "execution",
+    "pre_state",
+    "cleanup",
+    "post_state_verification",
+    "telemetry_window",
+    "events",
+    "deviations"
+  ],
+  "properties": {
+    "schema": {
+      "const": "alert2ir-ground-truth-v2"
+    },
+    "run_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "scenario_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "alert2ir_commit": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "operator_role": {
+      "type": "string",
+      "minLength": 1
+    },
+    "endpoint_ref": {
+      "type": "string",
+      "pattern": "^endpoint-[a-z0-9-]+$"
+    },
+    "endpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "inventory_name",
+        "computer_name",
+        "host_only_ipv4",
+        "interface"
+      ],
+      "properties": {
+        "inventory_name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "computer_name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "host_only_ipv4": {
+          "type": "string",
+          "format": "ipv4"
+        },
+        "interface": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "clock_evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operator_before_utc",
+        "endpoint_utc",
+        "operator_after_utc"
+      ],
+      "properties": {
+        "operator_before_utc": {
+          "$ref": "#/$defs/utcTimestamp"
+        },
+        "endpoint_utc": {
+          "$ref": "#/$defs/utcTimestamp"
+        },
+        "operator_after_utc": {
+          "$ref": "#/$defs/utcTimestamp"
+        }
+      }
+    },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "start_utc",
+        "end_utc",
+        "exit_code",
+        "result"
+      ],
+      "properties": {
+        "start_utc": {
+          "$ref": "#/$defs/utcTimestamp"
+        },
+        "end_utc": {
+          "$ref": "#/$defs/utcTimestamp"
+        },
+        "exit_code": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "result": {
+          "enum": [
+            "succeeded",
+            "failed",
+            "blocked"
+          ]
+        }
+      }
+    },
+    "pre_state": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "subject_ref",
+          "status",
+          "checked_at_utc"
+        ],
+        "properties": {
+          "subject_ref": {
+            "$ref": "#/$defs/subjectRef"
+          },
+          "status": {
+            "enum": [
+              "absent",
+              "known",
+              "failed"
+            ]
+          },
+          "checked_at_utc": {
+            "$ref": "#/$defs/utcTimestamp"
+          }
+        }
+      }
+    },
+    "cleanup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "required",
+        "subject_ref",
+        "action_summary",
+        "action_at_utc",
+        "exit_code",
+        "result"
+      ],
+      "properties": {
+        "required": {
+          "type": "boolean"
+        },
+        "subject_ref": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/subjectRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "action_summary": {
+          "type": "string",
+          "minLength": 1
+        },
+        "action_at_utc": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/utcTimestamp"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "exit_code": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "result": {
+          "enum": [
+            "succeeded",
+            "failed",
+            "blocked",
+            "not_required"
+          ]
+        }
+      }
+    },
+    "post_state_verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "checked_at_utc",
+        "subject_ref",
+        "residual_artifact"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "verified_absent",
+            "verified_expected",
+            "failed",
+            "review_required",
+            "not_applicable"
+          ]
+        },
+        "checked_at_utc": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/utcTimestamp"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "subject_ref": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/subjectRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "residual_artifact": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      }
+    },
+    "telemetry_window": {
+      "$ref": "#/$defs/timeWindow"
+    },
+    "events": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "expectation_id",
+          "event_ref",
+          "role",
+          "phase",
+          "state",
+          "channel",
+          "event_id",
+          "record_id",
+          "timestamp_utc",
+          "process_ref",
+          "parent_process_ref",
+          "relationship_to"
+        ],
+        "properties": {
+          "expectation_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "event_ref": {
+            "$ref": "#/$defs/eventRef"
+          },
+          "role": {
+            "enum": [
+              "primary",
+              "secondary",
+              "cleanup",
+              "related"
+            ]
+          },
+          "phase": {
+            "enum": [
+              "execution",
+              "investigation_window",
+              "cleanup"
+            ]
+          },
+          "state": {
+            "enum": [
+              "observed",
+              "missing_expected",
+              "not_available",
+              "unexpected"
+            ]
+          },
+          "channel": {
+            "type": "string",
+            "minLength": 1
+          },
+          "event_id": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "record_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1
+          },
+          "timestamp_utc": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/utcTimestamp"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "process_ref": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/processRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "parent_process_ref": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/processRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "relationship_to": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/eventRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "deviations": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  },
+  "$defs": {
+    "utcTimestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "timeWindow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "start_utc",
+        "end_utc"
+      ],
+      "properties": {
+        "start_utc": {
+          "$ref": "#/$defs/utcTimestamp"
+        },
+        "end_utc": {
+          "$ref": "#/$defs/utcTimestamp"
+        }
+      }
+    },
+    "eventRef": {
+      "type": "string",
+      "pattern": "^event-[a-z0-9-]+$"
+    },
+    "processRef": {
+      "type": "string",
+      "pattern": "^process-[a-z0-9-]+$"
+    },
+    "subjectRef": {
+      "type": "string",
+      "pattern": "^subject-[a-z0-9-]+$"
+    }
+  }
+}

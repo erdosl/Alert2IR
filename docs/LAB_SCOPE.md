@@ -18,3 +18,5 @@ Permitted activity includes controlled attack simulation, security telemetry gen
 External systems, Internet targets, third-party infrastructure, and any unauthorized systems are out of scope. NAT interfaces may be used for ordinary software installation and updates, but attack simulations must never target systems outside the owned lab. Host aliases do not expand authorization. In particular, `.admin` aliases use the same host-only interfaces and are not a separate management network.
 
 The physical Ubuntu host is infrastructure-only and is not an attack-simulation target. Work must respect the purpose and ownership of every system even when an address falls within the subnet.
+
+The repository-owned `alert2ir.test` namespace is authorized only for the exact host-only systems above. Its existence does not authorize public DNS, recursive resolution, forwarding, NAT/VPN/IPv6 resolver fallback, or activity against any external name or address.

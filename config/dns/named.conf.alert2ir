@@ -1,0 +1,4 @@
+include "/etc/bind/alert2ir/named.conf.options";
+include "/etc/bind/alert2ir/named.conf.local";
+
+controls { };

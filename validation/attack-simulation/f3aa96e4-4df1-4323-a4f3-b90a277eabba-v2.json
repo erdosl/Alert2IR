@@ -1,0 +1,77 @@
+{
+  "schema": "alert2ir-ground-truth-v2",
+  "run_id": "f3aa96e4-4df1-4323-a4f3-b90a277eabba",
+  "scenario_id": "alert2ir.tier1.windows.host-only-tcp.v1",
+  "alert2ir_commit": "6ce059b0d27c5550de24ce3f198e5cf8340b2636",
+  "operator_role": "lab-admin",
+  "endpoint_ref": "endpoint-owned-canary",
+  "endpoint": {
+    "inventory_name": "win11-02",
+    "computer_name": "WIN11-02",
+    "host_only_ipv4": "192.168.56.62",
+    "interface": "Ethernet"
+  },
+  "clock_evidence": {
+    "operator_before_utc": "2026-08-17T14:53:59.630258Z",
+    "endpoint_utc": "2026-08-17T14:54:00.195902Z",
+    "operator_after_utc": "2026-08-17T14:54:00.238119Z"
+  },
+  "execution": {
+    "start_utc": "2026-08-17T14:54:09.440876Z",
+    "end_utc": "2026-08-17T14:54:10.056461Z",
+    "exit_code": 1,
+    "result": "failed"
+  },
+  "pre_state": [],
+  "cleanup": {
+    "required": false,
+    "subject_ref": null,
+    "action_summary": "No TCP client was created and no persistent scenario state required cleanup.",
+    "action_at_utc": null,
+    "exit_code": null,
+    "result": "not_required"
+  },
+  "post_state_verification": {
+    "status": "not_applicable",
+    "checked_at_utc": null,
+    "subject_ref": null,
+    "residual_artifact": null
+  },
+  "telemetry_window": {
+    "start_utc": "2026-08-17T14:54:05Z",
+    "end_utc": "2026-08-17T14:54:15Z"
+  },
+  "events": [
+    {
+      "expectation_id": "tcp_connection",
+      "event_ref": "event-tcp-connection-missing",
+      "role": "primary",
+      "phase": "execution",
+      "state": "missing_expected",
+      "channel": "Microsoft-Windows-Sysmon/Operational",
+      "event_id": 3,
+      "record_id": null,
+      "timestamp_utc": null,
+      "process_ref": null,
+      "parent_process_ref": null,
+      "relationship_to": null
+    },
+    {
+      "expectation_id": "tcp_process",
+      "event_ref": "event-tcp-wrapper-process",
+      "role": "secondary",
+      "phase": "execution",
+      "state": "observed",
+      "channel": "Microsoft-Windows-Sysmon/Operational",
+      "event_id": 1,
+      "record_id": 1758524,
+      "timestamp_utc": "2026-08-17T14:54:09.776613Z",
+      "process_ref": "process-tcp-wrapper-blocked",
+      "parent_process_ref": null,
+      "relationship_to": null
+    }
+  ],
+  "deviations": [
+    "The reviewed wrapper did not start because the effective endpoint PowerShell execution policy was Restricted; no policy bypass or configuration change was attempted."
+  ]
+}

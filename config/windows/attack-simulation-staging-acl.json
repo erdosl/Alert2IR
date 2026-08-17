@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "path": "C:\\ProgramData\\Alert2IR\\AttackSimulation",
+  "purpose": "Protect repository-reviewed attack-simulation assets from standard-user creation or replacement independently of their current execution status.",
+  "desired_acl": {
+    "owner": "BUILTIN\\Administrators",
+    "inheritance_protected": true,
+    "preserve_inherited_rules": false,
+    "access": [
+      {
+        "principal": "BUILTIN\\Administrators",
+        "type": "allow",
+        "rights": "full_control",
+        "applies_to": "this_folder_subfolders_and_files"
+      },
+      {
+        "principal": "NT AUTHORITY\\SYSTEM",
+        "type": "allow",
+        "rights": "full_control",
+        "applies_to": "this_folder_subfolders_and_files"
+      },
+      {
+        "principal": "BUILTIN\\Users",
+        "type": "allow",
+        "rights": "read_and_execute",
+        "applies_to": "this_folder_subfolders_and_files"
+      }
+    ],
+    "standard_users_may_create_or_replace": false
+  },
+  "implementation": {
+    "repository_contract_status": "verified_code",
+    "live_remediation_status": "not_applied",
+    "owner": "future_separately_authorized_endpoint_hardening",
+    "note": "No live endpoint ACL is changed by the attack-simulation breadth closure. A future endpoint-hardening change must implement and validate this exact contract independently."
+  }
+}

@@ -1,0 +1,17 @@
+title: Alert2IR Owned Lab Alias DNS Query Validation
+id: 26acb1c2-ae4a-494a-9c6e-290470e38953
+status: test
+description: Validates Windows DNS-query telemetry for the authoritative Alert2IR test namespace.
+author: Alert2IR
+date: 2026-08-17
+logsource:
+  product: windows
+  category: dns_query
+detection:
+  selection:
+    Image|endswith: '\powershell.exe'
+    QueryName|endswith: '.alert2ir.test'
+  condition: selection
+falsepositives:
+  - Expected name resolution for the owned Alert2IR test namespace
+level: informational

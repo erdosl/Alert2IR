@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "display_name": "Alert2IR-Lab-DNS-alert2ir.test",
+  "namespace": ".alert2ir.test",
+  "name_servers": [
+    "192.168.56.64"
+  ],
+  "policy_store": "local",
+  "dnssec_required": false,
+  "direct_access": false,
+  "comment": "Alert2IR-owned lab split DNS; repository provisioned"
+}

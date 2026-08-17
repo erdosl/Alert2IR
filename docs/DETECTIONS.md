@@ -1,78 +1,65 @@
 # Detection development and validation
 
-## Purpose
+## Purpose and authorities
 
-This guide defines how Alert2IR detection content is authored as Sigma, translated through the repository-owned Splunk pipeline, validated deterministically, and related to controlled live evidence. It is for detection developers, security analysts, contributors, and evaluators.
-
-Detection execution is not Alert2IR ingestion. Splunk is the validated detection execution target; no repository component automatically sends Splunk findings to `POST /v1/alerts`.
-
-## Sources of truth
+Alert2IR keeps detection execution separate from alert ingestion. Sigma is canonical detection-as-code, repository pipelines derive deterministic Splunk SPL, and an external caller remains responsible for supplying any finding to `POST /v1/alerts`.
 
 | Path | Authority |
 | --- | --- |
-| [`detections/sigma/windows/`](../detections/sigma/windows/) | Canonical detection rules |
-| [`config/sigma/pipelines/alert2ir-splunk-xml-sysmon.yml`](../config/sigma/pipelines/alert2ir-splunk-xml-sysmon.yml) | Repository-specific Splunk translation conditions |
-| [`requirements-sigma.txt`](../requirements-sigma.txt) | Exact supported direct Sigma toolchain versions |
-| [`tests/test_sigma_detection_contract.py`](../tests/test_sigma_detection_contract.py) | Canonical ruleset and rule-content contract |
-| [`tests/test_sigma_toolchain_contract.py`](../tests/test_sigma_toolchain_contract.py) | Pipeline and deterministic translation contract |
-| [`tests/test_detection_validation_contract.py`](../tests/test_detection_validation_contract.py) | Sanitized live-evidence contract |
-| [`validation/detection/`](../validation/detection/) | Committed sanitized Splunk execution evidence |
+| [`detections/sigma/windows/`](../detections/sigma/windows/) | Production-intent rules plus the byte-preserved retired cmd rule |
+| `detections/sigma/validation/windows/` | Explicit validation-only breadth rules |
+| `config/attack-simulation/detection-objectives.json` | Active objective, content class, pipeline, control, retired-rule mapping, and static/live status |
+| [`alert2ir-splunk-xml-sysmon.yml`](../config/sigma/pipelines/alert2ir-splunk-xml-sysmon.yml) | Historically pinned process-creation mapping to EventCode 1 |
+| `config/sigma/pipelines/alert2ir-splunk-xml-sysmon-breadth.yml` | New narrow mappings to EventCodes 3, 11, 15, and 22 |
+| `config/attack-simulation/detection-validation-v2.schema.json` | Generalized sanitized validation evidence |
+| [`validation/detection/`](../validation/detection/) | Immutable historical v1 plus sanitized live v2 Splunk evidence |
 
-The rules and pipeline are the executable detection definition. Generated SPL is derived output and must not replace the Sigma source.
+## Active portfolio
 
-## Authoring Sigma rules
+There are exactly seven active primary objectives:
 
-The current rules are experimental Windows `process_creation` detections. A rule must remain vendor-neutral and include a unique Sigma UUID, meaningful title and description, author and date, false-positive guidance, severity level, ATT&CK tags, a canonical logsource, and bounded detection selectors.
+| Scenario | Rule class | Sigma logsource | Pipeline EventCode | Evidence status |
+| --- | --- | --- | ---: | --- |
+| Tasklist | production intent | `windows/process_creation` | 1 | VALIDATED-HISTORICAL |
+| Encoded PowerShell | production intent | `windows/process_creation` | 1 | VALIDATED-HISTORICAL |
+| Existing temporary file | validation only | `windows/file_event` | 11 | VALIDATED-LIVE; exact `TargetFilename` primary and cleanup evidence |
+| Host-only TCP | validation only | `windows/network_connection` | 3 | VERIFIED-CODE; live execution deliberately deferred |
+| Owned-alias DNS | validation only | `windows/dns_query` | 22 | VERIFIED-CODE; DNS prerequisite VALIDATED-LIVE; live scenario deliberately deferred |
+| Benign ADS | validation only | `windows/create_stream_hash` | 15 | VERIFIED-CODE; live execution deliberately deferred |
+| Script-host ancestry | validation only | `windows/process_creation` | 1 | VERIFIED-CODE; positive/control live execution deliberately deferred |
 
-Do not embed lab-specific or validation-specific values in canonical rules, including:
+The direct temporary-file rule selects `TargetFilename|startswith` for the existing UUID-scoped prefix. Its primary objective is now Sysmon 11, while the creating process (1) is secondary and deletion (26) is cleanup evidence.
 
-- Splunk index, source, sourcetype, or event-code constraints;
-- endpoint names or addresses;
-- controlled run identifiers, exact ground-truth payloads, or event record IDs;
-- generated SPL or product-specific field projections.
+The old cmd command-line rule remains byte-identical at its original path because its generated SPL, hashes, live evidence, and `contains|all` regression value are historical authority. It is listed only under `retired_rules` and is not an active primary objective.
 
-Those concerns belong in the translation pipeline or sanitized validation evidence. The existing contract intentionally freezes exactly three approved rules; changing the ruleset requires a deliberate update to its contracts and evidence, not only a new YAML file.
+## Rule intent and semantic coverage
 
-## Translation pipeline
+Validation-only rules live under an explicit directory and are also labeled `validation_only` in the objective authority. They validate telemetry and translation semantics; they are not represented as deployable high-signal production detections.
 
-The repository pipeline applies only to Sigma rules with:
+Static implementation and live acceptance are independent dimensions. A `live_deferred` objective remains active: its Sigma rule, mapping, provenance, cardinality, cleanup, schema, and deterministic translation contracts continue to be required.
+
+Preserved semantics include `endswith`, `contains`, `contains|all`, list-as-OR, simple AND, and multi-selection AND. The breadth rules add `startswith`, direct non-process fields, exact numeric `DestinationPort`, `Initiated` and `Protocol` equality, Windows ADS colon escaping, `ParentImage` ancestry, non-process logsources, and zero-attributable control semantics. The ancestry rule requires `ParentImage`, `Image`, and the bounded child command pattern; removing the parent condition changes the rule's meaning.
+
+Rules never embed a host, index, run UUID, historical record ID, raw payload, or lab IP. The network validation rule fixes port `9997` because that is the reviewed objective field value, but does not select a destination address; authorized preflight must still approve the listener. The DNS validation rule uses only the repository-owned `.alert2ir.test` suffix, not one endpoint name or resolver address. The ADS rule intentionally has no broad `Zone.Identifier` exclusion; legitimate stream noise must be measured before any production allowlist decision.
+
+## Translation pipelines
+
+The original process pipeline remains unchanged so committed translation hashes stay resolvable. The breadth pipeline contains four separate `add_condition` transformations:
 
 ```text
-product: windows
-category: process_creation
+windows/network_connection -> EventCode=3
+windows/file_event          -> EventCode=11
+windows/create_stream_hash  -> EventCode=15
+windows/dns_query           -> EventCode=22
 ```
 
-For the Splunk backend it adds the validated XML Sysmon representation:
+Every mapping adds the same deterministic XML Sysmon source and sourcetype and applies only to its exact logsource. Neither pipeline adds an index, host, destination, alias, run identity, or historical record. Environment scoping belongs only in executed-search evidence.
 
-- source `XmlWinEventLog:Microsoft-Windows-Sysmon/Operational`;
-- sourcetype `XmlWinEventLog`;
-- event code `1`.
+The mapping is **VERIFIED-CODE** and repeated translations are byte-deterministic. The authorized Event 11 run additionally proves current live `TargetFilename`, `Image`, `ProcessGuid`, and `RecordID` extraction for that bounded file-event result. It does not transfer verification to `DestinationIp`, `DestinationPort`, `Initiated`, `Protocol`, `QueryName`, `QueryStatus`, or stream-hash fields. `QueryStatus` and stream-hash existence logic remain omitted until the corresponding mapping is verified rather than guessed.
 
-It deliberately adds no index or host constraint. This keeps environment-specific search scope outside the canonical rule and translation contract.
+## Deterministic verification
 
-In an environment installed from `requirements-sigma.txt`, validate and translate a rule with the supported command form:
-
-```bash
-sigma check --fail-on-error --fail-on-issues \
-  detections/sigma/windows/process-discovery-tasklist.yml
-
-sigma convert \
-  --target splunk \
-  --pipeline config/sigma/pipelines/alert2ir-splunk-xml-sysmon.yml \
-  --pipeline-check \
-  --format default \
-  --fail-unsupported \
-  --output - \
-  detections/sigma/windows/process-discovery-tasklist.yml
-```
-
-Review derived SPL for the rule selectors and the three pipeline-added conditions. Never add a lab index or host to the canonical pipeline merely to make one validation search convenient.
-
-## Deterministic validation
-
-The ordinary application environment deliberately omits Sigma packages. In that environment, the two Sigma modules report explained skips; the standard-library evidence contracts still run.
-
-Use a separate environment installed from the pinned file for the dedicated contracts:
+The ordinary environment intentionally omits Sigma packages, so the Sigma modules report explained skips there. Use the separately pinned environment:
 
 ```bash
 python3 -m venv .venv-sigma
@@ -83,50 +70,31 @@ python3 -m venv .venv-sigma
   tests.test_sigma_toolchain_contract
 ```
 
-The 13 tests verify the exact three-rule set, vendor-neutral rule content, approved direct dependency versions, the narrow pipeline, `sigma check`, required generated terms, and byte-identical repeated translation. They use a synthetic fixture where appropriate and require no live Splunk service.
+Those contracts parse every active rule, preserve the retired rule distinction, verify exact logsource-to-EventCode isolation, reject environment scope in canonical content, compile the new semantics, check unrelated-logsource non-transformation, and require byte-identical repeated SPL.
 
-`tests.test_detection_validation_contract` separately validates the closed evidence schema, rule and pipeline provenance, bounded search windows, ground-truth linkage, sanitized matches, and honest result classifications using only repository data.
+## Detection-validation v1 and v2
 
-## Live Splunk validation boundary
+The three v1 records are immutable **VALIDATED-HISTORICAL** evidence. In particular, the old cmd record preserves its generated/executed queries, hashes, expected process match, and honest `related_wrapper` classification. Its one-second historical window remains a fact about that search, not a v2 restriction.
 
-Deterministic translation proves reproducible rule-to-SPL behavior; it does not prove that a live platform indexes the expected telemetry or that a query finds controlled activity. The committed records under `validation/detection/` preserve the separate live validation boundary.
-
-For a reviewed live validation:
-
-1. use an authorized endpoint and platform from [LAB_SCOPE.md](LAB_SCOPE.md);
-2. select committed ground truth from [`validation/attack-simulation/`](../validation/attack-simulation/);
-3. translate the exact canonical rule with the pinned pipeline and toolchain;
-4. bound the lab search to the recorded event window and explicitly add environment-specific scope outside the canonical rule/pipeline;
-5. compare matches with the expected ground-truth event and retain additional genuine matches honestly;
-6. commit only a sanitized record satisfying the evidence contract.
-
-Live Splunk execution is owned-lab evidence, not a hosted-CI dependency. Do not reproduce raw event bodies, credentials, session data, or unrelated endpoint content in Git.
-
-## Ground-truth relationship
-
-[`ATTACK_SIMULATION.md`](ATTACK_SIMULATION.md) owns scenario definition, safety, expected observable behavior, cleanup, and ground-truth evidence. This guide owns detection authoring, translation, execution comparison, and detection evidence. A scenario can succeed while a detection does not match; the evidence must report those results independently.
-
-The current relationship is:
+The v2 schema generalizes process-only evidence to:
 
 ```text
-reviewed controlled scenario
-  -> sanitized ground-truth record
-  -> canonical Sigma rule
-  -> repository Splunk pipeline
-  -> derived SPL
-  -> bounded Splunk execution
-  -> sanitized detection-validation record
+ground_truth.expected_events[]
+searches[]
+matches[]
+control_results[]
 ```
 
-## Relationship to Alert2IR ingestion
+Each search records logsource, event code, a bounded validation window, sanitized environment scope, referenced ground-truth events, canonical objective/rule/pipeline identity, pinned toolchain versions, generated/executed SPL and hashes, result count, and a timezone-aware execution timestamp. Search windows must contain referenced events and may span more than one second.
 
-A validated finding can be represented by an external caller as the canonical alert described in [APPLICATION.md](APPLICATION.md). The repository provides no Splunk saved-search action, webhook, polling adapter, or other automatic Splunk-to-Alert2IR delivery mechanism.
+Match classes are limited to `expected_primary`, `expected_secondary`, `related_wrapper`, `unexpected_related`, `environmental_noise`, and `false_positive`. Extra events do not become related automatically. Unknown attributable results require `review_unexpected_match`.
 
-## Current limitations
+Result states are `pass`, `pass_with_related`, `fail_missing_primary`, `fail_control_matched`, `review_unexpected_match`, and `blocked_telemetry`. The ancestry control expects zero attributable matches. Environmental matches remain preserved and classified; any attributable control match requires `fail_control_matched`.
 
-- The validated pipeline covers Windows process-creation rules represented by XML Sysmon event code 1; it is not a general Sysmon or SIEM abstraction.
-- The canonical ruleset contains three experimental detections tied to the controlled scenario set, not broad ATT&CK coverage.
-- Hosted tests validate content and translation without contacting Splunk.
-- Commercial detection platforms are neither implemented nor required.
+## Live validation boundary
 
-See the [lab inventory](LAB.md) for current platform roles and the [roadmap](ROADMAP.md) for project-level future work.
+The direct Event 11 objective is **VALIDATED-LIVE** in `validation/detection/event11-file-create-31d78a8c-d64a-4b5e-bff8-a318ad7c72cc.json`, achieving the accepted non-process breadth milestone. Event 3/15/22 and ancestry positive/control remain without live detection acceptance and are **DEFERRED BY PROJECT DECISION**. TCP route/listener preflight passed. Separate DNS infrastructure acceptance proves `.alert2ir.test` containment and no-leak failure behavior on both endpoints, satisfying the Event 22 prerequisite; Event 22 is not DNS-blocked.
+
+The current Windows endpoint baseline remains unchanged. Alert2IR will not add signing/trust infrastructure, bypass or mutate execution policy, deliver the wrappers inline, or replace the scenarios solely to obtain more live coverage. `docs/adr/0015-bounded-live-attack-simulation-coverage.md` closes that branch. Reconsideration requires an independent endpoint-baseline need for an approved trusted script-execution model, not an environment-specific rule change.
+
+Ordinary CI remains lab-independent. Registry, PowerShell Operational 4103/4104, named pipes, Class C behavior, commercial detection products, and automatic Splunk-to-Alert2IR delivery remain outside this workstream.

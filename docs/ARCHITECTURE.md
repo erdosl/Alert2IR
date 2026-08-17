@@ -49,16 +49,41 @@ The Alert2IR application is a Python/FastAPI process. Its `src/alert2ir/core` pa
 
 Alert2IR accepts a canonical, vendor-neutral alert through `POST /v1/alerts`. API validation is the input boundary, after which application processing uses the canonical domain model. Vendor-specific event conversion belongs in a source adapter outside that model. No automatic Splunk, SIEM, EDR, or webhook ingestion adapter is implemented.
 
-Detection execution is a separate concern from Alert2IR ingestion. The repository keeps Sigma as canonical detection-as-code and applies a repository-owned processing pipeline to derive Splunk SPL for the validated Windows process-creation cases:
+Detection execution is a separate concern from Alert2IR ingestion. The repository keeps Sigma as canonical detection-as-code and applies narrow repository-owned processing pipelines to derive Splunk SPL. The historically pinned process mapping remains separate from the statically implemented Event 3, 11, 15, and 22 breadth mappings:
 
 ```text
 Canonical Sigma
-    -> repository-owned target processing pipeline
+    -> repository-owned target processing pipeline selected by logsource
     -> derived Splunk SPL
     -> Splunk execution and validation against controlled ground truth
 ```
 
-This makes Splunk a validated detection execution target, not an Alert2IR alert-ingestion source. A finding must be represented as a canonical request and supplied to the API by an external caller; the repository implements no automated transition between those paths.
+This makes Splunk a validated detection execution target for the preserved historical process cases and the sanitized live direct Event 11 breadth case, not an Alert2IR alert-ingestion source. The Event 3, 15, and 22 mappings remain deterministic code without live detection acceptance. A finding must be represented as a canonical request and supplied to the API by an external caller; the repository implements no authenticated automated transition between those paths. The current canonical severity is caller-supplied and normalized to the closed internal vocabulary, but no source adapter records the provenance of a Splunk-to-canonical severity mapping.
+
+Attack behavior, sanitized ground truth, scenario-to-detection objectives, Sigma, target translation, live/historical validation, and future investigation remain separate authorities. The attack-simulation manifest contains no Splunk or investigation-backend fields, and this breadth work does not change the canonical alert or investigation domain model.
+
+The detection-objective authority distinguishes static implementation from historical, live, and deliberately deferred live status. Event 3, Event 15, Event 22, and ancestry positive/control remain active static content, but Alert2IR will not add signing/trust infrastructure, weaken execution policy, or change scenario delivery semantics solely to execute their PowerShell wrappers. Breadth coverage is intentionally asymmetric between static validation and live endpoint execution. `docs/adr/0015-bounded-live-attack-simulation-coverage.md` owns that boundary.
+
+## Owned split-DNS containment
+
+The reference lab has one deliberately narrow DNS path for controlled owned names:
+
+```text
+win11-01 192.168.56.60 ----\
+                              > local NRPT .alert2ir.test
+win11-02 192.168.56.62 ----/             |
+                                           v
+                              dev01 192.168.56.64:53
+                              authoritative alert2ir.test
+                              no recursion or forwarding
+                                           |
+                                           v
+                              splunk.alert2ir.test -> 192.168.56.61
+```
+
+Native BIND 9 listens only on the `dev01` host-only address over UDP/TCP. Its zone ACL and UFW independently admit exactly the two endpoints; the separate `192.168.56.1` SSH exception is not a DNS client. Local NRPT does not replace interface DNS. Packet-observed acceptance proves owned names use only `dev01`, ordinary `splunk.lab.test` resolution still uses the prior NAT resolver, and an unavailable BIND service causes owned lookups to fail without NAT, other IPv4, IPv6, or VPN fallback.
+
+This service is a satisfied, VALIDATED-LIVE Event 22 attack-simulation prerequisite, not an Alert2IR application dependency or a general lab resolver. Event 22 live scenario execution is deferred because of the wrapper execution boundary, not DNS containment. The machine-readable authority and sanitized acceptance record live under `config/dns/` and `validation/infrastructure/dns/`; `docs/adr/0014-dev01-authoritative-dns-and-windows-nrpt.md` owns the infrastructure decision.
 
 ## Decision and investigation boundaries
 
@@ -118,6 +143,7 @@ Telemetry export is failure-isolated from application processing, liveness, and 
 | Local Alloy | Application processing, `/healthz`, and `/readyz` remain independent; telemetry can be delayed or lost during bounded non-blocking degradation. |
 | Central observability platform | Prometheus, Loki, Tempo, Grafana, and Alertmanager are operator facilities, not application dependencies. |
 | Detection platform | Detection execution or search can fail without changing the canonical Alert2IR API contract; alert delivery remains an external concern. |
+| Authoritative lab DNS | Only `.alert2ir.test` lookups fail. NRPT must not leak them to ordinary resolvers, and Alert2IR application availability remains independent. |
 
 The architecture defines one row- and deadline-bounded startup reconciliation pass and one operator-triggered pass. Alert2IR propagates the remaining pass budget to supported backend submission and polling deadlines and starts no new work after observing exhaustion; synchronous vendor code may still overrun a supplied timeout. It defines no permanent scheduler, automatic submission retry, high availability, failover, fan-out, or arbitrary rollback guarantee.
 
@@ -129,6 +155,7 @@ The architecture defines one row- and deadline-bounded startup reconciliation pa
 - Velociraptor calls cross an external-effect boundary; opaque flow IDs remain execution metadata and are excluded from normal public status and investigation evidence.
 - Native Alloy access to Docker and containerd metadata is highly privileged and belongs only on trusted lab hosts.
 - The reference deployment publishes the application on host loopback; broader exposure requires an independently reviewed access-control and transport boundary.
+- The `alert2ir.test` authority is host-only, non-recursive, non-forwarding, and unavailable to sources outside the two exact Windows clients; it must never become a general resolver.
 - Authorization for security testing is governed by [LAB_SCOPE.md](LAB_SCOPE.md), not inferred from network reachability or component capability.
 
 ## Logical architecture and extension points

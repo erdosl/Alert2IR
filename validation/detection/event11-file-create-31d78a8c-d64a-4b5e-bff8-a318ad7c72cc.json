@@ -1,0 +1,86 @@
+{
+  "schema": "alert2ir-detection-validation-v2",
+  "validation_id": "cc9e1332-e019-46f6-a39a-5d176e036c04",
+  "positive_scenario_id": "alert2ir.ws07.windows.cmd-file-write.v1",
+  "objective": {
+    "primary_expectation_id": "temporary_file_create",
+    "rule_path": "detections/sigma/validation/windows/file-create-alert2ir-temp.yml",
+    "rule_id": "90bd7482-4d55-4c86-87c7-449fa789fc87",
+    "pipeline_path": "config/sigma/pipelines/alert2ir-splunk-xml-sysmon-breadth.yml",
+    "content_class": "validation_only"
+  },
+  "toolchain": {
+    "sigma_cli": "3.1.0",
+    "pysigma": "1.5.0",
+    "pysigma_backend_splunk": "2.1.0"
+  },
+  "ground_truth": {
+    "expected_events": [
+      {
+        "expectation_id": "temporary_file_create",
+        "event_ref": "event-temporary-file-create",
+        "role": "primary",
+        "phase": "execution",
+        "timestamp_utc": "2026-08-17T14:47:43.502082Z"
+      },
+      {
+        "expectation_id": "temporary_file_process",
+        "event_ref": "event-temporary-file-process",
+        "role": "secondary",
+        "phase": "execution",
+        "timestamp_utc": "2026-08-17T14:47:43.452408Z"
+      },
+      {
+        "expectation_id": "temporary_file_delete",
+        "event_ref": "event-temporary-file-delete",
+        "role": "cleanup",
+        "phase": "cleanup",
+        "timestamp_utc": "2026-08-17T14:49:31.440434Z"
+      }
+    ]
+  },
+  "searches": [
+    {
+      "search_id": "search-event11-derived",
+      "logsource": {
+        "product": "windows",
+        "category": "file_event"
+      },
+      "event_code": 11,
+      "validation_window": {
+        "start_utc": "2026-08-17T14:47:38Z",
+        "end_utc": "2026-08-17T14:47:50Z"
+      },
+      "environment_scope": {
+        "scope_ref": "scope-owned-canary-event11",
+        "summary": "Bounded main-index search for the documented canary; live TargetFilename and Image extraction matched the exact run-scoped primary."
+      },
+      "referenced_event_refs": [
+        "event-temporary-file-create"
+      ],
+      "generated_spl": "source=\"XmlWinEventLog:Microsoft-Windows-Sysmon/Operational\" sourcetype=\"XmlWinEventLog\" EventCode=11 TargetFilename=\"C:\\\\Windows\\\\Temp\\\\Alert2IR-WS07-*\"\n",
+      "executed_spl": "search index=main host=win11-02 earliest=1786978058 latest=1786978070 source=\"XmlWinEventLog:Microsoft-Windows-Sysmon/Operational\" sourcetype=\"XmlWinEventLog\" EventCode=11 TargetFilename=\"C:\\\\Windows\\\\Temp\\\\Alert2IR-WS07-*\" | table _time RecordID EventCode TargetFilename Image ProcessGuid",
+      "hashes": {
+        "rule_sha256": "5b120512de6913c13380276845fffd2c465055f964774b9473c9d340bc4777e1",
+        "pipeline_sha256": "606e9040d8d8d9fdc9e3be463214777e16ee3994aa6e55234e335f4e97108caf",
+        "generated_spl_sha256": "1e4cd9e9c93b7b0257cbed4b49e10f528cf04aa6c7466ec7cd7e6326c81c2b70",
+        "executed_spl_sha256": "7d6208043a3f372e6eba4815b242b0d7acf7d41d97095e5337ffa883b979451f"
+      },
+      "result_count": 1,
+      "search_executed_at_utc": "2026-08-17T14:49:17.655966Z"
+    }
+  ],
+  "matches": [
+    {
+      "match_ref": "match-event11-primary",
+      "search_id": "search-event11-derived",
+      "event_ref": "event-temporary-file-create",
+      "classification": "expected_primary",
+      "attributable": true,
+      "event_code": 11,
+      "timestamp_utc": "2026-08-17T14:47:43.502082Z"
+    }
+  ],
+  "control_results": [],
+  "result_state": "pass"
+}

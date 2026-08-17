@@ -1,0 +1,8 @@
+zone "alert2ir.test" {
+    type primary;
+    file "/etc/bind/alert2ir/zones/db.alert2ir.test";
+    allow-query { alert2ir-approved-clients; };
+    allow-transfer { none; };
+    allow-update { none; };
+    notify no;
+};

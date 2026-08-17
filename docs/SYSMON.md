@@ -46,6 +46,22 @@ Sysmon provides endpoint activity evidence for investigation and detection valid
 
 The only current content exception is an exact process-and-path conjunction for Splunk Universal Forwarder's Windows Event Log checkpoint files. It suppresses `splunk-winevtlog.exe` self-observation for file creation/deletion beneath its checkpoint directory. Activity by another process in that path, and Splunk activity elsewhere, remains observable. Re-evaluate the exception if the forwarder layout or collection backend changes.
 
+## Tier 1 detection-mapping status
+
+The breadth portfolio now has deterministic repository mappings for the enabled telemetry classes below:
+
+| Sigma logsource | Sysmon event | Static status | Live acceptance |
+| --- | ---: | --- | --- |
+| `windows/process_creation` | 1 | Existing pinned mapping | Historical process cases retained |
+| `windows/network_connection` | 3 | VERIFIED-CODE | DEFERRED BY PROJECT DECISION; target preflight passed |
+| `windows/file_event` | 11 | VERIFIED-CODE | VALIDATED-LIVE direct file rule and fields |
+| `windows/create_stream_hash` | 15 | VERIFIED-CODE | DEFERRED BY PROJECT DECISION |
+| `windows/dns_query` | 22 | VERIFIED-CODE | DEFERRED BY PROJECT DECISION; DNS prerequisite VALIDATED-LIVE |
+
+The 2026-08-17 prerequisite attestation proves the active `win11-02` configuration hash exactly matched the tracked XML, the service/channel were active, and the required Event 1/3/11/15/22/26 categories were configured; no Sysmon change or reload was performed. The Event 11 acceptance additionally proves its required current Splunk field representation. The Event 3/15/22 extracted fields remain unverified live because their wrapper-backed acceptance is deliberately deferred, not because the telemetry classes were removed. Puppet by itself still proves only staged XML bytes.
+
+Registry IDs 12–14 remain explicitly disabled and unvalidated. PowerShell Operational 4103/4104 is outside this Sysmon policy and remains unvalidated pending a separate logging, forwarding, and privacy decision. Named pipes remain Tier 2 even though IDs 17–18 are collected. High-risk enabled telemetry classes are not a reason to manufacture unsafe activity.
+
 ## Puppet staging boundary
 
 The [Puppet environment](../infra/puppet/README.md) takes the canonical XML from the same reviewed Git revision used to build its artifact and stages it at:
