@@ -42,10 +42,15 @@ case "${MODE}" in
     repository)
         STAGE_ROOT="$(mktemp -d --tmpdir alert2ir-dns-validate.XXXXXXXX)"
         trap 'rm -rf -- "${STAGE_ROOT}"' EXIT
-        install -d -m 0755 "${STAGE_ROOT}/etc/bind/alert2ir/zones"
+        install -d -m 0755 \
+            "${STAGE_ROOT}/etc/bind/alert2ir/zones" \
+            "${STAGE_ROOT}/var/cache/bind"
         sed "s#/etc/bind/alert2ir#${STAGE_ROOT}/etc/bind/alert2ir#g" \
             "${CONFIG_ROOT}/named.conf.alert2ir" >"${STAGE_ROOT}/etc/bind/alert2ir/named.conf"
-        install -m 0644 "${CONFIG_ROOT}/named.conf.options.alert2ir" "${STAGE_ROOT}/etc/bind/alert2ir/named.conf.options"
+        # named.conf declares directory "/var/cache/bind"; map that runtime
+        # directory to its counterpart inside the synthetic filesystem.
+        sed "s#/var/cache/bind#${STAGE_ROOT}/var/cache/bind#g" \
+            "${CONFIG_ROOT}/named.conf.options.alert2ir" >"${STAGE_ROOT}/etc/bind/alert2ir/named.conf.options"
         sed "s#/etc/bind/alert2ir#${STAGE_ROOT}/etc/bind/alert2ir#g" \
             "${CONFIG_ROOT}/named.conf.local.alert2ir" >"${STAGE_ROOT}/etc/bind/alert2ir/named.conf.local"
         install -m 0644 "${CONFIG_ROOT}/zones/db.alert2ir.test" "${STAGE_ROOT}/etc/bind/alert2ir/zones/db.alert2ir.test"
