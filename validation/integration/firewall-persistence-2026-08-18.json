@@ -1,0 +1,230 @@
+{
+  "schema_version": 1,
+  "acceptance_id": "firewall-persistence-2026-08-18",
+  "timestamp_utc": "2026-08-18T18:16:51Z",
+  "repository": {
+    "baseline_commit": "11338a084279b65a44a48084a9dd2119010b52f8",
+    "baseline_subject": "feat: complete Splunk-to-Alert2IR live integration",
+    "branch": "main",
+    "initial_worktree_state": "clean",
+    "implementation_state": "separate firewall-hardening change after the immutable baseline"
+  },
+  "scope": {
+    "host": "ir-core",
+    "authorized_network": "owned 192.168.56.0/24 lab",
+    "objective": "persist the accepted Splunk-source restriction for Docker-published TCP 8091 across an ir-core reboot",
+    "application_integration_redesigned": false,
+    "endpoint_marker_created": false,
+    "velociraptor_investigation_triggered": false
+  },
+  "investigation": {
+    "observed_at_utc": "2026-08-18T17:57:44Z",
+    "platform": {
+      "os": "Ubuntu 24.04.4 LTS",
+      "kernel": "6.8.0-137-generic",
+      "init": "systemd 255"
+    },
+    "docker": {
+      "engine_version": "29.7.2",
+      "api_version": "1.55",
+      "firewall_backend": "iptables",
+      "daemon_configuration_file": "absent",
+      "forward_order": [
+        "DOCKER-USER",
+        "DOCKER-FORWARD",
+        "UFW forwarding chains"
+      ],
+      "published_adapter_rule": "DNAT 192.168.56.63:8091/tcp to the splunk_adapter container",
+      "published_core_rule": "DNAT 127.0.0.1:8000/tcp to the core container"
+    },
+    "firewall": {
+      "implementation": "iptables v1.8.10 (nf_tables)",
+      "native_nftables_backend_enabled": false,
+      "ufw": "active with default incoming and routed deny; not effective as the Docker published-port authority",
+      "original_docker_user_rules": [
+        "-A DOCKER-USER -s 192.168.56.61/32 -i enp0s8 -p tcp -m conntrack --ctorigdst 192.168.56.63 --ctorigdstport 8091 -j ACCEPT",
+        "-A DOCKER-USER -i enp0s8 -p tcp -m conntrack --ctorigdst 192.168.56.63 --ctorigdstport 8091 -j DROP"
+      ],
+      "original_rule_count": 2,
+      "unrelated_original_docker_user_rule_count": 0,
+      "explicit_established_related_in_docker_user": false,
+      "docker_connection_tracking_chain_handles_established_return_traffic": true,
+      "original_allow_packets": 84,
+      "original_drop_packets": 14
+    },
+    "listeners": [
+      "192.168.56.63:8091",
+      "127.0.0.1:8000"
+    ],
+    "existing_persistence": {
+      "iptables_persistent": "not installed",
+      "netfilter_persistent": "not installed",
+      "nftables_package": "installed",
+      "nftables_service": "disabled and inactive",
+      "firewalld": "not installed",
+      "ufw_service": "enabled and active",
+      "docker_drop_ins": "none"
+    },
+    "service_ordering": {
+      "ufw": "DefaultDependencies=no; before network-pre.target",
+      "docker": "enabled; after network-online.target, containerd.service, docker.socket, and firewalld.service",
+      "network_online": "ordered after systemd-networkd-wait-online.service"
+    }
+  },
+  "design": {
+    "mechanism": "idempotent Alert2IR rule reconciler invoked by Docker systemd ExecStartPre and verified by ExecStartPost",
+    "artifacts": [
+      "tools/linux/alert2ir-splunk-adapter-firewall.sh",
+      "config/firewall/20-alert2ir-splunk-adapter-firewall.conf"
+    ],
+    "ownership_comments": [
+      "alert2ir:splunk-adapter:allow",
+      "alert2ir:splunk-adapter:drop"
+    ],
+    "fail_safe": "ExecStartPre creates/reconciles DOCKER-USER before dockerd restores published containers; any apply failure prevents Docker startup. ExecStartPost verifies the backend and first FORWARD jump.",
+    "narrow_ownership": "only the two comment-owned rules and their exact accepted un-commented legacy equivalents are reconciled; the chain and unrelated rules are never flushed",
+    "rejected_alternatives": {
+      "iptables_persistent_or_netfilter_persistent": "not installed and a full static restore would own unrelated dynamic Docker and host policy",
+      "native_nftables_configuration": "Docker is using the iptables backend and its Docker 29 native nftables backend is not enabled",
+      "ufw_rule": "Docker-published traffic reaches Docker forwarding rules before ordinary UFW input policy",
+      "firewalld": "not installed and adding another firewall manager is unnecessary",
+      "post_docker_only_oneshot": "would leave a possible interval in which restored published containers precede source filtering"
+    }
+  },
+  "deployment": {
+    "script_sha256": "d615bde0d1f34ad2da3979469db51857c0f91aea61ed5794d63b4c06774e176e",
+    "drop_in_sha256": "740c8552160e838ced42bb99073cd90ef99bf579528114d94e7a6ca922da7d59",
+    "installed_script": "/usr/local/sbin/alert2ir-splunk-adapter-firewall",
+    "installed_drop_in": "/etc/systemd/system/docker.service.d/20-alert2ir-splunk-adapter-firewall.conf",
+    "systemd_analyze_verify": "pass",
+    "failed_attempts": [
+      {
+        "stage": "artifact transfer",
+        "failure": "the first scp destination omitted the ir-core host qualifier and resolved to a nonexistent local temporary path",
+        "live_state_changed": false,
+        "correction": "added the explicit ir-core destination qualifier and reverified both artifact hashes"
+      },
+      {
+        "stage": "first-apply wrapper validation",
+        "failure": "a whole-table iptables-save hash included generated timestamp headers and therefore differed despite unchanged rule semantics",
+        "live_state_changed": "the intended first rule reconciliation had completed successfully; the wrapper stopped before its second apply",
+        "correction": "excluded comment headers from normalized comparison, directly inspected the full rules, then repeated apply with stable semantic hashes"
+      }
+    ]
+  },
+  "pre_reboot": {
+    "observed_at_utc": "2026-08-18T18:09:08Z",
+    "boot_id": "911dc989-a261-4ff8-a7f5-326b6f6b49de",
+    "rules": [
+      "-A DOCKER-USER -s 192.168.56.61/32 -i enp0s8 -p tcp -m conntrack --ctorigdst 192.168.56.63 --ctorigdstport 8091 -m comment --comment \"alert2ir:splunk-adapter:allow\" -j ACCEPT",
+      "-A DOCKER-USER -i enp0s8 -p tcp -m conntrack --ctorigdst 192.168.56.63 --ctorigdstport 8091 -m comment --comment \"alert2ir:splunk-adapter:drop\" -j DROP"
+    ],
+    "idempotency": {
+      "ruleset_sha256_before_repeat": "b522c4492bf67f1d760381f4cb1009044324d399380a75fbd95594b664c341b9",
+      "ruleset_sha256_after_repeat": "b522c4492bf67f1d760381f4cb1009044324d399380a75fbd95594b664c341b9",
+      "owned_allow_count": 1,
+      "owned_drop_count": 1,
+      "legacy_uncommented_count": 0,
+      "unmanaged_filter_unchanged": true,
+      "nat_unchanged": true
+    },
+    "network_probes": {
+      "splunk_to_adapter_8091": "reachable_http_200",
+      "dev01_to_adapter_8091": "blocked_connect_timeout",
+      "splunk_to_canonical_8000": "blocked_connect_timeout"
+    },
+    "canonical_binding": "127.0.0.1:8000",
+    "adapter_binding": "192.168.56.63:8091",
+    "core_health": "http_200",
+    "core_readiness": "http_200",
+    "adapter_health": "http_200_healthy",
+    "validation_saved_search": "disabled=true; enableSched=0",
+    "velociraptor_pslist_flow_count": 4
+  },
+  "controlled_reboot": {
+    "requested_at_utc": "2026-08-18T18:09:38Z",
+    "host_returned_at_utc": "2026-08-18T18:09:58Z",
+    "old_boot_id": "911dc989-a261-4ff8-a7f5-326b6f6b49de",
+    "new_boot_id": "be43a810-8661-48dc-a022-db47adf56c42",
+    "completed": true,
+    "manual_post_reboot_firewall_apply": false
+  },
+  "post_reboot": {
+    "observed_at_utc": "2026-08-18T18:10:44Z",
+    "docker": {
+      "active": true,
+      "result": "success",
+      "exec_main_started_at_utc": "2026-08-18T18:09:57Z",
+      "service_active_at_utc": "2026-08-18T18:10:04Z",
+      "pre_start_apply": "status=0/SUCCESS at 2026-08-18T18:09:57Z",
+      "post_start_check": "status=0/SUCCESS at 2026-08-18T18:10:04Z",
+      "automatic_boot_apply_journal_count": 1
+    },
+    "firewall": {
+      "read_only_check": "pass",
+      "forward_first_rule": "-A FORWARD -j DOCKER-USER",
+      "owned_allow_count": 1,
+      "owned_drop_count": 1,
+      "unexpected_duplicate_count": 0,
+      "allow_counter_after_probe": "7 packets",
+      "drop_counter_after_probe": "3 packets"
+    },
+    "network_probes": {
+      "observed_at_utc": "2026-08-18T18:11:03Z",
+      "splunk_to_adapter_8091": "reachable_http_200",
+      "dev01_to_adapter_8091": "blocked_connect_timeout",
+      "splunk_to_canonical_8000": "blocked_connect_timeout"
+    },
+    "listeners": {
+      "adapter": "192.168.56.63:8091",
+      "canonical": "127.0.0.1:8000",
+      "prohibited_wildcard_or_remote_canonical_listener_count": 0
+    },
+    "application": {
+      "core_health": "http_200",
+      "core_readiness_final": "http_200",
+      "adapter_health": "http_200_healthy",
+      "postgres_baseline_restart_policy": "no",
+      "postgres_initial_state": "exited after reboot as specified by the accepted baseline",
+      "postgres_recovery": "the existing container was started at 2026-08-18T18:11:57Z; no Compose or application artifact changed",
+      "final_container_health": {
+        "splunk_adapter": "healthy",
+        "core": "healthy",
+        "postgres": "healthy"
+      }
+    },
+    "validation_saved_search": "disabled=true; enableSched=0",
+    "velociraptor_pslist_flow_count": 4,
+    "additional_velociraptor_pslist_flows": 0
+  },
+  "regression_validation": {
+    "focused_firewall_contracts": "8 passed",
+    "shell_syntax": "pass",
+    "systemd_unit_verification": "pass on deployed docker.service",
+    "initial_ordinary_suite": "450 run; 11 skipped; 1 development-state documentation-link failure because the new target was not yet in the Git index; no application test failed",
+    "final_ordinary_suite": "452 run; 441 passed; 11 skipped for the absent PostgreSQL test URL and dedicated Sigma environment; 0 failures",
+    "compose_configuration": "base and Velociraptor override pass with non-live validation placeholders",
+    "documentation_links": "13 passed",
+    "evidence_json": "python json.tool pass and focused evidence contracts pass",
+    "git_diff_check": "pass",
+    "secret_scan": "7 staged files scanned for private-key blocks and common token formats; 0 findings"
+  },
+  "non_regression": {
+    "hmac_authentication": "unchanged and still required",
+    "canonical_api_binding": "unchanged at 127.0.0.1:8000",
+    "compose_network_topology": "unchanged",
+    "alert2ir_core_behavior": "unchanged",
+    "adapter_request_and_retry_behavior": "unchanged",
+    "sender_behavior": "unchanged",
+    "universal_forwarder_use_ack": "unchanged false",
+    "validation_saved_search": "remained disabled",
+    "new_endpoint_validation_marker": false,
+    "new_velociraptor_investigation": false
+  },
+  "sanitization": {
+    "sensitive_material_recorded": false,
+    "raw_product_or_endpoint_output_recorded": false,
+    "host_specific_values_limited_to_owned_lab_network_and_service_facts": true
+  },
+  "final_verdict": "pass"
+}

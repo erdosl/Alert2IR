@@ -32,7 +32,7 @@ The hostnames identify reference-lab machines, not logical application component
 | `dev01` | Owned lab hosts | Repository development, controlled management, and validation over the host-only network |
 | `win11-01`, `win11-02` | `dev01` | Local NRPT routes only `.alert2ir.test` to authoritative UDP/TCP `53` on `192.168.56.64` |
 | `win11-01`, `win11-02` | `splunk` | Sysmon Operational events forwarded to the Splunk receiving service on TCP `9997` |
-| `splunk` (`192.168.56.61`) | `ir-core` (`192.168.56.63:8091`) | Live-validated HMAC-authenticated bounded finding delivery; runtime firewall admits the Splunk host only |
+| `splunk` (`192.168.56.61`) | `ir-core` (`192.168.56.63:8091`) | Live-validated HMAC-authenticated bounded finding delivery; persistent Docker firewall boundary admits the Splunk host only |
 | Local operator on `ir-core` | Alert2IR application | Loopback-only API publication on `127.0.0.1:8000` |
 | Alert2IR `splunk_adapter` service | Alert2IR `core` service | Live-validated one-shot delivery to `http://core:8000` on the private Compose network |
 | Alert2IR `core` service | PostgreSQL | Internal Compose-network database connection; PostgreSQL has no published host port |
@@ -66,7 +66,7 @@ The tracked Compose deployment for `ir-core` defines:
 
 The base deployment selects the deterministic mock investigation backend. The Velociraptor override selects the live investigation backend and injects an external API configuration plus one exact host-to-client mapping. These modes are mutually exclusive in runtime composition.
 
-Tracked configuration defines the deployment boundary but is not by itself live evidence. The adapter, runtime firewall rule, protected secrets, and Splunk app were directly observed during the 2026-08-18 acceptance; the sanitized record under `validation/integration/` owns that evidence. The `DOCKER-USER` restriction was runtime-active but remains non-persistent across `ir-core` reboot.
+Tracked configuration defines the deployment boundary but is not by itself live evidence. The adapter, protected secrets, and Splunk app were directly observed during the 2026-08-18 source-integration acceptance. The later firewall-persistence acceptance records that the exact source restriction is reconciled by a Docker systemd pre-start hook and survived a controlled `ir-core` reboot without manual firewall reapplication. Sanitized records under `validation/integration/` own that evidence.
 
 Alert processing uses source-scoped idempotency and durable execution state in PostgreSQL. Callers must retain their `Idempotency-Key` for acknowledgement recovery, and operators may inspect the returned processing-status resource or run the bounded one-shot reconciliation command documented in [DEPLOYMENT.md](DEPLOYMENT.md). No queue, broker, or separate worker is deployed.
 

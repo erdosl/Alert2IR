@@ -46,7 +46,7 @@ one unique safe marker on win11-02
 
 The implementation keeps Splunk-specific semantics at the source edge. The canonical API remains loopback-published, `source="splunk"` is not authentication, the sender has three bounded attempts, the adapter makes one core request per attempt, and PostgreSQL remains the durable idempotency boundary. The validation search is disabled after acceptance. Replay of the accepted finding produced the same processing and no second backend operation, but the project makes no exactly-once or production-readiness claim.
 
-No new feature workstream is selected by this milestone. Universal Forwarder `useACK=false` reliability hardening and persistence of the runtime `DOCKER-USER` restriction across `ir-core` reboot remain separate operational follow-ups rather than hidden WS19 acceptance requirements.
+No new feature workstream is selected by this milestone. Universal Forwarder `useACK=false` reliability hardening remains a separate operational follow-up rather than a hidden WS19 acceptance requirement. The separate 2026-08-18 firewall-hardening workstream persistently reconciled the accepted `DOCKER-USER` source restriction across `ir-core` reboot without changing WS19 application or sender behavior.
 
 ## Deferred resumption conditions
 

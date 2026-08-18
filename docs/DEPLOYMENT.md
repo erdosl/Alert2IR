@@ -75,17 +75,52 @@ Velociraptor credentials and certificates remain together in an external API-con
 
 ## Adapter firewall boundary
 
-Puppet does not own the `ir-core` firewall. The operator must install and persist the adapter rule in the host firewall before starting `splunk_adapter`. A UFW `INPUT` rule alone is not an adequate contract for a Docker-published port because Docker forwards published traffic through its own chains. On the reference host, first verify that `enp0s8` is the interface holding exactly `192.168.56.63/24` and inspect `sudo iptables -S DOCKER-USER`. Stop for review if either exact adapter rule already exists. For a fresh installation, insert the drop first and the allow second at position 1, yielding allow then drop in final order:
+Puppet does not own the `ir-core` firewall. A UFW `INPUT` rule alone is not an adequate contract for a Docker-published port because Docker forwards published traffic through its own chains. The reference host uses Docker's `iptables` firewall backend through Ubuntu's `iptables-nft` compatibility implementation. It does not use Docker's experimental native-nftables backend, `iptables-persistent`, `netfilter-persistent`, or the disabled `nftables.service` for this boundary.
+
+The checked-in [`alert2ir-splunk-adapter-firewall.sh`](../tools/linux/alert2ir-splunk-adapter-firewall.sh) reconciles only the two Alert2IR-owned `DOCKER-USER` rules. It requires host `ir-core`, `enp0s8` holding only `192.168.56.63/24`, and the `iptables-nft` implementation. The rules use comments `alert2ir:splunk-adapter:allow` and `alert2ir:splunk-adapter:drop` as ownership markers. Apply always installs a drop before its allow, places the final allow/drop pair at positions 1 and 2, removes older marked copies and the two exact pre-persistence legacy equivalents, and preserves every unrelated rule. The accepted semantics remain:
 
 ```bash
-sudo iptables -I DOCKER-USER 1 -i enp0s8 -p tcp \
-  -m conntrack --ctorigdst 192.168.56.63 --ctorigdstport 8091 -j DROP
-
-sudo iptables -I DOCKER-USER 1 -i enp0s8 -s 192.168.56.61 -p tcp \
-  -m conntrack --ctorigdst 192.168.56.63 --ctorigdstport 8091 -j ACCEPT
+sudo iptables -S DOCKER-USER
+# -A DOCKER-USER -s 192.168.56.61/32 -i enp0s8 -p tcp \
+#   -m conntrack --ctorigdst 192.168.56.63 --ctorigdstport 8091 \
+#   -m comment --comment "alert2ir:splunk-adapter:allow" -j ACCEPT
+# -A DOCKER-USER -i enp0s8 -p tcp \
+#   -m conntrack --ctorigdst 192.168.56.63 --ctorigdstport 8091 \
+#   -m comment --comment "alert2ir:splunk-adapter:drop" -j DROP
 ```
 
-The first rule admits only `splunk` (`192.168.56.61`); the second blocks every other source arriving on the host-only interface for that original published destination. Review `sudo iptables -S DOCKER-USER` and persist the two exact rules using the host's already-approved firewall persistence mechanism. Do not install a second firewall manager or overwrite unrelated rules merely to persist them. The Compose bind to `192.168.56.63` prevents publication on the NAT interface, while these rules provide the independent source restriction.
+Install the reviewed script and Docker systemd drop-in, reload unit metadata, apply while the existing boundary is still active, and verify:
+
+```bash
+sudo install -o root -g root -m 0755 \
+  tools/linux/alert2ir-splunk-adapter-firewall.sh \
+  /usr/local/sbin/alert2ir-splunk-adapter-firewall
+sudo install -o root -g root -m 0755 -d /etc/systemd/system/docker.service.d
+sudo install -o root -g root -m 0644 \
+  config/firewall/20-alert2ir-splunk-adapter-firewall.conf \
+  /etc/systemd/system/docker.service.d/20-alert2ir-splunk-adapter-firewall.conf
+sudo systemctl daemon-reload
+sudo /usr/local/sbin/alert2ir-splunk-adapter-firewall apply
+sudo /usr/local/sbin/alert2ir-splunk-adapter-firewall check
+sudo systemd-analyze verify docker.service
+systemctl show docker.service -p DropInPaths
+```
+
+The systemd drop-in uses `ExecStartPre` to reconcile the boundary after the host-only interface is online but before `dockerd` can restore containers or publish port 8091. The script explicitly creates `DOCKER-USER` when it is absent after boot; it does not rely on a ruleset restore racing Docker chain creation. A failed pre-start check prevents Docker from starting. `ExecStartPost` then requires Docker to report the `iptables` backend and verifies that the first `FORWARD` rule enters `DOCKER-USER`; a failed post-start check fails and stops the Docker start. Docker 29.7.2 on the accepted host preserves the pre-created chain during startup, as separately recorded by reboot acceptance evidence. A Docker/backend upgrade requires re-attestation before relying on this ordering.
+
+Run `apply` repeatedly to reconcile drift; the resulting two owned rules still exist exactly once. `check` is read-only. The Compose bind to `192.168.56.63` prevents publication on the NAT interface, while these rules independently admit only `splunk` (`192.168.56.61`) to the original published destination and drop every other host-only source. HMAC remains required for adapter requests. The canonical API remains host-published only at `127.0.0.1:8000`; this mechanism neither opens nor manages port 8000, UFW policy, Docker-created rules, or unrelated `DOCKER-USER` entries.
+
+For rollback, first stop `splunk_adapter`, confirm no TCP 8091 listener remains, remove only the named Docker drop-in, reload systemd, and invoke the script's narrow removal mode before deleting the installed script:
+
+```bash
+docker compose stop splunk_adapter
+sudo rm -f /etc/systemd/system/docker.service.d/20-alert2ir-splunk-adapter-firewall.conf
+sudo systemctl daemon-reload
+sudo /usr/local/sbin/alert2ir-splunk-adapter-firewall remove
+sudo rm -f /usr/local/sbin/alert2ir-splunk-adapter-firewall
+```
+
+Removal refuses to proceed while port 8091 has a listener and deletes only rules carrying the two Alert2IR ownership comments. It does not flush or remove `DOCKER-USER` and does not alter unrelated host policy.
 
 ## Database migration
 
@@ -297,7 +332,7 @@ Rollback the source boundary without deleting durable processing data:
 
 1. keep the validation saved search disabled, or disable any later explicitly enabled delivery search;
 2. stop only the gateway with `docker compose stop splunk_adapter`;
-3. remove the exact `DOCKER-USER` allow and drop rules with the matching `iptables -D` forms and update the operator-owned persistence state;
+3. follow the adapter-firewall rollback above to remove the owned Docker drop-in and its two comment-marked `DOCKER-USER` rules;
 4. remove the Splunk app only through its normal app lifecycle if the rollback requires it;
 5. remove the two protected HMAC files only after both sender and gateway are stopped and no rollback will reuse them.
 
