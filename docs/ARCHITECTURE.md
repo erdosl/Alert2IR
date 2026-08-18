@@ -47,7 +47,17 @@ The Alert2IR application is a Python/FastAPI process. Its `src/alert2ir/core` pa
 
 ## Canonical alert and detection boundaries
 
-Alert2IR accepts a canonical, vendor-neutral alert through `POST /v1/alerts`. API validation is the input boundary, after which application processing uses the canonical domain model. Vendor-specific event conversion belongs in a source adapter outside that model. No automatic Splunk, SIEM, EDR, or webhook ingestion adapter is implemented.
+Alert2IR accepts a canonical, vendor-neutral alert through `POST /v1/alerts`. API validation is the core input boundary, after which application processing uses the canonical domain model. Vendor-specific conversion remains outside that model. The implemented Splunk edge follows this exact shape:
+
+```text
+Splunk per-result custom action
+    -> bounded alert2ir.splunk-finding.v1
+    -> raw-body HMAC source gateway on 192.168.56.63:8091
+    -> deterministic CanonicalAlert + Splunk finding identity
+    -> one private POST to core:8000/v1/alerts
+```
+
+The `splunk_adapter` Compose service is a separate stateless process. It fixes canonical `source="splunk"`, preserves reviewed Sigma severity through a versioned mapping, emits exactly one normalized host entity, and derives the downstream `Idempotency-Key`; the caller cannot supply any of those values. Splunk-specific models and conversion stay under `alert2ir.adapters.splunk`, and `alert2ir.core` contains no Splunk concepts. No generalized SIEM integration or webhook framework is implemented.
 
 Detection execution is a separate concern from Alert2IR ingestion. The repository keeps Sigma as canonical detection-as-code and applies narrow repository-owned processing pipelines to derive Splunk SPL. The historically pinned process mapping remains separate from the statically implemented Event 3, 11, 15, and 22 breadth mappings:
 
@@ -58,7 +68,9 @@ Canonical Sigma
     -> Splunk execution and validation against controlled ground truth
 ```
 
-This makes Splunk a validated detection execution target for the preserved historical process cases and the sanitized live direct Event 11 breadth case, not an Alert2IR alert-ingestion source. The Event 3, 15, and 22 mappings remain deterministic code without live detection acceptance. A finding must be represented as a canonical request and supplied to the API by an external caller; the repository implements no authenticated automated transition between those paths. The current canonical severity is caller-supplied and normalized to the closed internal vocabulary, but no source adapter records the provenance of a Splunk-to-canonical severity mapping.
+This keeps Splunk detection execution distinct from canonical ingestion while closing one narrow transition between them. The saved-search predicate remains Sigma-derived, and reviewed rule UUID/title/level configuration plus one bounded result row becomes the source finding. The gateway authenticates exact raw body bytes and timestamp before parsing, then invokes the frozen conversion. The Event 3, 15, and 22 mappings remain deterministic code without live detection acceptance; adding the adapter does not change their status. The validation-only high rule is separate from production-intent detections, is disabled by default, and was returned to disabled state after controlled owned-lab acceptance.
+
+The final owned-lab acceptance record under `validation/integration/` proves one safe `win11-02` Sysmon event traversed the scheduled Splunk detection, authenticated gateway, canonical high alert, `investigate` decision, `process.list` capability, and Velociraptor `Windows.System.Pslist` to durable completion. Replaying that same finding returned the same processing and created no additional Velociraptor operation. This demonstrates durable logical duplicate suppression for the observed replay; it is not a globally exactly-once delivery guarantee.
 
 Attack behavior, sanitized ground truth, scenario-to-detection objectives, Sigma, target translation, live/historical validation, and future investigation remain separate authorities. The attack-simulation manifest contains no Splunk or investigation-backend fields, and this breadth work does not change the canonical alert or investigation domain model.
 
@@ -142,7 +154,7 @@ Telemetry export is failure-isolated from application processing, liveness, and 
 | PostgreSQL | Readiness fails when connectivity or schema revision is wrong. No backend work begins unless acceptance committed. Failure after remote submission may leave durable `submitting`; stale reconciliation conservatively requires recovery. |
 | Local Alloy | Application processing, `/healthz`, and `/readyz` remain independent; telemetry can be delayed or lost during bounded non-blocking degradation. |
 | Central observability platform | Prometheus, Loki, Tempo, Grafana, and Alertmanager are operator facilities, not application dependencies. |
-| Detection platform | Detection execution or search can fail without changing the canonical Alert2IR API contract; alert delivery remains an external concern. |
+| Detection platform / source gateway | Splunk owns at most three sender attempts; the gateway makes exactly one core request per authenticated attempt and owns no queue. Prolonged outage may require operator re-dispatch. |
 | Authoritative lab DNS | Only `.alert2ir.test` lookups fail. NRPT must not leak them to ordinary resolvers, and Alert2IR application availability remains independent. |
 
 The architecture defines one row- and deadline-bounded startup reconciliation pass and one operator-triggered pass. Alert2IR propagates the remaining pass budget to supported backend submission and polling deadlines and starts no new work after observing exhaustion; synchronous vendor code may still overrun a supplied timeout. It defines no permanent scheduler, automatic submission retry, high availability, failover, fan-out, or arbitrary rollback guarantee.
@@ -150,6 +162,9 @@ The architecture defines one row- and deadline-bounded startup reconciliation pa
 ## Trust and security boundaries
 
 - External alert input crosses the API validation boundary before becoming a canonical domain value.
+- Splunk reaches only the HMAC-authenticated gateway on `192.168.56.63:8091`; the canonical host publication remains `127.0.0.1:8000`. The gateway reaches `core:8000` only over the private Compose network.
+- Canonical `source="splunk"` is an idempotency namespace, not authentication. Authentication is the fixed gateway principal, HMAC secret, and bounded timestamp window.
+- HMAC provides authentication and integrity, not confidentiality. Lab HTTP is acceptable only with host-only interface binding and a firewall admitting `192.168.56.61` alone; a broader/untrusted network requires TLS review.
 - PostgreSQL contains internal application state and is not published by the repository-defined Compose deployment.
 - Database and investigation-backend credentials, certificates, and live target mappings remain external secrets and must not enter Git.
 - Velociraptor calls cross an external-effect boundary; opaque flow IDs remain execution metadata and are excluded from normal public status and investigation evidence.
@@ -162,7 +177,7 @@ The architecture defines one row- and deadline-bounded startup reconciliation pa
 
 The [lab inventory](LAB.md) maps these logical contracts onto `ir-core`, `obs01`, and the other owned systems. Alternate deployments may place the application, database, telemetry collector, and observability backends differently while preserving the same boundaries.
 
-Intentional extension points are source adapters, policy implementations, investigation capabilities and backends, persistence implementations, and OpenTelemetry-compatible destinations. They do not imply that generalized source ingestion, correlation, permanent asynchronous workers, commercial backends, Kubernetes, queues, caches, or distributed processing exist. Database duplicate suppression does not prove globally exactly-once remote execution. Proposed work and deferrals belong in the [roadmap](ROADMAP.md).
+Intentional extension points are source adapters, policy implementations, investigation capabilities and backends, persistence implementations, and OpenTelemetry-compatible destinations. The concrete Splunk adapter proves the source edge without turning it into a generic plugin system. These extension points do not imply generalized source ingestion, correlation, permanent asynchronous workers, commercial backends, Kubernetes, queues, caches, or distributed processing. Sender retry plus database duplicate suppression does not prove globally exactly-once remote execution. Proposed work and deferrals belong in the [roadmap](ROADMAP.md).
 
 ## Related references
 

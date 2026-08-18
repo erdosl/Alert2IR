@@ -1,0 +1,2 @@
+_time,Computer,host,source,sourcetype,EventCode,RecordID,ProcessGuid,Image,ParentImage,TargetFilename
+2026-08-18T12:34:56.123456Z,WIN11-02,win11-02,XmlWinEventLog:Microsoft-Windows-Sysmon/Operational,XmlWinEventLog,1,1800001,{22222222-3333-4444-5555-666666666666},C:\Windows\System32\cmd.exe,C:\Windows\explorer.exe,

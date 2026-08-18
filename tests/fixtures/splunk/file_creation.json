@@ -1,0 +1,21 @@
+{
+  "schema": "alert2ir.splunk-finding.v1",
+  "detection": {
+    "rule_id": "90bd7482-4d55-4c86-87c7-449fa789fc87",
+    "rule_title": "Alert2IR Temporary File Creation Validation",
+    "sigma_level": "informational"
+  },
+  "event": {
+    "_time": "2026-08-17T14:47:43.502082Z",
+    "Computer": "win11-02",
+    "host": "WIN11-02",
+    "channel": "Microsoft-Windows-Sysmon/Operational",
+    "source": "XmlWinEventLog:Microsoft-Windows-Sysmon/Operational",
+    "sourcetype": "XmlWinEventLog",
+    "EventCode": "11",
+    "RecordID": "1757566",
+    "ProcessGuid": "{aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee}",
+    "Image": "C:\\Windows\\System32\\cmd.exe",
+    "TargetFilename": "C:\\Windows\\Temp\\Alert2IR-WS07-sanitized.bin"
+  }
+}

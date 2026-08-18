@@ -32,7 +32,9 @@ The hostnames identify reference-lab machines, not logical application component
 | `dev01` | Owned lab hosts | Repository development, controlled management, and validation over the host-only network |
 | `win11-01`, `win11-02` | `dev01` | Local NRPT routes only `.alert2ir.test` to authoritative UDP/TCP `53` on `192.168.56.64` |
 | `win11-01`, `win11-02` | `splunk` | Sysmon Operational events forwarded to the Splunk receiving service on TCP `9997` |
+| `splunk` (`192.168.56.61`) | `ir-core` (`192.168.56.63:8091`) | Live-validated HMAC-authenticated bounded finding delivery; runtime firewall admits the Splunk host only |
 | Local operator on `ir-core` | Alert2IR application | Loopback-only API publication on `127.0.0.1:8000` |
+| Alert2IR `splunk_adapter` service | Alert2IR `core` service | Live-validated one-shot delivery to `http://core:8000` on the private Compose network |
 | Alert2IR `core` service | PostgreSQL | Internal Compose-network database connection; PostgreSQL has no published host port |
 | Alert2IR application | Velociraptor API on `ir-core` | Optional investigation calls when the Velociraptor Compose override is enabled |
 | `win11-02` | Velociraptor frontend on `ir-core` | Enrolled endpoint communication for the current investigation target |
@@ -52,15 +54,19 @@ Implementation re-attestation superseded the discovery expectation that UFW was 
 
 ## Alert2IR deployment
 
-The repository-defined Compose deployment runs on `ir-core` with:
+The tracked Compose deployment for `ir-core` defines:
 
 - the `core` service for the Alert2IR application;
+- the separate stateless `splunk_adapter` service for HMAC-authenticated Splunk findings;
 - the internal `postgres` service and persistent named volume;
-- loopback-only API publication;
+- loopback-only canonical API publication at `127.0.0.1:8000`;
+- source-adapter publication only at `192.168.56.63:8091`, with an operator-owned firewall requirement admitting `192.168.56.61` alone;
 - `/healthz` for application liveness and the Docker healthcheck;
 - `/readyz` for PostgreSQL connectivity and required schema readiness.
 
 The base deployment selects the deterministic mock investigation backend. The Velociraptor override selects the live investigation backend and injects an external API configuration plus one exact host-to-client mapping. These modes are mutually exclusive in runtime composition.
+
+Tracked configuration defines the deployment boundary but is not by itself live evidence. The adapter, runtime firewall rule, protected secrets, and Splunk app were directly observed during the 2026-08-18 acceptance; the sanitized record under `validation/integration/` owns that evidence. The `DOCKER-USER` restriction was runtime-active but remains non-persistent across `ir-core` reboot.
 
 Alert processing uses source-scoped idempotency and durable execution state in PostgreSQL. Callers must retain their `Idempotency-Key` for acknowledgement recovery, and operators may inspect the returned processing-status resource or run the bounded one-shot reconciliation command documented in [DEPLOYMENT.md](DEPLOYMENT.md). No queue, broker, or separate worker is deployed.
 
@@ -74,7 +80,7 @@ Sysmon on both Windows endpoints supplies host telemetry through Splunk Universa
 
 The repository defines seven primary attack-simulation scenarios plus one ancestry negative-control variant. Authorized acceptance on 2026-08-17 attested `win11-02`, active Sysmon policy equality, and current Splunk forwarding, then **VALIDATED-LIVE** the direct Event 11 objective, Event 26 cleanup, and independent post-state verification. The authoritative DNS/NRPT workstream separately **VALIDATED-LIVE** Event 22's DNS infrastructure prerequisite on both endpoints. Event 3/15/22 and ancestry positive/control remain statically implemented, but their PowerShell-wrapper-dependent live execution is **DEFERRED BY PROJECT DECISION** under the unchanged endpoint execution baseline. Event 22 is not DNS-blocked.
 
-Splunk is a validated detection execution target. It is not an Alert2IR alert-ingestion source, and the repository implements no Splunk-to-`/v1/alerts` adapter. Canonical alert delivery remains an external caller responsibility.
+Splunk is a validated detection execution target and the repository implements one narrow sender/gateway path from a per-result finding to the existing canonical API. Splunk never receives direct host-network access to `/v1/alerts`: it calls only `POST /v1/splunk/findings` on port `8091`, while the gateway fixes source identity, canonicalizes, and calls core privately. Controlled acceptance on 2026-08-18 proved one validation-only high finding reached durable `process.list` completion through Velociraptor and that replay returned the same processing with zero additional `Windows.System.Pslist` operations. The validation search was disabled again afterward. Universal Forwarder `useACK=false` remains a separate reliability-hardening concern; neither the acceptance nor this lab design claims lossless or exactly-once delivery.
 
 The staging path `C:\ProgramData\Alert2IR\AttackSimulation` has a repository-only desired ACL contract under `config/windows/attack-simulation-staging-acl.json`. No endpoint ACL remediation was applied by the breadth closure, and Puppet does not currently own that path.
 
@@ -110,6 +116,7 @@ The observability path is failure-isolated: neither local Alloy nor the central 
 - Raw DNS packet captures and unrelated resolver/firewall inventories remain outside Git; only sanitized counts and exact owned tuples are retained.
 - Sanitized validation artifacts may preserve deterministic evidence; raw endpoint or product data must not be committed.
 - The host-only network and loopback API publication reduce exposure but do not replace authentication, authorization, or transport review for any broader deployment.
+- The adapter's HMAC protects authentication and integrity but not confidentiality. Its HTTP publication is acceptable only within the owned host-only lab with the exact Splunk-source firewall restriction; broader use requires TLS review.
 - Native Alloy access to Docker and containerd metadata is privileged and is confined to trusted lab hosts.
 
 ## Canonical references

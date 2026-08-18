@@ -24,8 +24,12 @@ EXPECTED_RULE_FILES = {
     "validation/windows/create-stream-hash-alert2ir-ads.yml",
     "validation/windows/dns-query-owned-alias.yml",
     "validation/windows/file-create-alert2ir-temp.yml",
+    "validation/windows/investigation-delivery-marker.yml",
     "validation/windows/network-connection-host-only.yml",
     "validation/windows/process-creation-script-host-ancestry.yml",
+}
+DELIVERY_VALIDATION_RULE_FILES = {
+    "validation/windows/investigation-delivery-marker.yml",
 }
 REQUIRED_SIGMA_DISTRIBUTIONS = (
     "sigma-cli",
@@ -69,6 +73,11 @@ RULE_CONTRACTS = {
         "status": "test",
         "logsource": {"product": "windows", "category": "file_event"},
         "level": "informational",
+    },
+    "validation/windows/investigation-delivery-marker.yml": {
+        "status": "test",
+        "logsource": {"product": "windows", "category": "process_creation"},
+        "level": "high",
     },
     "validation/windows/network-connection-host-only.yml": {
         "status": "test",
@@ -125,7 +134,7 @@ class SigmaDetectionContractTests(unittest.TestCase):
         }
         cls.objectives = json.loads(OBJECTIVES_PATH.read_text(encoding="utf-8"))
 
-    def test_ruleset_distinguishes_seven_active_objectives_and_one_retired_rule(self) -> None:
+    def test_ruleset_distinguishes_objectives_retired_and_delivery_validation(self) -> None:
         self.assertEqual(set(self.rules), EXPECTED_RULE_FILES)
         active_paths = {
             objective["rule_path"].removeprefix("detections/sigma/")
@@ -138,12 +147,17 @@ class SigmaDetectionContractTests(unittest.TestCase):
         self.assertEqual(len(active_paths), 7)
         self.assertEqual(retired_paths, {"windows/cmd-temp-file-write-display.yml"})
         self.assertTrue(active_paths.isdisjoint(retired_paths))
-        self.assertEqual(active_paths | retired_paths, EXPECTED_RULE_FILES)
+        self.assertTrue(active_paths.isdisjoint(DELIVERY_VALIDATION_RULE_FILES))
+        self.assertTrue(retired_paths.isdisjoint(DELIVERY_VALIDATION_RULE_FILES))
+        self.assertEqual(
+            active_paths | retired_paths | DELIVERY_VALIDATION_RULE_FILES,
+            EXPECTED_RULE_FILES,
+        )
 
     def test_rule_ids_are_unique_valid_and_not_ground_truth_ids(self) -> None:
         rule_ids = [rule["id"] for rule in self.rules.values()]
-        self.assertEqual(len(rule_ids), 8)
-        self.assertEqual(len(set(rule_ids)), 8)
+        self.assertEqual(len(rule_ids), 9)
+        self.assertEqual(len(set(rule_ids)), 9)
         for rule_id in rule_ids:
             with self.subTest(rule_id=rule_id):
                 self.assertEqual(str(UUID(rule_id)), rule_id)
@@ -173,7 +187,9 @@ class SigmaDetectionContractTests(unittest.TestCase):
                 self.assertEqual(rule["level"], contract["level"])
                 self.assertTrue(rule["detection"])
                 self.assertTrue(rule["falsepositives"])
-                if name.startswith("validation/"):
+                if name == "validation/windows/investigation-delivery-marker.yml":
+                    self.assertEqual(str(rule["date"]), "2026-08-18")
+                elif name.startswith("validation/"):
                     self.assertEqual(str(rule["date"]), "2026-08-17")
                 else:
                     self.assertEqual(str(rule["date"]), "2026-08-13")
@@ -296,6 +312,22 @@ class SigmaDetectionContractTests(unittest.TestCase):
             rule["detection"]["selection"]["ParentImage|endswith"],
             rule["detection"]["selection"]["Image|endswith"],
         )
+
+    def test_delivery_validation_rule_uses_only_the_reserved_safe_marker(self) -> None:
+        rule = self.rules[
+            "validation/windows/investigation-delivery-marker.yml"
+        ]
+        self.assertEqual(
+            rule["detection"],
+            {
+                "selection": {
+                    "Image|endswith": r"\cmd.exe",
+                    "CommandLine|contains": "Alert2IR-INVESTIGATE-",
+                },
+                "condition": "selection",
+            },
+        )
+        self.assertIn("not production detection content", rule["description"])
 
 
 if __name__ == "__main__":

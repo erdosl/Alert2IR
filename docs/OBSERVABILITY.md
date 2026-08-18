@@ -73,7 +73,7 @@ curl -fsS http://127.0.0.1:8000/readyz
 ## Daily operator workflow
 
 1. Open **Alert2IR Observability Platform** and review active alerts and central service health.
-2. Open **Alert2IR Edge** and check `ir-core`, local Alloy, probes, and the `core` and `postgres` containers.
+2. Open **Alert2IR Edge** and check `ir-core`, local Alloy, probes, and the `core`, `splunk_adapter`, and `postgres` containers.
 3. Open **Alert2IR Application** and review readiness, processing, persistence, latency, and recent structured logs.
 4. For a request problem, search by `request_id`, then navigate from logs to its trace.
 5. Use processing, investigation-backend, and persistence evidence to identify the failed stage before restarting anything.
@@ -210,6 +210,8 @@ Never use `docker compose down -v`, `docker system prune`, `docker volume prune`
 ## Operational privilege and warning boundaries
 
 Native Alloy is non-root but receives security-sensitive Docker and containerd access. Docker-group membership is effectively root-equivalent, and containerd API access is not inherently read-only. Never make either socket world-accessible, expose it over TCP, or broaden firewall/socket access merely to suppress an error. Exact group/socket and listener configuration belongs in the configuration reference.
+
+The existing cAdvisor discovery automatically includes `splunk_adapter` container metrics under its bounded Compose service label. Docker log discovery explicitly admits `core|splunk_adapter`; no new listener, dashboard, or source-gateway health dependency is introduced. Adapter Uvicorn logs remain subject to the same bounded Docker JSON rotation and must not contain request bodies, HMAC headers, secrets, or idempotency keys.
 
 Current non-blocking warnings:
 

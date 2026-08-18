@@ -1,0 +1,29 @@
+{
+  "schema": "alert2ir.splunk-finding.v1",
+  "detection": {
+    "rule_id": "78441abe-99b0-4e6e-bd85-d52748e59d0e",
+    "rule_title": "Process Discovery via Tasklist",
+    "sigma_level": "low"
+  },
+  "event": {
+    "_time": "2026-08-12T20:26:12.705Z",
+    "Computer": "WIN11-02",
+    "host": "win11-02.",
+    "channel": "Microsoft-Windows-Sysmon/Operational",
+    "source": "XmlWinEventLog:Microsoft-Windows-Sysmon/Operational",
+    "sourcetype": "XmlWinEventLog",
+    "EventCode": "1",
+    "RecordID": "1300570",
+    "ProcessGuid": "{11111111-2222-3333-4444-555555555555}",
+    "Image": "C:\\Windows\\System32\\tasklist.exe",
+    "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+    "CommandLine": "tasklist /FO CSV",
+    "User": "LAB\\analyst",
+    "ProcessId": "1234",
+    "ParentProcessId": "5678",
+    "_raw": "<Event>sanitized and intentionally ignored</Event>",
+    "sid": "scheduler__sanitized",
+    "results_link": "https://splunk.invalid/results/sanitized",
+    "session_key": "sanitized-placeholder"
+  }
+}

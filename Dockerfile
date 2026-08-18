@@ -16,6 +16,6 @@ COPY migrations ./migrations
 
 USER alert2ir
 
-EXPOSE 8000
+EXPOSE 8000 8091
 
 CMD ["uvicorn", "alert2ir.main:app", "--host", "0.0.0.0", "--port", "8000"]

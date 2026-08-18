@@ -1,0 +1,15 @@
+{
+  "schema": "alert2ir.splunk-finding.v1",
+  "detection": {
+    "rule_id": "83f9f33f-69b6-45ca-8e70-681fea55a255",
+    "rule_title": "Sanitized Minimal Detection",
+    "sigma_level": "high"
+  },
+  "event": {
+    "_time": 1786566372.705,
+    "host": "win11-02",
+    "channel": "Microsoft-Windows-Sysmon/Operational",
+    "EventCode": 1,
+    "RecordID": 1300570
+  }
+}

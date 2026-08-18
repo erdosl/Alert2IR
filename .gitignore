@@ -19,6 +19,7 @@ env/
 *.pem
 *.key
 secrets.yaml
+integrations/splunk/alert2ir_delivery/local/
 
 # Editors and operating systems
 .idea/
@@ -40,4 +41,3 @@ dist/
 crash.log
 packer_cache/
 *.box
-

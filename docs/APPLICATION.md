@@ -8,7 +8,7 @@ The application is the Python/FastAPI process. `core` is its Compose service, `s
 
 ## Canonical alert and fingerprint
 
-`POST /v1/alerts` accepts the existing canonical alert: detection identity, timezone-aware detection time, source provenance, ordered entities, normalized severity, and ordered evidence. Unknown fields are rejected. Source-specific conversion remains outside this repository.
+`POST /v1/alerts` accepts the existing canonical alert: detection identity, timezone-aware detection time, source provenance, ordered entities, normalized severity, and ordered evidence. Unknown fields are rejected. Source-specific conversion remains outside the canonical application and `alert2ir.core`; the repository's concrete Splunk conversion runs in the separate source gateway under `alert2ir.adapters.splunk`.
 
 Durable acceptance fingerprints the canonical domain value after validation; raw HTTP JSON is never hashed. Fingerprint version 1 is identified by `alert2ir.canonical-alert-fingerprint.v1` and includes every accepted semantic field. It:
 
@@ -150,10 +150,10 @@ Metrics use only bounded state, outcome, backend, and error-category dimensions.
 
 ## Current limitations
 
-- Alert delivery and source adapters remain external.
+- The Splunk source gateway remains a separate edge process; this canonical application does not parse Splunk findings or authenticate Splunk callers.
 - Runtime composition selects one mock or Velociraptor backend and one `process.list` plan.
 - V1 has one automatic attempt, one bounded startup pass, and an operator one-shot command; it has no permanent scheduler, worker service, queue, broker, cancellation, retry endpoint, fallback, or fan-out.
 - Velociraptor flow discovery by operation key is unsupported, so ambiguous scheduling requires verified operator resolution.
-- Source-scoped idempotency assumes trusted loopback callers and is not a broader access-control design.
+- Source-scoped idempotency remains a duplicate-suppression namespace, not access control. The canonical API stays loopback-published and the separate source gateway owns Splunk authentication.
 
 See [ADR 0012](adr/0012-durable-processing-before-execution.md), [architecture](ARCHITECTURE.md), and [deployment](DEPLOYMENT.md).

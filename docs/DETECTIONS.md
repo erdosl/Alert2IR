@@ -2,7 +2,7 @@
 
 ## Purpose and authorities
 
-Alert2IR keeps detection execution separate from alert ingestion. Sigma is canonical detection-as-code, repository pipelines derive deterministic Splunk SPL, and an external caller remains responsible for supplying any finding to `POST /v1/alerts`.
+Alert2IR keeps detection execution separate from canonical alert ingestion. Sigma is canonical detection-as-code, repository pipelines derive deterministic Splunk SPL, and the concrete Splunk per-result action supplies a bounded finding only to the authenticated source gateway. The gateway, not Splunk, derives the canonical alert and calls private `POST /v1/alerts`.
 
 | Path | Authority |
 | --- | --- |
@@ -97,4 +97,4 @@ The direct Event 11 objective is **VALIDATED-LIVE** in `validation/detection/eve
 
 The current Windows endpoint baseline remains unchanged. Alert2IR will not add signing/trust infrastructure, bypass or mutate execution policy, deliver the wrappers inline, or replace the scenarios solely to obtain more live coverage. `docs/adr/0015-bounded-live-attack-simulation-coverage.md` closes that branch. Reconsideration requires an independent endpoint-baseline need for an approved trusted script-execution model, not an environment-specific rule change.
 
-Ordinary CI remains lab-independent. Registry, PowerShell Operational 4103/4104, named pipes, Class C behavior, commercial detection products, and automatic Splunk-to-Alert2IR delivery remain outside this workstream.
+Ordinary CI remains lab-independent. Registry, PowerShell Operational 4103/4104, named pipes, Class C behavior, and commercial detection products remain outside this workstream. The separate Splunk delivery integration consumes Sigma-derived per-result searches without changing this detection authority; its validation-only high marker is not production-intent detection content.

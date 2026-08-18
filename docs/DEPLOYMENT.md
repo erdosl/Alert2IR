@@ -2,7 +2,7 @@
 
 ## Scope
 
-This guide describes the repository-defined Docker Compose deployment of the Alert2IR application. The `core` Compose service runs the application, and the `postgres` service provides its PostgreSQL database. The application is published only on host loopback at `127.0.0.1:8000`; PostgreSQL has no published host port.
+This guide describes the repository-defined Docker Compose deployment of the Alert2IR application and its lab-scoped Splunk source gateway. The `core` service runs the canonical application, `postgres` provides its database, and the separate `splunk_adapter` service authenticates and converts bounded Splunk findings before making one private request to `core`. The canonical API remains published only on host loopback at `127.0.0.1:8000`; PostgreSQL has no published host port. Only the adapter is published on the host-only interface at `192.168.56.63:8091`.
 
 `ir-core` is the exact hostname of the corresponding lab VM, not the application or an architectural component. Host provisioning, topology, and firewall facts belong in the [lab inventory](LAB.md).
 
@@ -11,6 +11,8 @@ This guide describes the repository-defined Docker Compose deployment of the Ale
 - Docker Engine with Docker Compose support;
 - a reviewed repository checkout containing the Compose files, Dockerfile, Alembic configuration, and migrations;
 - a local environment file derived from `.env.example`;
+- one external HMAC secret installed as protected files on both `ir-core` and `splunk` when the source gateway is enabled;
+- a source-restricted host firewall rule for the Docker-published adapter port;
 - a readable external Velociraptor API configuration only when that investigation-backend mode is selected.
 
 Host package installation and bootstrap are outside this guide. The repository-owned Puppet boundary is documented in [`infra/puppet`](../infra/puppet/README.md).
@@ -31,6 +33,7 @@ cp .env.example .env
 | `ALERT2IR_DATABASE_URL` | Required | Application connection URL for the internal `postgres` service |
 | `ALERT2IR_BACKEND` | Optional; defaults to `mock` | Selects exactly `mock` or `velociraptor` |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | Optional; blank disables external export | OpenTelemetry collector endpoint |
+| `ALERT2IR_SPLUNK_ADAPTER_SECRET_SOURCE` | Required by `splunk_adapter` | Absolute protected host path to the shared HMAC secret file; this is a path, never secret bytes |
 | `ALERT2IR_VELOCIRAPTOR_API_CONFIG_SOURCE` | Velociraptor mode | Absolute host path to the external API configuration |
 | `ALERT2IR_VELOCIRAPTOR_HOST` | Velociraptor mode | One exact canonical `host` target value |
 | `ALERT2IR_VELOCIRAPTOR_CLIENT_ID` | Velociraptor mode | Velociraptor client mapped to that host |
@@ -45,9 +48,44 @@ docker compose config
 
 ## Secrets
 
-Do not commit `.env`, database credentials, certificates, private keys, or live host/client mappings. `.env.example` contains names and placeholders only.
+Do not commit `.env`, database credentials, HMAC material, certificates, private keys, or live host/client mappings. `.env.example` contains names and path placeholders only.
+
+Create one random secret in a protected staging location without placing its value on a command line. A 32-byte random value rendered as hexadecimal provides 64 bytes to the HMAC implementation:
+
+```bash
+umask 077
+openssl rand -hex 32 > /protected/staging/alert2ir-splunk-adapter.secret
+```
+
+Transfer the same file through an approved protected administrative channel to both hosts. Do not independently generate two secrets, and do not reuse a database, Velociraptor, Splunk administrative, or other application credential. On `ir-core`, set `ALERT2IR_SPLUNK_ADAPTER_SECRET_SOURCE` to an absolute path such as `/etc/alert2ir/secrets/splunk-adapter.secret`. The image runs as a non-root `alert2ir` user whose numeric ID must be taken from the reviewed built image rather than guessed:
+
+```bash
+sudo install -d -o root -g root -m 0750 /etc/alert2ir/secrets
+docker compose build core splunk_adapter
+adapter_uid=$(docker compose run --rm --no-deps --entrypoint id splunk_adapter -u)
+adapter_gid=$(docker compose run --rm --no-deps --entrypoint id splunk_adapter -g)
+sudo install -o "$adapter_uid" -g "$adapter_gid" -m 0400 \
+  /protected/staging/alert2ir-splunk-adapter.secret \
+  /etc/alert2ir/secrets/splunk-adapter.secret
+```
+
+The host file is mounted read-only at `/run/secrets/alert2ir-splunk-adapter`; only that container path is passed to the process. The application rejects a missing, non-regular, unreadable, oversized, or shorter-than-32-byte secret before Uvicorn becomes healthy. Secret bytes are neither copied into the image nor supplied through Compose environment values or command-line arguments. Re-attest the image user and file ownership after a Dockerfile user change.
 
 Velociraptor credentials and certificates remain together in an external API-configuration file. The override mounts the file read-only at `/run/secrets/alert2ir-velociraptor-api.yaml`; the host source path is used only by Compose interpolation and is not passed to the application. The file must be a readable regular file for the non-root application process. It is not copied into the image or stored in a named volume.
+
+## Adapter firewall boundary
+
+Puppet does not own the `ir-core` firewall. The operator must install and persist the adapter rule in the host firewall before starting `splunk_adapter`. A UFW `INPUT` rule alone is not an adequate contract for a Docker-published port because Docker forwards published traffic through its own chains. On the reference host, first verify that `enp0s8` is the interface holding exactly `192.168.56.63/24` and inspect `sudo iptables -S DOCKER-USER`. Stop for review if either exact adapter rule already exists. For a fresh installation, insert the drop first and the allow second at position 1, yielding allow then drop in final order:
+
+```bash
+sudo iptables -I DOCKER-USER 1 -i enp0s8 -p tcp \
+  -m conntrack --ctorigdst 192.168.56.63 --ctorigdstport 8091 -j DROP
+
+sudo iptables -I DOCKER-USER 1 -i enp0s8 -s 192.168.56.61 -p tcp \
+  -m conntrack --ctorigdst 192.168.56.63 --ctorigdstport 8091 -j ACCEPT
+```
+
+The first rule admits only `splunk` (`192.168.56.61`); the second blocks every other source arriving on the host-only interface for that original published destination. Review `sudo iptables -S DOCKER-USER` and persist the two exact rules using the host's already-approved firewall persistence mechanism. Do not install a second firewall manager or overwrite unrelated rules merely to persist them. The Compose bind to `192.168.56.63` prevents publication on the NAT interface, while these rules provide the independent source restriction.
 
 ## Database migration
 
@@ -63,16 +101,18 @@ docker compose run --rm core alembic upgrade head
 
 Durable Execution v1 advances the required revision from `0001_processing_records` to `0002_durable_execution`. Upgrade PostgreSQL first with the reviewed new image/code and migration command, then recreate `core` with that same revision. The migration preserves existing processing UUIDs and completed snapshots, backfills their lifecycle timestamps, leaves idempotency metadata null, and creates no historical execution attempts. Do not start the new application against `0001`; exact-revision readiness rejects it. Do not run the old application against the advanced mutable schema.
 
-## Start the application
+## Start the application and source gateway
 
-After configuration validation and migration:
+After configuration validation, migration, protected-secret installation, and firewall review:
 
 ```bash
-docker compose up -d core
+docker compose up -d core splunk_adapter
 docker compose ps
 ```
 
-The `core` image runs the application as a dedicated non-root user. The preceding `up -d --wait postgres` step establishes PostgreSQL container health before `core` starts; the Compose file does not declare automatic readiness gating between the services.
+Both Python services use the same repository Dockerfile and build context and run as its dedicated non-root user. `splunk_adapter` overrides only the container command to run the Phase 2 application factory on container port `8091`. It receives `http://core:8000` as its private upstream origin and shares the `alert2ir_private` bridge network with `core`; it receives no database or Velociraptor credentials. Its `depends_on` condition waits for the shallow `core` healthcheck, not PostgreSQL readiness. A request arriving while core delivery is unavailable receives the existing bounded transient classification; there is no adapter queue or infrastructure retry.
+
+`splunk_adapter` startup fails if its core URL, timeout, or secret file is invalid. Its `/healthz` reports only that configuration loaded and the HTTP process is alive. It does not probe Splunk, core, PostgreSQL, or Velociraptor.
 
 ## Deployment acceptance
 
@@ -82,13 +122,55 @@ Require all of the following after startup:
 docker compose ps
 curl -fsS http://127.0.0.1:8000/healthz
 curl -fsS http://127.0.0.1:8000/readyz
+curl -fsS http://192.168.56.63:8091/healthz
+docker compose exec splunk_adapter python -c \
+  "import urllib.request; urllib.request.urlopen('http://core:8000/healthz', timeout=2).read()"
 ```
 
-- `core` is healthy and `postgres` is healthy.
+- `core`, `postgres`, and `splunk_adapter` are healthy.
 - `/healthz` returns HTTP 200 with `{"status":"ok"}`. This proves process liveness only.
 - `/readyz` returns HTTP 200 with `{"status":"ready"}`. This proves PostgreSQL connectivity and the required Alembic/schema revision.
+- The adapter health request returns `{"status":"ok"}` without testing dependencies.
+- The explicit container-network check proves adapter-to-core name resolution and private health reachability; it is not part of adapter health.
 
-The `core` container healthcheck intentionally calls `/healthz`; Docker health does not replace the separate `/readyz` deployment-acceptance check. Readiness does not depend on an investigation backend or the observability platform.
+The two Python container healthchecks intentionally call their shallow `/healthz` endpoints. Docker health does not replace the separate core `/readyz` deployment-acceptance check. Readiness does not depend on an investigation backend or the observability platform.
+
+Verify listener isolation on `ir-core` and from the exact lab sources. Record only bounded status results, never signatures or secret bytes:
+
+```bash
+ss -ltn '( sport = :8000 or sport = :8091 )'
+```
+
+The host must show `127.0.0.1:8000` and `192.168.56.63:8091`, never `0.0.0.0` for either publication. From `splunk`, adapter health must succeed and direct canonical API access must fail:
+
+```bash
+curl -fsS --connect-timeout 3 http://192.168.56.63:8091/healthz
+curl -fsS --connect-timeout 3 http://192.168.56.63:8000/healthz
+```
+
+The second command is expected to fail. From another host-only system such as `dev01`, the first adapter command is expected to be blocked by `DOCKER-USER`. These source tests cannot be replaced by a same-host curl.
+
+After health succeeds, verify the authentication boundary without sending a valid finding. Each request below must return HTTP `401`; the zero digest is intentionally invalid and is not secret material:
+
+```bash
+curl -sS -o /dev/null -w '%{http_code}\n' -X POST \
+  -H 'Content-Type: application/json' --data '{}' \
+  http://192.168.56.63:8091/v1/splunk/findings
+
+curl -sS -o /dev/null -w '%{http_code}\n' -X POST \
+  -H 'Content-Type: application/json' \
+  -H "X-Alert2IR-Timestamp: $(date +%s)" \
+  -H 'X-Alert2IR-Signature: v1=0000000000000000000000000000000000000000000000000000000000000000' \
+  --data '{}' http://192.168.56.63:8091/v1/splunk/findings
+
+curl -sS -o /dev/null -w '%{http_code}\n' -X POST \
+  -H 'Content-Type: application/json' \
+  -H 'X-Alert2IR-Timestamp: 0' \
+  -H 'X-Alert2IR-Signature: v1=0000000000000000000000000000000000000000000000000000000000000000' \
+  --data '{}' http://192.168.56.63:8091/v1/splunk/findings
+```
+
+A separately authorized low-severity signed smoke finding may prove adapter-to-core delivery without requesting investigation. It is optional and must be recorded as a delivery smoke test, not end-to-end acceptance. The high-severity validation marker remains disabled in Phase 4 and must not be executed until Phase 5.
 
 After startup, the application launches one bounded failure-isolated reconciliation pass. It does not delay liveness/readiness or wait for every remote operation. Review its bounded telemetry when incomplete work exists.
 
@@ -110,7 +192,7 @@ This command may plan accepted work, claim planned attempt 1, or poll a known ex
 
 Base `compose.yaml` defaults `ALERT2IR_BACKEND` to `mock`. This selects one deterministic `MockBackend` with `process.list` capability and requires no external investigation system or credential file. Any Velociraptor application setting in mock mode is rejected.
 
-Use the base commands shown above for configuration, migration, startup, acceptance, restart, and shutdown.
+Use the base commands shown above for configuration, migration, startup, acceptance, restart, and shutdown. The source gateway is independent of backend selection; a valid low/medium finding continues to produce `no_action` under the existing policy.
 
 ### Velociraptor mode
 
@@ -123,6 +205,49 @@ docker compose -f compose.yaml -f compose.velociraptor.yaml config
 Use the same `-f compose.yaml -f compose.velociraptor.yaml` pair on every `build`, `up`, `run`, `restart`, and `down` command for that deployment. The override selects `velociraptor`, mounts the external configuration read-only, and supplies the fixed container path to the application.
 
 Application construction validates the local file and exact host/client mapping but does not connect to Velociraptor. Connection and collection are request-time effects. This mode supports one exact host mapping and the `process.list` application capability; it does not enable discovery, fallback, or multi-backend routing.
+
+## Splunk app package and installation
+
+Build the standalone app only from a reviewed committed revision. The deterministic builder excludes the surrounding Alert2IR source tree, refuses to overwrite an artifact, and reports its complete SHA-256:
+
+```bash
+tools/splunk/build-alert2ir-delivery-app.sh <reviewed-git-ref> <existing-output-directory>
+```
+
+Transfer the resulting `alert2ir_delivery-<commit>.tgz` and verify its complete hash on `splunk`. Install it under `$SPLUNK_HOME/etc/apps/alert2ir_delivery` with the local Splunk CLI or by an equivalent reviewed archive install, then ensure the tree is owned by the Splunk service account. The package contains only `default/`, `README/`, `metadata/`, `bin/`, and its README; it does not import the Alert2IR application environment.
+
+Repository-owned portable values stay in `default/`. Put the host-specific URL and sender secret path in the untracked/deployed `local/savedsearches.conf`:
+
+```ini
+[Alert2IR Investigation Delivery Validation Marker]
+disabled = true
+enableSched = 0
+action.alert2ir_delivery.param.adapter_url = http://192.168.56.63:8091/v1/splunk/findings
+action.alert2ir_delivery.param.secret_file = /opt/splunk/etc/auth/alert2ir/alert2ir_delivery.secret
+```
+
+Install the same HMAC bytes used by the adapter without placing them in `local/` or any `.conf` file:
+
+```bash
+sudo install -d -o splunk -g splunk -m 0700 /opt/splunk/etc/auth/alert2ir
+sudo install -o splunk -g splunk -m 0400 \
+  /protected/staging/alert2ir-splunk-adapter.secret \
+  /opt/splunk/etc/auth/alert2ir/alert2ir_delivery.secret
+```
+
+Use the actual Splunk account and `$SPLUNK_HOME` if the lab package differs. Compare the two protected files through a controlled administrative procedure without copying their bytes into logs or Git. The Git-tracked default has blank adapter/secret paths, so missing `local/` configuration fails closed at action execution.
+
+The custom-action registration and app metadata require a Splunk restart after initial installation unless the installed Splunk release documents an equivalent safe reload. Do not put an administrative password in shell history; use the normal protected local administration path. After restart, validate effective configuration without executing the action:
+
+```bash
+sudo -u splunk /opt/splunk/bin/splunk btool alert_actions list alert2ir_delivery --debug
+sudo -u splunk /opt/splunk/bin/splunk btool savedsearches list \
+  'Alert2IR Investigation Delivery Validation Marker' --debug
+```
+
+Require the effective saved search to retain `disabled = true` and `enableSched = 0`, the reviewed rule UUID/title/level, per-result delivery, the exact adapter URL, and the protected sender secret path. Confirm `bin/alert2ir_delivery.py` remains executable. Do not run the reserved marker or enable the schedule during Phase 4.
+
+The HMAC protects authentication and body integrity but does not encrypt HTTP. This is acceptable only on the owned host-only network with exact-interface binding and the source firewall rule above. TLS is required before crossing a broader or untrusted network boundary.
 
 ## Observability export
 
@@ -151,8 +276,8 @@ For an application revision change:
 3. Run `docker compose config` with the selected Compose file set.
 4. Build the application image and ensure PostgreSQL is healthy.
 5. Run `docker compose run --rm core alembic upgrade head` with that same file set.
-6. Run `docker compose up -d core` to recreate the application service when required.
-7. Verify container state, `/healthz`, and `/readyz`.
+6. Run `docker compose up -d core splunk_adapter` to recreate the Python services when required.
+7. Verify container state, both `/healthz` endpoints, core `/readyz`, listener isolation, and firewall behavior.
 
 Migrations are forward-only: neither the baseline nor Durable Execution migration provides a supported downgrade. An older application revision is not compatible with the mutable advanced lifecycle schema. Rollback requires a reviewed data restore or forward repair; retain a verified database backup before upgrade.
 
@@ -165,6 +290,18 @@ docker compose down --volumes
 ```
 
 Run it only for an explicitly authorized destructive reset with an understood recovery plan. Use the matching Compose file set when Velociraptor mode was selected.
+
+## Source-gateway rollback
+
+Rollback the source boundary without deleting durable processing data:
+
+1. keep the validation saved search disabled, or disable any later explicitly enabled delivery search;
+2. stop only the gateway with `docker compose stop splunk_adapter`;
+3. remove the exact `DOCKER-USER` allow and drop rules with the matching `iptables -D` forms and update the operator-owned persistence state;
+4. remove the Splunk app only through its normal app lifecycle if the rollback requires it;
+5. remove the two protected HMAC files only after both sender and gateway are stopped and no rollback will reuse them.
+
+Do not delete the PostgreSQL volume or Alert2IR processing rows as source-gateway rollback. A prolonged gateway outage can exhaust the sender's bounded three attempts and requires deliberate operator re-dispatch; no durable source queue exists.
 
 ## Troubleshooting boundaries
 
@@ -182,5 +319,7 @@ Compose files, environment parsing, and migrations define exact deployment behav
 - [`compose.velociraptor.yaml`](../compose.velociraptor.yaml) for live investigation-backend activation;
 - [`.env.example`](../.env.example) for repository-owned environment inputs;
 - [`src/alert2ir/main.py`](../src/alert2ir/main.py) for runtime composition and validation;
+- `src/alert2ir/adapters/splunk/runtime.py` for adapter process composition and startup validation;
+- `integrations/splunk/alert2ir_delivery` for the standalone Splunk application package;
 - [`migrations`](../migrations/) and [`alembic.ini`](../alembic.ini) for schema changes;
 - [`tests`](../tests/) for executable deployment and application contracts.

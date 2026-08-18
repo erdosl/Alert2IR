@@ -199,7 +199,7 @@ discovery.relabel "alert2ir_logs" {
 
   rule {
     source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
-    regex         = "core"
+    regex         = "core|splunk_adapter"
     action        = "keep"
   }
 

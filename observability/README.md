@@ -37,11 +37,13 @@ The central Compose project is explicitly named `alert2ir-observability` and
 contains Grafana, Prometheus, Alertmanager, Loki, and Tempo. Alloy 1.18.1 runs
 natively on `obs01` and `ir-core`, outside Compose.
 
-The application Compose project contains `core` and `postgres`, publishes the
-application only on `127.0.0.1:8000`, and passes the optional local OTLP endpoint
-to `core`. Both services retain Docker `json-file` logging bounded by `10m` and
-three files. Native `ir-core` Alloy discovers only those controlled service
-identities and reads their stdout through the Docker API.
+The application Compose project contains `core`, `splunk_adapter`, and
+`postgres`. It publishes the canonical application only on `127.0.0.1:8000`,
+publishes the adapter on the exact host-only address `192.168.56.63:8091`, and
+passes the optional local OTLP endpoint only to `core`. All three services retain
+Docker `json-file` logging bounded by `10m` and three files. Native `ir-core`
+Alloy discovers those controlled service identities for container metrics and
+reads only `core` and `splunk_adapter` stdout through the Docker API.
 
 ## Configuration inventory
 
@@ -108,7 +110,7 @@ lossless.
 - Prometheus: 30 days and a 12 GB size cap; either boundary may cause deletion.
 - Loki: 14 days (`336h`).
 - Tempo: 14 days (`336h`).
-- Docker stdout on `core` and `postgres`: `json-file`, `10m`, three files.
+- Docker stdout on `core`, `splunk_adapter`, and `postgres`: `json-file`, `10m`, three files; Alloy log ingestion keeps `core` and `splunk_adapter`.
 
 ## Secrets and runtime privilege
 

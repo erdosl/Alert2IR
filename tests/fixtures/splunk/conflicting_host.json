@@ -1,0 +1,16 @@
+{
+  "schema": "alert2ir.splunk-finding.v1",
+  "detection": {
+    "rule_id": "83f9f33f-69b6-45ca-8e70-681fea55a255",
+    "rule_title": "Sanitized Conflicting Host Detection",
+    "sigma_level": "medium"
+  },
+  "event": {
+    "_time": "2026-08-12T20:26:12.705Z",
+    "Computer": "win11-02",
+    "host": "win11-01",
+    "channel": "Microsoft-Windows-Sysmon/Operational",
+    "EventCode": "1",
+    "RecordID": "1300570"
+  }
+}

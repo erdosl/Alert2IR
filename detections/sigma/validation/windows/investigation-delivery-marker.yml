@@ -1,0 +1,17 @@
+title: Alert2IR Investigation Delivery Validation Marker
+id: ad3f9191-7d59-4b6f-8442-e99df9d74c1d
+status: test
+description: Detects a reserved safe lab marker solely to validate Splunk-to-Alert2IR delivery and the investigation path; this is not production detection content.
+author: Alert2IR
+date: 2026-08-18
+logsource:
+  product: windows
+  category: process_creation
+detection:
+  selection:
+    Image|endswith: '\cmd.exe'
+    CommandLine|contains: 'Alert2IR-INVESTIGATE-'
+  condition: selection
+falsepositives:
+  - Repository-controlled validation activity using the reserved marker
+level: high

@@ -47,6 +47,22 @@ UNRELATED_FIXTURE = (
     / "sigma"
     / "windows-file-delete.yml"
 )
+DELIVERY_VALIDATION_RULE = (
+    REPOSITORY_ROOT
+    / "detections"
+    / "sigma"
+    / "validation"
+    / "windows"
+    / "investigation-delivery-marker.yml"
+)
+DELIVERY_SAVED_SEARCH = (
+    REPOSITORY_ROOT
+    / "integrations"
+    / "splunk"
+    / "alert2ir_delivery"
+    / "default"
+    / "savedsearches.conf"
+)
 DETECTION_EVIDENCE_DIRECTORY = REPOSITORY_ROOT / "validation" / "detection"
 SIGMA_EXECUTABLE = Path(sys.executable).with_name("sigma")
 EXPECTED_VERSIONS = {
@@ -289,6 +305,31 @@ class SigmaToolchainContractTests(unittest.TestCase):
         second = convert(FIXTURE)
 
         self.assertEqual(first, second)
+
+    def test_delivery_validation_rule_checks_and_matches_saved_search_predicate(self) -> None:
+        run_sigma(
+            "check",
+            "--fail-on-error",
+            "--fail-on-issues",
+            str(DELIVERY_VALIDATION_RULE),
+        )
+        first = convert(DELIVERY_VALIDATION_RULE)
+        second = convert(DELIVERY_VALIDATION_RULE)
+        self.assertEqual(first, second)
+        expected = (
+            'source="XmlWinEventLog:Microsoft-Windows-Sysmon/Operational" '
+            'sourcetype="XmlWinEventLog" EventCode=1 Image="*\\\\cmd.exe" '
+            'CommandLine="*Alert2IR-INVESTIGATE-*"\n'
+        )
+        self.assertEqual(first.decode("utf-8"), expected)
+        saved_search = DELIVERY_SAVED_SEARCH.read_text(encoding="utf-8")
+        self.assertIn(
+            "search = index=main "
+            + expected.rstrip("\n")
+            + " | table _time Computer host source sourcetype EventCode "
+            "RecordID ProcessGuid Image ParentImage TargetFilename",
+            saved_search,
+        )
 
     def test_live_v2_generated_spl_is_reproducible_from_canonical_content(self) -> None:
         records = []

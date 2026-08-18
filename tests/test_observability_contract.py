@@ -408,7 +408,7 @@ class ObservabilityRepositoryContractTests(unittest.TestCase):
                 ("readiness", "http://127.0.0.1:8000/readyz"),
             ],
         )
-        self.assertIn('regex         = "core"', ir_core)
+        self.assertIn('regex         = "core|splunk_adapter"', ir_core)
         self.assertIn('service_name = "alert2ir"', ir_core)
         self.assertIn("http://192.168.56.65:9999/api/v1/metrics/write", ir_core)
         self.assertIn('endpoint = "192.168.56.65:4317"', ir_core)
@@ -519,7 +519,10 @@ class ObservabilityRepositoryContractTests(unittest.TestCase):
                 APPLICATION_COMPOSE_PATH.read_text(encoding="utf-8")
             )
         )
-        self.assertEqual(application_services, {"core", "postgres"})
+        self.assertEqual(
+            application_services,
+            {"core", "postgres", "splunk_adapter"},
+        )
         self.assertIn(
             "alert2ir-ws09-live_postgres_data",
             LAB_PATH.read_text(encoding="utf-8"),
@@ -668,7 +671,7 @@ class ObservabilityRepositoryContractTests(unittest.TestCase):
     def test_application_compose_passes_optional_local_otlp_configuration(self) -> None:
         compose = APPLICATION_COMPOSE_PATH.read_text(encoding="utf-8")
         services = compose_service_blocks(compose)
-        self.assertEqual(set(services), {"core", "postgres"})
+        self.assertEqual(set(services), {"core", "postgres", "splunk_adapter"})
         core = services["core"]
         postgres = services["postgres"]
         environment_lines = re.findall(
@@ -702,7 +705,7 @@ class ObservabilityRepositoryContractTests(unittest.TestCase):
             "driver": "json-file",
             "options": {"max-size": "10m", "max-file": "3"},
         }
-        for name in ("core", "postgres"):
+        for name in ("core", "postgres", "splunk_adapter"):
             with self.subTest(service=name):
                 self.assertEqual(
                     compose_service_logging(services[name]),

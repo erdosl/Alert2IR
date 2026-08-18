@@ -25,6 +25,54 @@ services:
       timeout: 3s
       retries: 3
       start_period: 5s
+    networks:
+      - alert2ir_private
+  splunk_adapter:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command:
+      - uvicorn
+      - alert2ir.adapters.splunk.runtime:create_splunk_adapter_app_from_environment
+      - --factory
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8091"
+    ports:
+      - "192.168.56.63:8091:8091"
+    environment:
+      ALERT2IR_SPLUNK_ADAPTER_CORE_URL: http://core:8000
+      ALERT2IR_SPLUNK_ADAPTER_SECRET_FILE: /run/secrets/alert2ir-splunk-adapter
+      ALERT2IR_SPLUNK_ADAPTER_REQUEST_TIMEOUT_SECONDS: "5"
+    volumes:
+      - type: bind
+        source: ${ALERT2IR_SPLUNK_ADAPTER_SECRET_SOURCE:?ALERT2IR_SPLUNK_ADAPTER_SECRET_SOURCE is required}
+        target: /run/secrets/alert2ir-splunk-adapter
+        read_only: true
+        bind:
+          create_host_path: false
+    depends_on:
+      core:
+        condition: service_healthy
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8091/healthz', timeout=2).read()"
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    networks:
+      - alert2ir_private
   postgres:
     image: postgres:18.4-bookworm
     environment:
@@ -46,6 +94,12 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
+    networks:
+      - alert2ir_private
 
 volumes:
   postgres_data:
+
+networks:
+  alert2ir_private:
+    driver: bridge

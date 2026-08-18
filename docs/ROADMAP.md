@@ -28,23 +28,25 @@ Workstream numbering communicates a useful progression but is not a rigid serial
 | WS16 — Durable Execution | Complete | Source-scoped idempotent acceptance, canonical fingerprints, processing/attempt lifecycle, exact-operation resume, status retrieval, and bounded reconciliation delivered without a queue or worker service. |
 | WS17 — Attack Simulation Breadth | Complete within bounded scope | Seven primaries and one control remain statically implemented; Event 11/Event 26 meet minimum live breadth acceptance; PowerShell-dependent live execution is deliberately deferred. |
 | WS18 — Authoritative DNS & Windows NRPT | Complete | Native authoritative-only BIND, exact UFW/ACL exposure, dual-endpoint local NRPT, success containment, and unavailable-server no-leak behavior VALIDATED-LIVE. |
-| WS19 — Authenticated Splunk Detection Delivery Discovery | Next | Define one bounded authenticated Splunk-finding delivery path with deterministic source normalization, explicit severity provenance, canonical alert construction, and handoff to existing durable processing. |
+| WS19 — Authenticated Splunk Detection Delivery | Complete in the owned lab | Bounded normalization, HMAC gateway, standalone sender, constrained deployment, live marker-to-Pslist completion, and side-effect-safe replay are evidenced. |
 
 ## Next actionable workstream
 
-**WS19 — Authenticated Splunk Detection Delivery Discovery** is the next actionable workstream. It should define, but not yet assume, the smallest production boundary for:
+**WS19 is complete within the owned-lab scope.** Its accepted path is:
 
 ```text
-one bounded Splunk finding
-  -> authenticated delivery
-  -> deterministic source normalization
-  -> canonical alert with explicit severity provenance
-  -> existing durable Alert2IR processing and acknowledgement
+one unique safe marker on win11-02
+  -> Sigma-derived per-result Splunk detection
+  -> authenticated bounded finding delivery
+  -> canonical high alert for host win11-02
+  -> investigate + process.list
+  -> one durable Velociraptor result
+  -> replay proves the same processing without a second operation
 ```
 
-The current repository has only the generic `SourceAdapter` protocol and accepts already-canonical alerts from a trusted loopback caller. It has no production Splunk adapter, automated Splunk-to-`/v1/alerts` delivery, API authentication/authorization, or source-owned severity-mapping provenance. In contrast, source-scoped idempotency, durable processing lookup/acknowledgement, deterministic severity policy, capability-aware routing, and the current `process.list` investigation path are already implemented. Closing the source-to-canonical delivery boundary therefore advances the actual detection-to-investigation product path more than additional lab simulation or image tooling.
+The implementation keeps Splunk-specific semantics at the source edge. The canonical API remains loopback-published, `source="splunk"` is not authentication, the sender has three bounded attempts, the adapter makes one core request per attempt, and PostgreSQL remains the durable idempotency boundary. The validation search is disabled after acceptance. Replay of the accepted finding produced the same processing and no second backend operation, but the project makes no exactly-once or production-readiness claim.
 
-WS19 is discovery only at this stage. It does not authorize an adapter, authentication implementation, API exposure change, or new runtime service.
+No new feature workstream is selected by this milestone. Universal Forwarder `useACK=false` reliability hardening and persistence of the runtime `DOCKER-USER` restriction across `ir-core` reboot remain separate operational follow-ups rather than hidden WS19 acceptance requirements.
 
 ## Deferred resumption conditions
 
