@@ -32,6 +32,7 @@ The hostnames identify reference-lab machines, not logical application component
 | `dev01` | Owned lab hosts | Repository development, controlled management, and validation over the host-only network |
 | `win11-01`, `win11-02` | `dev01` | Local NRPT routes only `.alert2ir.test` to authoritative UDP/TCP `53` on `192.168.56.64` |
 | `win11-01`, `win11-02` | `splunk` | Sysmon Operational events forwarded to the Splunk receiving service on TCP `9997` |
+| `dev01` (`192.168.56.64`) | `ir-core` (`192.168.56.63:22`) | Exact UFW host-input exception for development and lab-administration SSH |
 | `splunk` (`192.168.56.61`) | `ir-core` (`192.168.56.63:8091`) | Live-validated HMAC-authenticated bounded finding delivery; persistent Docker firewall boundary admits the Splunk host only |
 | Local operator on `ir-core` | Alert2IR application | Loopback-only API publication on `127.0.0.1:8000` |
 | Alert2IR `splunk_adapter` service | Alert2IR `core` service | Live-validated one-shot delivery to `http://core:8000` on the private Compose network |
@@ -41,8 +42,24 @@ The hostnames identify reference-lab machines, not logical application component
 | Native Alloy on `ir-core` | Native Alloy on `obs01` | Metrics, logs, and traces forwarded to the central observability gateways |
 | Operator on `dev01` | Grafana on `obs01` | Dashboard and alert inspection on TCP `3000` |
 | Physical-host operator source `192.168.56.1` | `dev01` | Exact host-only management SSH exception on TCP `22`; not an approved DNS client |
+| Physical-host operator source `192.168.56.1` | `ir-core` (`192.168.56.63:22`) | Exact UFW host-input exception for SSH administration |
 
 Host firewall policy limits these relationships to their intended lab sources. Exact listeners, container networks, and collector pipelines are owned by deployment and component configuration rather than duplicated here.
+
+## ir-core host-administration firewall
+
+`ir-core` keeps its host-local SSH policy in operator-managed UFW with default incoming deny. The two approved administration sources remain separate exact rules on `enp0s8`: `192.168.56.64 -> 192.168.56.63:22/TCP` for `dev01` administration and `192.168.56.1 -> 192.168.56.63:22/TCP` for physical-host administration. Neither rule authorizes `192.168.56.0/24` or an arbitrary source.
+
+```bash
+sudo ufw allow in on enp0s8 from 192.168.56.64 to 192.168.56.63 port 22 proto tcp comment 'dev01 SSH administration'
+sudo ufw allow in on enp0s8 from 192.168.56.1 to 192.168.56.63 port 22 proto tcp comment 'host SSH administration'
+sudo ufw status numbered
+sudo iptables -S ufw-user-input
+```
+
+Run a bounded ordinary SSH connection to `192.168.56.63` from each exact source after policy changes. Do not replace these rules with a subnet-wide allowance.
+
+These UFW `INPUT` allowances are independent of the Alert2IR `DOCKER-USER` forwarding boundary, which continues to admit only `192.168.56.61` to the original Docker-published destination `192.168.56.63:8091` and drops other `enp0s8` sources to that destination. After the physical-host SSH allowance was added, a full `ir-core` VM reboot preserved the rule and SSH availability. The sanitized [host SSH firewall acceptance record](../validation/integration/host-ssh-firewall-2026-08-18.json) owns the validation detail.
 
 ## Authoritative DNS and Windows NRPT
 

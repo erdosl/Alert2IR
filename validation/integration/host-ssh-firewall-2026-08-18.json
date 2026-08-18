@@ -1,0 +1,118 @@
+{
+  "schema_version": 1,
+  "acceptance_id": "host-ssh-firewall-2026-08-18",
+  "repository": {
+    "baseline_commit": "069ed5b26e152f783c16db6c06b846a5f6eb87e7",
+    "baseline_subject": "hardening: persist Splunk adapter firewall boundary",
+    "branch": "main",
+    "initial_worktree_state": "clean",
+    "implementation_state": "separate host-administration hardening change after the firewall-persistence commit"
+  },
+  "scope": {
+    "host": "ir-core",
+    "authorized_network": "owned 192.168.56.0/24 lab",
+    "objective": "record the exact physical-host SSH administration allowance in the ir-core UFW host-input contract",
+    "alert2ir_application_changed": false,
+    "docker_firewall_mechanism_changed": false,
+    "endpoint_marker_created": false,
+    "velociraptor_investigation_triggered": false
+  },
+  "ownership": {
+    "live_mechanism": "operator-managed UFW host-input policy",
+    "repository_authority": "docs/LAB.md stable host topology and firewall facts",
+    "puppet_owns_firewall_or_ssh": false,
+    "docker_user_relationship": "independent forwarding boundary for the Docker-published Splunk adapter port"
+  },
+  "contract": {
+    "default_incoming_policy": "deny",
+    "ssh_rules": [
+      {
+        "source_ipv4": "192.168.56.64",
+        "destination_ipv4": "192.168.56.63",
+        "interface": "enp0s8",
+        "protocol": "tcp",
+        "destination_port": 22,
+        "comment": "dev01 SSH administration",
+        "status": "preserved as a separate exact rule"
+      },
+      {
+        "source_ipv4": "192.168.56.1",
+        "destination_ipv4": "192.168.56.63",
+        "interface": "enp0s8",
+        "protocol": "tcp",
+        "destination_port": 22,
+        "comment": "host SSH administration",
+        "status": "authorized as a separate exact rule"
+      }
+    ],
+    "subnet_wide_ssh_allowed": false,
+    "arbitrary_source_ssh_allowed": false
+  },
+  "diagnosis": {
+    "interface": "enp0s8 healthy at 192.168.56.63/24",
+    "sshd": "healthy and listening on 0.0.0.0:22",
+    "dev01_ssh": "successful from 192.168.56.64",
+    "ufw": "active with default incoming deny; the only prior SSH allowance was the exact dev01 source",
+    "packet_observation_before_rule": "SYN from 192.168.56.1 reached enp0s8 and no SYN-ACK was returned",
+    "cause": "UFW host INPUT policy did not yet authorize 192.168.56.1",
+    "docker_user_relevance": "none; the Alert2IR rules match Docker-forwarded traffic whose original destination is 192.168.56.63:8091"
+  },
+  "live_validation": {
+    "after_rule": {
+      "path": "192.168.56.1 -> enp0s8 -> 192.168.56.63:22/TCP",
+      "tcp_three_way_handshake": "successful",
+      "ssh_protocol_exchange": "successful",
+      "connection_close": "orderly"
+    },
+    "full_vm_reboot_completed": true,
+    "post_reboot": {
+      "stored_host_rule_present": true,
+      "effective_host_rule_present": true,
+      "host_ssh_remained_available": true,
+      "persistence_result": "pass"
+    },
+    "read_only_reverification": {
+      "observer": "dev01 at 192.168.56.64",
+      "ir_core_identity": "ir-core with enp0s8 UP at 192.168.56.63/24",
+      "current_boot_id": "5a30809f-1f5e-4c04-8a69-c00e28e7da1e",
+      "ufw_service": "enabled and active",
+      "ufw_default_policy": "deny incoming; allow outgoing; deny routed",
+      "stored_host_rule": "ufw allow in on enp0s8 from 192.168.56.1 to 192.168.56.63 port 22 proto tcp comment 'host SSH administration'",
+      "effective_host_rule": "-A ufw-user-input -s 192.168.56.1/32 -d 192.168.56.63/32 -i enp0s8 -p tcp -m tcp --dport 22 -j ACCEPT",
+      "host_rule_count": 1,
+      "stored_dev01_rule": "ufw allow in on enp0s8 from 192.168.56.64 to 192.168.56.63 port 22 proto tcp comment 'dev01 SSH administration'",
+      "effective_dev01_rule": "-A ufw-user-input -s 192.168.56.64/32 -d 192.168.56.63/32 -i enp0s8 -p tcp -m tcp --dport 22 -j ACCEPT",
+      "dev01_rule_count": 1,
+      "dev01_ssh_connection": "successful",
+      "current_boot_sshd_accepted_event_count_from_192_168_56_1": 1
+    }
+  },
+  "docker_user_non_regression": {
+    "rules": [
+      "-A DOCKER-USER -s 192.168.56.61/32 -i enp0s8 -p tcp -m conntrack --ctorigdst 192.168.56.63 --ctorigdstport 8091 -m comment --comment \"alert2ir:splunk-adapter:allow\" -j ACCEPT",
+      "-A DOCKER-USER -i enp0s8 -p tcp -m conntrack --ctorigdst 192.168.56.63 --ctorigdstport 8091 -m comment --comment \"alert2ir:splunk-adapter:drop\" -j DROP"
+    ],
+    "allow_semantics": "192.168.56.61 -> original 192.168.56.63:8091/tcp accept",
+    "drop_semantics": "other enp0s8 sources -> original 192.168.56.63:8091/tcp drop",
+    "unchanged": true
+  },
+  "non_regression": {
+    "alert2ir_core_behavior": "unchanged",
+    "splunk_adapter_behavior": "unchanged",
+    "splunk_sender_behavior": "unchanged",
+    "hmac_authentication": "unchanged",
+    "canonical_api_binding": "unchanged at 127.0.0.1:8000",
+    "compose_topology": "unchanged",
+    "docker_user_rule_semantics": "unchanged",
+    "velociraptor_integration": "unchanged",
+    "new_endpoint_validation_marker": false,
+    "new_velociraptor_investigation": false
+  },
+  "sanitization": {
+    "sensitive_material_recorded": false,
+    "raw_packet_capture_recorded": false,
+    "raw_authentication_log_recorded": false,
+    "host_specific_values_limited_to_owned_lab_network_and_firewall_facts": true
+  },
+  "final_verdict": "pass"
+}
