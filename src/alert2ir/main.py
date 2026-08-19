@@ -25,7 +25,7 @@ _VELOCIRAPTOR_APPLICATION_SETTINGS = (
     _VELOCIRAPTOR_HOST_SETTING,
     _VELOCIRAPTOR_CLIENT_ID_SETTING,
 )
-_WS09_COLLECTION_TIMEOUT_SECONDS = 60.0
+_VELOCIRAPTOR_COLLECTION_TIMEOUT_SECONDS = 60.0
 
 
 def _require_database_url() -> str:
@@ -87,13 +87,13 @@ def _make_backend_router(observability: ApplicationObservability) -> BackendRout
     backend = VelociraptorBackend(
         client=client,
         host_client_ids={host: client_id},
-        collection_timeout_seconds=_WS09_COLLECTION_TIMEOUT_SECONDS,
+        collection_timeout_seconds=_VELOCIRAPTOR_COLLECTION_TIMEOUT_SECONDS,
         observability=observability,
     )
     return BackendRouter(backends=(backend,))
 
 
-def _make_ws04_investigation_request(incident: Incident) -> InvestigationRequest:
+def _make_process_inventory_request(incident: Incident) -> InvestigationRequest:
     return InvestigationRequest(
         incident=incident,
         desired_outcome="collect process inventory",
@@ -106,7 +106,7 @@ observability = configure_observability()
 orchestrator = AlertOrchestrator(
     policy=BaselineSeverityPolicy(),
     router=_make_backend_router(observability),
-    request_factory=_make_ws04_investigation_request,
+    request_factory=_make_process_inventory_request,
     observability=observability,
 )
 

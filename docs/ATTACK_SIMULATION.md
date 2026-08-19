@@ -11,18 +11,18 @@ The authorities are deliberately separate:
 | [`config/attack-simulation/scenarios.json`](../config/attack-simulation/scenarios.json) | Attack behavior, safety, run identity, cleanup plan, and expected telemetry |
 | `config/attack-simulation/detection-objectives.json` | Scenario-to-detection objective, active/retired state, control association, and static/live portfolio status |
 | `config/attack-simulation/ground-truth-v2.schema.json` | Sanitized multi-event ground truth |
-| [`validation/attack-simulation/`](../validation/attack-simulation/) | Immutable historical v1 plus sanitized live v2 run/attestation evidence |
+| [`validation/attack-simulation/`](../validation/attack-simulation/) | Current derived validation summary plus sanitized live prerequisite and blocked-run evidence |
 | `tools/windows/attack-simulation/` | Reviewed Alert2IR-local safe wrappers and script template |
 
 Detection authoring and Splunk evidence belong in [DETECTIONS.md](DETECTIONS.md). Future investigation value does not expand the current Alert2IR `process.list` runtime capability.
 
 ## Implementation and evidence status
 
-The seven-scenario portfolio, wrappers, contracts, rules, and mappings remain **VERIFIED-CODE**. The 2026-08-17 authorized acceptance established active endpoint/Sysmon/Splunk prerequisites and completed one new **VALIDATED-LIVE** direct Event 11 run with **VALIDATED-LIVE** Event 26 cleanup and independent post-state verification. A later infrastructure-only workstream **VALIDATED-LIVE** authoritative `alert2ir.test` DNS, local NRPT on both endpoints, success containment, and unavailable-server no-leak behavior.
+The seven-scenario portfolio, wrappers, contracts, rules, and mappings remain **VERIFIED-CODE**. The 2026-08-17 authorized acceptance established active endpoint/Sysmon/Splunk prerequisites and completed one new **VALIDATED-LIVE** direct Event 11 run with **VALIDATED-LIVE** Event 26 cleanup and independent post-state verification. Later infrastructure validation established **VALIDATED-LIVE** authoritative `alert2ir.test` DNS, local NRPT on both endpoints, success containment, and unavailable-server no-leak behavior.
 
 Event 3, Event 15, Event 22, ancestry positive, and ancestry negative-control live execution are **DEFERRED BY PROJECT DECISION**. The current Windows endpoint baseline does not permit repository `.ps1` execution. Alert2IR will not weaken or bypass that baseline, introduce a script-signing/trust infrastructure solely for attack-simulation coverage, or rewrite the scenarios to evade the boundary. Event 22's DNS prerequisite is satisfied; its remaining live boundary is wrapper execution, not DNS containment.
 
-The three preserved WS07 records remain **VALIDATED-HISTORICAL** for their exact original behavior and observations. That label does not transfer live validation to a new detection objective, mapping, scenario, or control.
+Three earlier controlled records remain **VALIDATED-HISTORICAL** for their exact original behavior and observations in Git history. The current derived summary maps those facts to functional scenario names without relabeling the original runs. That label does not transfer live validation to a new detection objective, mapping, scenario, or control.
 
 ## Seven-primary-scenario portfolio
 
@@ -71,7 +71,7 @@ PowerShell Operational activity remains non-guaranteed. Registry and Security 46
 
 ## Ground-truth v1 and v2
 
-The three committed v1 records are immutable historical evidence. Their Atomic pins, run IDs, commands, sanitized Sysmon references, cleanup proof, deviations, and clock bracketing are not regenerated or rewritten.
+The earlier v1 records remain immutable in Git history. Their Atomic pins, run IDs, commands, sanitized Sysmon references, cleanup proof, deviations, and clock bracketing were not regenerated or rewritten. `validation/attack-simulation/validation-summary.json` is explicitly a current summary derived from those records, not original evidence.
 
 The v2 schema adds sanitized event aliases and relationship evidence:
 
@@ -89,7 +89,7 @@ Committed evidence continues to exclude raw XML, process inventories, command ou
 
 ## Bounded stopping condition
 
-The breadth workstream is complete when the seven primary scenarios and one ancestry control remain statically valid, Event 11 and Event 26 remain VALIDATED-LIVE, DNS/NRPT infrastructure remains VALIDATED-LIVE, deferred scenarios retain their rules/mappings/contracts, and the deliberate deferral rationale remains explicit. Live Event 3/15/22 or ancestry acceptance is not a completion requirement. Breadth coverage is intentionally asymmetric between static validation and live endpoint execution.
+The bounded portfolio is complete when the seven primary scenarios and one ancestry control remain statically valid, Event 11 and Event 26 remain VALIDATED-LIVE, DNS/NRPT infrastructure remains VALIDATED-LIVE, deferred scenarios retain their rules/mappings/contracts, and the deliberate deferral rationale remains explicit. Live Event 3/15/22 or ancestry acceptance is not a completion requirement. Breadth coverage is intentionally asymmetric between static validation and live endpoint execution.
 
 The execution-policy discovery branch is closed by `docs/adr/0015-bounded-live-attack-simulation-coverage.md`. `AllSigned` plus Authenticode infrastructure, `RemoteSigned`, inline wrapper delivery, execution-policy bypass or mutation, and replacement implementations solely for coverage are rejected. The current Windows endpoint baseline remains unchanged. Revisit live wrapper execution only if an independent endpoint-baseline requirement later establishes an approved trusted script-execution model.
 
@@ -101,7 +101,7 @@ Ordinary CI performs only schema, provenance, hashing, privacy, cleanup-safety, 
 
 The sanitized prerequisite attestation is `validation/attack-simulation/live-attestation-2026-08-17-win11-02.json`. It proves the tracked Sysmon policy hash matched the active configuration, the service and Operational channel were active, required Event 1/3/11/15/22/26 categories were available, registry remained excluded, and the expected Splunk source/sourcetype path was receiving current canary events.
 
-Run `31d78a8c-d64a-4b5e-bff8-a318ad7c72cc` established the first live non-process breadth milestone. Event 11 record `1757566` was attributable to the exact run-scoped file and related to Event 1 record `1757564`; the deterministic Sigma-derived bounded search returned that primary, and Event 26 record `1757773` followed exact cleanup. Independent post-state verification found no residual artifact. The v2 ground truth and detection records remain sanitized and contain no raw XML, raw ProcessGuid, command output, credentials, or unrelated rows.
+Run `31d78a8c-d64a-4b5e-bff8-a318ad7c72cc` established the first live non-process breadth result. Event 11 record `1757566` was attributable to the exact run-scoped file and related to Event 1 record `1757564`; the deterministic Sigma-derived bounded search returned that primary, and Event 26 record `1757773` followed exact cleanup. Independent post-state verification found no residual artifact. The current summary preserves those sanitized facts; the original v2 records remain in Git history.
 
 TCP run `f3aa96e4-4df1-4323-a4f3-b90a277eabba` preserves the blocked attempt: route/listener containment passed, the wrapper process was observed, the wrapper did not start under effective `Restricted` policy, and no attributable Event 3 was created. No execution-policy bypass was attempted. DNS produced no scenario run during that acceptance because containment then failed before query generation. Infrastructure record `validation/infrastructure/dns/dns-infrastructure-2f770f89-d84f-47b9-a633-17e42454b01c.json` subsequently satisfies only the DNS prerequisite; Event 22 remains not run. The other PowerShell-wrapper scenarios were not retried against the already-established execution-policy blocker.
 

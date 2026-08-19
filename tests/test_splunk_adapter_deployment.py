@@ -32,6 +32,7 @@ PACKAGE_SCRIPT_PATH = (
 )
 
 HOST_SECRET_SOURCE_VARIABLE = "ALERT2IR_SPLUNK_ADAPTER_SECRET_SOURCE"
+POSTGRES_VOLUME_VARIABLE = "ALERT2IR_POSTGRES_VOLUME"
 CONTAINER_SECRET_PATH = "/run/secrets/alert2ir-splunk-adapter"
 
 
@@ -161,6 +162,8 @@ class SplunkAdapterComposeContractTests(unittest.TestCase):
         cls.services = compose_service_blocks(cls.compose)
 
     def test_separate_adapter_service_and_exact_host_publications(self) -> None:
+        self.assertRegex(self.compose, r"(?m)^name: alert2ir$")
+        self.assertNotIn("container_name:", self.compose)
         self.assertEqual(
             set(self.services),
             {"core", "postgres", "splunk_adapter"},
@@ -237,9 +240,35 @@ class SplunkAdapterComposeContractTests(unittest.TestCase):
             r"(?m)^networks:\n  alert2ir_private:\n    driver: bridge$",
         )
 
+    def test_restart_readiness_ordering_and_external_database_volume(self) -> None:
+        for service_name in ("core", "postgres", "splunk_adapter"):
+            with self.subTest(service=service_name):
+                self.assertRegex(
+                    self.services[service_name],
+                    r"(?m)^    restart: unless-stopped$",
+                )
+        self.assertRegex(
+            self.services["core"],
+            r"(?m)^    depends_on:\n      postgres:\n"
+            r"        condition: service_healthy$",
+        )
+        self.assertIn("http://127.0.0.1:8000/healthz", self.services["core"])
+        self.assertNotIn("/readyz", self.services["core"])
+        self.assertRegex(
+            self.compose,
+            r"(?m)^volumes:\n  postgres_data:\n"
+            r"    external: true\n"
+            r"    name: \$\{ALERT2IR_POSTGRES_VOLUME:\?"
+            r"ALERT2IR_POSTGRES_VOLUME is required\}$",
+        )
+
     def test_environment_template_contains_only_a_secret_path(self) -> None:
         template = ENVIRONMENT_EXAMPLE_PATH.read_text(encoding="utf-8")
         self.assertIn(f"{HOST_SECRET_SOURCE_VARIABLE}=", template)
+        self.assertIn(
+            f"{POSTGRES_VOLUME_VARIABLE}=alert2ir-postgres-data",
+            template,
+        )
         self.assertNotIn("ALERT2IR_SPLUNK_ADAPTER_SECRET=", template)
 
 
@@ -295,7 +324,7 @@ class SplunkDeploymentArtifactTests(unittest.TestCase):
         self.assertIn("sha256sum", script)
         self.assertNotIn("tar -C integrations", script)
 
-    def test_deployment_guide_freezes_firewall_and_phase_five_boundaries(self) -> None:
+    def test_deployment_guide_freezes_firewall_and_validation_boundaries(self) -> None:
         deployment = DEPLOYMENT_PATH.read_text(encoding="utf-8")
         for expected in (
             "192.168.56.61",

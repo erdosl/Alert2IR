@@ -1,7 +1,7 @@
-"""Repository contracts for the WS12 Stage 2 observability configuration.
+"""Repository contracts for the reference observability configuration.
 
 These standard-library checks freeze security and topology invariants without
-pretending to replace the pinned upstream component validators or Stage 3
+pretending to replace the pinned upstream component validators or operational
 runtime validation.
 """
 
@@ -524,7 +524,7 @@ class ObservabilityRepositoryContractTests(unittest.TestCase):
             {"core", "postgres", "splunk_adapter"},
         )
         self.assertIn(
-            "alert2ir-ws09-live_postgres_data",
+            "ALERT2IR_POSTGRES_VOLUME",
             LAB_PATH.read_text(encoding="utf-8"),
         )
 
@@ -537,7 +537,7 @@ class ObservabilityRepositoryContractTests(unittest.TestCase):
             ),
             (
                 IR_CORE_ALLOY_PATH.read_text(encoding="utf-8"),
-                "alert2ir-ws09-live",
+                "alert2ir",
                 application_services,
                 "prometheus.relabel.edge_metrics.receiver",
             ),
@@ -670,6 +670,8 @@ class ObservabilityRepositoryContractTests(unittest.TestCase):
 
     def test_application_compose_passes_optional_local_otlp_configuration(self) -> None:
         compose = APPLICATION_COMPOSE_PATH.read_text(encoding="utf-8")
+        self.assertRegex(compose, r"(?m)^name: alert2ir$")
+        self.assertNotIn("container_name:", compose)
         services = compose_service_blocks(compose)
         self.assertEqual(set(services), {"core", "postgres", "splunk_adapter"})
         core = services["core"]
@@ -700,6 +702,25 @@ class ObservabilityRepositoryContractTests(unittest.TestCase):
             r"(?m)^    volumes:\n      - postgres_data:/var/lib/postgresql$",
         )
         self.assertEqual(yaml_children(compose, "volumes"), ["postgres_data"])
+        self.assertRegex(
+            compose,
+            r"(?m)^volumes:\n  postgres_data:\n"
+            r"    external: true\n"
+            r"    name: \$\{ALERT2IR_POSTGRES_VOLUME:\?"
+            r"ALERT2IR_POSTGRES_VOLUME is required\}$",
+        )
+        self.assertIn(
+            "ALERT2IR_POSTGRES_VOLUME=alert2ir-postgres-data",
+            (REPOSITORY_ROOT / ".env.example").read_text(encoding="utf-8"),
+        )
+        for name in ("core", "postgres", "splunk_adapter"):
+            with self.subTest(restart_service=name):
+                self.assertRegex(services[name], r"(?m)^    restart: unless-stopped$")
+        self.assertRegex(
+            core,
+            r"(?m)^    depends_on:\n      postgres:\n"
+            r"        condition: service_healthy$",
+        )
 
         expected_logging = {
             "driver": "json-file",

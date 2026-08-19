@@ -12,7 +12,7 @@ Alert2IR keeps detection execution separate from canonical alert ingestion. Sigm
 | [`alert2ir-splunk-xml-sysmon.yml`](../config/sigma/pipelines/alert2ir-splunk-xml-sysmon.yml) | Historically pinned process-creation mapping to EventCode 1 |
 | `config/sigma/pipelines/alert2ir-splunk-xml-sysmon-breadth.yml` | New narrow mappings to EventCodes 3, 11, 15, and 22 |
 | `config/attack-simulation/detection-validation-v2.schema.json` | Generalized sanitized validation evidence |
-| [`validation/detection/`](../validation/detection/) | Immutable historical v1 plus sanitized live v2 Splunk evidence |
+| [`validation/detection/`](../validation/detection/) | Current summary derived from earlier sanitized Splunk validation evidence |
 
 ## Active portfolio
 
@@ -74,7 +74,7 @@ Those contracts parse every active rule, preserve the retired rule distinction, 
 
 ## Detection-validation v1 and v2
 
-The three v1 records are immutable **VALIDATED-HISTORICAL** evidence. In particular, the old cmd record preserves its generated/executed queries, hashes, expected process match, and honest `related_wrapper` classification. Its one-second historical window remains a fact about that search, not a v2 restriction.
+The three earlier v1 records remain immutable **VALIDATED-HISTORICAL** evidence in Git history. In particular, the old cmd record preserves its generated/executed queries, hashes, expected process match, and honest `related_wrapper` classification. Its one-second historical window remains a fact about that search, not a v2 restriction. `validation/detection/validation-summary.json` is a derived current summary, not a rewritten execution record.
 
 The v2 schema generalizes process-only evidence to:
 
@@ -93,8 +93,8 @@ Result states are `pass`, `pass_with_related`, `fail_missing_primary`, `fail_con
 
 ## Live validation boundary
 
-The direct Event 11 objective is **VALIDATED-LIVE** in `validation/detection/event11-file-create-31d78a8c-d64a-4b5e-bff8-a318ad7c72cc.json`, achieving the accepted non-process breadth milestone. Event 3/15/22 and ancestry positive/control remain without live detection acceptance and are **DEFERRED BY PROJECT DECISION**. TCP route/listener preflight passed. Separate DNS infrastructure acceptance proves `.alert2ir.test` containment and no-leak failure behavior on both endpoints, satisfying the Event 22 prerequisite; Event 22 is not DNS-blocked.
+The direct Event 11 objective is **VALIDATED-LIVE** in the current derived validation summary, achieving the accepted non-process breadth result. The original execution record remains in Git history. Event 3/15/22 and ancestry positive/control remain without live detection acceptance and are **DEFERRED BY PROJECT DECISION**. TCP route/listener preflight passed. Separate DNS infrastructure acceptance proves `.alert2ir.test` containment and no-leak failure behavior on both endpoints, satisfying the Event 22 prerequisite; Event 22 is not DNS-blocked.
 
 The current Windows endpoint baseline remains unchanged. Alert2IR will not add signing/trust infrastructure, bypass or mutate execution policy, deliver the wrappers inline, or replace the scenarios solely to obtain more live coverage. `docs/adr/0015-bounded-live-attack-simulation-coverage.md` closes that branch. Reconsideration requires an independent endpoint-baseline need for an approved trusted script-execution model, not an environment-specific rule change.
 
-Ordinary CI remains lab-independent. Registry, PowerShell Operational 4103/4104, named pipes, Class C behavior, and commercial detection products remain outside this workstream. The separate Splunk delivery integration consumes Sigma-derived per-result searches without changing this detection authority; its validation-only high marker is not production-intent detection content.
+Ordinary CI remains lab-independent. Registry, PowerShell Operational 4103/4104, named pipes, Class C behavior, and commercial detection products remain outside this bounded portfolio. The separate Splunk delivery integration consumes Sigma-derived per-result searches without changing this detection authority; its validation-only high marker is not production-intent detection content.

@@ -12,7 +12,7 @@ Executable authority is divided as follows:
 | [`modules/role/`](modules/role/) | Node-purpose composition |
 | [`modules/profile/`](modules/profile/) | Managed resources |
 | [`hiera.yaml`](hiera.yaml) and [`data/`](data/) | Hiera hierarchy; Git-tracked data is intentionally empty |
-| [`tools/puppet/build-ws02-puppet-artifact.sh`](../../tools/puppet/build-ws02-puppet-artifact.sh) | Deterministic Git-derived directory-environment builder |
+| `tools/puppet/build-puppet-artifact.sh` | Deterministic Git-derived directory-environment builder |
 | [`tests/test_puppet_contract.py`](../../tests/test_puppet_contract.py) | Repository ownership and artifact contract |
 
 Never store credentials, private endpoint data, or secrets in manifests, Hiera, artifacts, or documentation.
@@ -60,7 +60,7 @@ After installation, verify the executable version and require the Puppet Agent s
 Build from a committed Git revision on `dev01`, never from uncommitted working-tree content:
 
 ```bash
-tools/puppet/build-ws02-puppet-artifact.sh \
+tools/puppet/build-puppet-artifact.sh \
   <reviewed-git-ref> \
   <existing-output-directory>
 ```

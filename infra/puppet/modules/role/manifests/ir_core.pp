@@ -1,4 +1,3 @@
-# Alert2IR runtime configuration will be implemented in a later workstream.
+# This role intentionally does not manage the Alert2IR runtime deployment.
 class role::ir_core {
 }
-

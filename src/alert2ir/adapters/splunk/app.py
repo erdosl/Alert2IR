@@ -152,7 +152,7 @@ def create_splunk_adapter_app(
         except (ValidationError, ValueError, TypeError):
             return _error(422, "invalid_splunk_finding")
 
-        # The HMAC window bounds wire replay. The Phase 1 key independently
+        # The HMAC window bounds wire replay. The finding key independently
         # gives Alert2IR stable logical duplicate suppression.
         result = await alert2ir_client.submit_alert(
             canonicalized.alert,

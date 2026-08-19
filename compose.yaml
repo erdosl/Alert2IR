@@ -1,3 +1,5 @@
+name: alert2ir
+
 services:
   core:
     build:
@@ -15,6 +17,9 @@ services:
         max-size: "10m"
         max-file: "3"
     restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
     healthcheck:
       test:
         - CMD
@@ -81,6 +86,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
     volumes:
       - postgres_data:/var/lib/postgresql
+    restart: unless-stopped
     logging:
       driver: json-file
       options:
@@ -99,6 +105,8 @@ services:
 
 volumes:
   postgres_data:
+    external: true
+    name: ${ALERT2IR_POSTGRES_VOLUME:?ALERT2IR_POSTGRES_VOLUME is required}
 
 networks:
   alert2ir_private:

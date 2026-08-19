@@ -20,3 +20,4 @@ ADRs record accepted decisions that shape more than one part of Alert2IR. They d
 | `0014-dev01-authoritative-dns-and-windows-nrpt.md` | Native authoritative-only BIND on dev01, exact UFW exposure, and endpoint-local fail-closed Windows NRPT |
 | `0015-bounded-live-attack-simulation-coverage.md` | Preserve static breadth while deliberately deferring PowerShell-wrapper live execution under the current Windows baseline |
 | `0016-authenticated-splunk-source-boundary.md` | Separate HMAC-authenticated Splunk source gateway, private canonical API, bounded sender retry, and lab-only network boundary |
+| `0017-canonical-deployment-identity.md` | Canonical Compose identity, stable release layout, external runtime configuration, and explicit PostgreSQL volume identity |

@@ -401,7 +401,7 @@ def build_finding(
     row: Mapping[str, str],
     config: ActionConfiguration,
 ) -> dict:
-    """Construct the exact Phase 1 envelope without carrying runtime metadata."""
+    """Construct the exact finding envelope without carrying runtime metadata."""
 
     computer = _optional_result_value(row, "Computer", HOSTNAME_MAX_LENGTH)
     host = _optional_result_value(row, "host", HOSTNAME_MAX_LENGTH)
@@ -499,7 +499,7 @@ def load_secret(path: Path) -> bytes:
 
 
 def signature_header(secret: bytes, timestamp: str, body: bytes) -> str:
-    """Return the exact Phase 2 version-1 HMAC header value."""
+    """Return the exact version-1 HMAC header value."""
 
     _validate_secret(secret)
     if not isinstance(timestamp, str) or _TIMESTAMP_PATTERN.fullmatch(timestamp) is None:
@@ -564,7 +564,7 @@ def _fallback_disposition(status: int) -> AdapterDisposition:
 
 
 def classify_adapter_response(response: HttpResponse) -> AdapterDisposition:
-    """Classify only the bounded Phase 2 response vocabulary."""
+    """Classify only the bounded gateway response vocabulary."""
 
     if (
         isinstance(response.status, bool)

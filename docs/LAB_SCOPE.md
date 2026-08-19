@@ -11,7 +11,7 @@ Security-testing activity for Alert2IR is authorized only on the owned `192.168.
 - `dev01` (`192.168.56.64`)
 - `obs01` (`192.168.56.65`)
 
-`obs01` is the owned Ubuntu Server 24.04 LTS observability-platform host authorized for the deployed WS12 reference platform and controlled validation. This entry does not broaden authorization beyond that exact host.
+`obs01` is the owned Ubuntu Server 24.04 LTS observability-platform host authorized for the deployed reference platform and controlled validation. This entry does not broaden authorization beyond that exact host.
 
 Permitted activity includes controlled attack simulation, security telemetry generation, detection testing, defensive investigation, forensic acquisition, response testing, and security-control validation.
 

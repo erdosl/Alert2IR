@@ -7,7 +7,7 @@
   },
   "scenarios": [
     {
-      "scenario_id": "alert2ir.ws07.windows.process-discovery-tasklist.v1",
+      "scenario_id": "alert2ir.attack-simulation.windows.process-discovery-tasklist.v1",
       "name": "Process Discovery - tasklist",
       "scenario_kind": "primary",
       "behavior_class": "process_discovery",
@@ -86,7 +86,7 @@
       "telemetry_relationships": []
     },
     {
-      "scenario_id": "alert2ir.ws07.windows.powershell-command.v1",
+      "scenario_id": "alert2ir.attack-simulation.windows.powershell-command.v1",
       "name": "PowerShell Command Execution",
       "scenario_kind": "primary",
       "behavior_class": "encoded_powershell_execution",
@@ -179,7 +179,7 @@
       "telemetry_relationships": []
     },
     {
-      "scenario_id": "alert2ir.ws07.windows.cmd-file-write.v1",
+      "scenario_id": "alert2ir.attack-simulation.windows.cmd-file-write.v1",
       "name": "Writes text to a file and displays it.",
       "scenario_kind": "primary",
       "behavior_class": "temporary_file_create",
@@ -208,8 +208,8 @@
         "cleanup_command_template": "del \"#{file_contents_path}\" >nul 2>&1"
       },
       "inputs": {
-        "file_contents_path": "C:\\Windows\\Temp\\Alert2IR-WS07-${run_id}.bin",
-        "message": "Alert2IR WS07 ground truth ${run_id}"
+        "file_contents_path": "C:\\Windows\\Temp\\Alert2IR-AttackSimulation-${run_id}.bin",
+        "message": "Alert2IR attack simulation ground truth ${run_id}"
       },
       "prerequisites": {
         "required": false,

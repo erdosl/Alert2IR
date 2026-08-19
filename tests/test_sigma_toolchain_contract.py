@@ -1,4 +1,4 @@
-"""Contracts for the separately installed WS08 Sigma translation toolchain.
+"""Contracts for the separately installed Sigma translation toolchain.
 
 The ordinary Alert2IR application environment deliberately excludes these
 packages. Default discovery records one explained module skip there; the
@@ -6,7 +6,6 @@ dedicated Sigma environment executes every contract below.
 """
 
 from importlib.metadata import PackageNotFoundError, version
-from hashlib import sha256
 import json
 import os
 from pathlib import Path
@@ -253,7 +252,7 @@ class SigmaToolchainContractTests(unittest.TestCase):
             "index=main",
             "xmlwineventlog",
             "eventcode",
-            "ws07",
+            "internal-milestone",
             "tasklist",
             "powershell",
             "encodedcommand",
@@ -296,7 +295,7 @@ class SigmaToolchainContractTests(unittest.TestCase):
         ):
             with self.subTest(expected=expected):
                 self.assertIn(expected, query)
-        for prohibited in ("index=main", "host=win11-02", "ws07"):
+        for prohibited in ("index=main", "host=win11-02", "internal-milestone"):
             with self.subTest(prohibited=prohibited):
                 self.assertNotIn(prohibited, query.lower())
 
@@ -331,33 +330,22 @@ class SigmaToolchainContractTests(unittest.TestCase):
             saved_search,
         )
 
-    def test_live_v2_generated_spl_is_reproducible_from_canonical_content(self) -> None:
-        records = []
-        for path in sorted(DETECTION_EVIDENCE_DIRECTORY.glob("*.json")):
-            record = json.loads(path.read_text(encoding="utf-8"))
-            if record.get("schema") == "alert2ir-detection-validation-v2":
-                records.append((path, record))
-        self.assertTrue(records)
-        for path, record in records:
-            with self.subTest(path=path.name):
-                objective = record["objective"]
-                rule_path = REPOSITORY_ROOT / objective["rule_path"]
-                pipeline_path = REPOSITORY_ROOT / objective["pipeline_path"]
-                generated = convert(rule_path, pipeline_path).decode("utf-8")
-                for search in record["searches"]:
-                    self.assertEqual(search["generated_spl"], generated)
-                    self.assertEqual(
-                        search["hashes"]["rule_sha256"],
-                        sha256(rule_path.read_bytes()).hexdigest(),
-                    )
-                    self.assertEqual(
-                        search["hashes"]["pipeline_sha256"],
-                        sha256(pipeline_path.read_bytes()).hexdigest(),
-                    )
-                    self.assertEqual(
-                        search["hashes"]["generated_spl_sha256"],
-                        sha256(generated.encode("utf-8")).hexdigest(),
-                    )
+    def test_current_validation_summary_resolves_canonical_rules(self) -> None:
+        summary = json.loads(
+            (DETECTION_EVIDENCE_DIRECTORY / "validation-summary.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        self.assertEqual(summary["record_type"], "derived_current_summary")
+        self.assertTrue(summary["original_records_preserved_in_git_history"])
+        for result in summary["earlier_detection_results"]:
+            with self.subTest(rule=result["rule_path"]):
+                rule_path = REPOSITORY_ROOT / result["rule_path"]
+                self.assertTrue(rule_path.is_file())
+                self.assertIn(
+                    f'id: {result["rule_id"]}',
+                    rule_path.read_text(encoding="utf-8"),
+                )
 
     def test_breadth_rule_translation_is_deterministic_and_event_specific(self) -> None:
         contracts = {
@@ -367,7 +355,7 @@ class SigmaToolchainContractTests(unittest.TestCase):
             ),
             "detections/sigma/validation/windows/file-create-alert2ir-temp.yml": (
                 11,
-                ("TargetFilename=", "Alert2IR-WS07-"),
+                ("TargetFilename=", "Alert2IR-AttackSimulation-"),
             ),
             "detections/sigma/validation/windows/create-stream-hash-alert2ir-ads.yml": (
                 15,

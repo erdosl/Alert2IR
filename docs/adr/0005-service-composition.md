@@ -12,5 +12,4 @@ Use Docker Compose for application and service composition. Do not introduce Kub
 
 ## Consequences
 
-Local and lab deployments stay comparatively simple. Scaling or orchestration needs must be demonstrated before adding infrastructure; Compose itself is deferred to its roadmap workstream.
-
+Local and lab deployments stay comparatively simple. Scaling or orchestration needs must be demonstrated before adding infrastructure; Compose evolution follows demonstrated deployment requirements.

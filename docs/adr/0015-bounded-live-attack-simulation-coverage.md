@@ -16,7 +16,7 @@ Keep the current Restricted/default Windows endpoint behavior unchanged. Do not 
 
 Preserve all static breadth implementation, including the seven primary scenarios, one ancestry negative control, wrappers, validation-only Sigma rules, mappings, schemas, cleanup contracts, provenance, and deterministic tests. Mark Event 3, Event 15, Event 22, ancestry positive, and ancestry negative-control live execution as deliberately deferred. Event 22's DNS prerequisite remains satisfied and VALIDATED-LIVE; only its wrapper-backed scenario and detection acceptance are deferred.
 
-The breadth workstream is complete within this bounded stopping condition. Breadth coverage is intentionally asymmetric between static validation and live endpoint execution.
+The breadth portfolio is complete within this bounded stopping condition. Coverage is intentionally asymmetric between static validation and live endpoint execution.
 
 ## Rejected alternatives
 

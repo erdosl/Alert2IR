@@ -34,17 +34,17 @@ fi
 
 output_directory=$(cd -- "$output_directory" && pwd)
 short_commit=${commit:0:12}
-artifact_path="$output_directory/alert2ir_ws02-${short_commit}.zip"
+artifact_path="$output_directory/alert2ir_puppet-${short_commit}.zip"
 
 if [[ -e $artifact_path || -L $artifact_path ]]; then
   echo "Error: refusing to overwrite existing artifact '$artifact_path'." >&2
   exit 1
 fi
 
-temporary_directory=$(mktemp -d "$output_directory/.alert2ir_ws02-build.XXXXXX")
+temporary_directory=$(mktemp -d "$output_directory/.alert2ir_puppet-build.XXXXXX")
 trap 'rm -rf -- "$temporary_directory"' EXIT
 environment_root="$temporary_directory/environment"
-temporary_artifact_path="$temporary_directory/alert2ir_ws02-${short_commit}.zip"
+temporary_artifact_path="$temporary_directory/alert2ir_puppet-${short_commit}.zip"
 mkdir -p "$environment_root/modules/profile/files/sysmon"
 
 git -C "$repository_root" archive "${commit}:infra/puppet" | tar -x -C "$environment_root"

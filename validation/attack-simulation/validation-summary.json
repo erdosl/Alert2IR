@@ -1,0 +1,51 @@
+{
+  "schema": "alert2ir.attack-simulation.validation-summary.v1",
+  "record_type": "derived_current_summary",
+  "summary_notice": "This current summary is derived from earlier sanitized validation records. It is not an original execution record and does not relabel the identity under which any earlier run executed.",
+  "original_records_preserved_in_git_history": true,
+  "source_history_commits": [
+    "8852fabf0685c1e053859bf2d230e0546fae65d0",
+    "12c44df271a36771ceb62ea2af5a728638740155"
+  ],
+  "current_scenario_ids": [
+    "alert2ir.attack-simulation.windows.process-discovery-tasklist.v1",
+    "alert2ir.attack-simulation.windows.powershell-command.v1",
+    "alert2ir.attack-simulation.windows.cmd-file-write.v1"
+  ],
+  "earlier_controlled_results": [
+    {
+      "current_scenario_id": "alert2ir.attack-simulation.windows.process-discovery-tasklist.v1",
+      "run_id": "45e78645-170d-4f2c-b158-32fdc89bec8d",
+      "technique_id": "T1057",
+      "execution_result": "succeeded",
+      "observed_sysmon_event_ids": [1]
+    },
+    {
+      "current_scenario_id": "alert2ir.attack-simulation.windows.powershell-command.v1",
+      "run_id": "2c752432-9aa7-4a4d-bdb5-4ffacd2698b7",
+      "technique_id": "T1059.001",
+      "execution_result": "succeeded",
+      "observed_sysmon_event_ids": [1]
+    },
+    {
+      "current_scenario_id": "alert2ir.attack-simulation.windows.cmd-file-write.v1",
+      "run_id": "34b43f09-1023-4c5c-8609-03c410bb28a3",
+      "technique_id": "T1059.003",
+      "execution_result": "succeeded",
+      "observed_sysmon_event_ids": [1]
+    },
+    {
+      "current_scenario_id": "alert2ir.attack-simulation.windows.cmd-file-write.v1",
+      "run_id": "31d78a8c-d64a-4b5e-bff8-a318ad7c72cc",
+      "technique_id": "T1059.003",
+      "execution_result": "succeeded",
+      "observed_sysmon_events": [
+        {"event_id": 11, "record_id": 1757566, "role": "primary"},
+        {"event_id": 1, "record_id": 1757564, "role": "secondary"},
+        {"event_id": 26, "record_id": 1757773, "role": "cleanup"}
+      ],
+      "cleanup_result": "succeeded",
+      "independent_post_state": "no residual artifact"
+    }
+  ]
+}

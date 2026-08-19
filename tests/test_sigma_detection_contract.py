@@ -36,7 +36,7 @@ REQUIRED_SIGMA_DISTRIBUTIONS = (
     "pysigma",
     "pysigma-backend-splunk",
 )
-KNOWN_WS07_RUN_IDS = {
+KNOWN_VALIDATION_RUN_IDS = {
     "45e78645-170d-4f2c-b158-32fdc89bec8d",
     "2c752432-9aa7-4a4d-bdb5-4ffacd2698b7",
     "34b43f09-1023-4c5c-8609-03c410bb28a3",
@@ -46,7 +46,7 @@ KNOWN_ATOMIC_GUIDS = {
     "a538de64-1c74-46ed-aa60-b995ed302598",
     "127b4afe-2346-4192-815c-69042bec570e",
 }
-WS07_BASE64_PAYLOAD = (
+HISTORICAL_BASE64_PAYLOAD = (
     "JgAgACgAZwBjAG0AIAAoACcAaQBlAHsAMAB9ACcAIAAtAGYAIAAnAHgAJwApACkA"
     "IAAoACIAVwByACIAKwAiAGkAdAAiACsAIgBlAC0ASAAiACsAIgBvAHMAdAAgACcA"
     "SAAiACsAIgBlAGwAIgArACIAbABvACwAIABmAHIAIgArACIAbwBtACAAUAAiACsA"
@@ -161,7 +161,7 @@ class SigmaDetectionContractTests(unittest.TestCase):
         for rule_id in rule_ids:
             with self.subTest(rule_id=rule_id):
                 self.assertEqual(str(UUID(rule_id)), rule_id)
-                self.assertNotIn(rule_id, KNOWN_WS07_RUN_IDS)
+                self.assertNotIn(rule_id, KNOWN_VALIDATION_RUN_IDS)
                 self.assertNotIn(rule_id, KNOWN_ATOMIC_GUIDS)
 
     def test_common_metadata_and_expected_logsources(self) -> None:
@@ -206,8 +206,8 @@ class SigmaDetectionContractTests(unittest.TestCase):
             "eventcode",
             "recordid",
             "_time",
-            WS07_BASE64_PAYLOAD.lower(),
-            *(value.lower() for value in KNOWN_WS07_RUN_IDS),
+            HISTORICAL_BASE64_PAYLOAD.lower(),
+            *(value.lower() for value in KNOWN_VALIDATION_RUN_IDS),
             *(value.lower() for value in KNOWN_ATOMIC_GUIDS),
         }
         for name, text in self.texts.items():
@@ -254,7 +254,7 @@ class SigmaDetectionContractTests(unittest.TestCase):
             rule["detection"],
             {
                 "selection": {
-                    "TargetFilename|startswith": r"C:\Windows\Temp\Alert2IR-WS07-"
+                    "TargetFilename|startswith": r"C:\Windows\Temp\Alert2IR-AttackSimulation-"
                 },
                 "condition": "selection",
             },

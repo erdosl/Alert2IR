@@ -1,4 +1,3 @@
-# Baseline configuration will be implemented in a later workstream.
+# This profile intentionally has no additional baseline resources yet.
 class profile::base {
 }
-

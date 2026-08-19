@@ -9,6 +9,6 @@ route:
   group_interval: 5m
   repeat_interval: 4h
 
-# Stage 2 deliberately has no external notification destination.
+# The reference lab deliberately has no external notification destination.
 receivers:
   - name: lab-null

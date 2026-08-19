@@ -9,7 +9,7 @@ logsource:
   category: file_event
 detection:
   selection:
-    TargetFilename|startswith: 'C:\Windows\Temp\Alert2IR-WS07-'
+    TargetFilename|startswith: 'C:\Windows\Temp\Alert2IR-AttackSimulation-'
   condition: selection
 falsepositives:
   - Repository-controlled validation activity using the same reserved prefix

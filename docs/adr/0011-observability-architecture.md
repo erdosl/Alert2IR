@@ -4,7 +4,7 @@
 
 ## Context
 
-WS12 adds operational signals justified by the running Alert2IR system. Earlier operation exposed diagnostic gaps across API processing, backend execution and remote side effects, and persistence. The maintainer has expanded WS12 from application-only logging to a complete reference observability deployment while retaining open-source operation, optional monitoring, vendor-neutral application contracts, deterministic CI without live infrastructure, and sanitized operational evidence.
+The observability capability adds operational signals justified by the running Alert2IR system. Earlier operation exposed diagnostic gaps across API processing, backend execution and remote side effects, and persistence. The reference design expands application logging into a complete observability deployment while retaining open-source operation, optional monitoring, vendor-neutral application contracts, deterministic CI without live infrastructure, and sanitized operational evidence.
 
 ## Decision
 
@@ -38,10 +38,10 @@ Telemetry must be sanitized and bounded. Implementations must avoid unnecessary 
 - Co-locating the stack on `ir-core` would place monitoring in the application runtime's failure domain.
 - A distributed or Kubernetes stack would add complexity without a demonstrated small-lab requirement.
 - A commercial observability service would weaken the open reference path and cannot be required for core operation or CI.
-- Separate application-telemetry and lab-platform ADRs would split one reviewed WS12 decision without improving its boundary.
+- Separate application-telemetry and lab-platform ADRs would split one reviewed observability decision without improving its boundary.
 
 ## Consequences
 
 The design enables request-to-backend-to-persistence diagnosis and correlation across metrics, logs, and traces while preserving portable application contracts, reproducible open-source lab configuration, resource visibility for the initial one-vCPU `obs01`, and CI independence. The reference-stack choice does not prevent production deployments from using other compatible telemetry backends.
 
-Costs include application and deployment dependencies, a new VM and runtime configuration, telemetry retention and storage work, Docker/runtime permissions, privacy and cardinality controls, version-sensitive monitoring configuration, and operational validation. `obs01` starts with one vCPU; CPU adequacy will be evaluated during WS12 operational validation using host and container telemetry, and the architecture will not be reduced solely because of the initial CPU allocation.
+Costs include application and deployment dependencies, a new VM and runtime configuration, telemetry retention and storage work, Docker/runtime permissions, privacy and cardinality controls, version-sensitive monitoring configuration, and operational validation. `obs01` starts with one vCPU; CPU adequacy is evaluated during operational validation using host and container telemetry, and the architecture will not be reduced solely because of the initial CPU allocation.

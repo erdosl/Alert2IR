@@ -1,0 +1,39 @@
+{
+  "schema": "alert2ir.splunk-delivery.validation-summary.v1",
+  "record_type": "derived_current_summary",
+  "summary_notice": "This current summary is derived from earlier sanitized integration records. It is not an original execution transcript; the source records remain available in Git history.",
+  "original_records_preserved_in_git_history": true,
+  "source_history_commit": "11338a084279b65a44a48084a9dd2119010b52f8",
+  "verdict": "PASS",
+  "observed_at_utc": "2026-08-18T17:21:03Z",
+  "source": {
+    "host": "win11-02",
+    "channel": "Microsoft-Windows-Sysmon/Operational",
+    "event_code": 1,
+    "record_id": 1869245
+  },
+  "delivery": {
+    "splunk_detection_result_count": 1,
+    "adapter_initial_status": 202,
+    "core_initial_status": 202,
+    "processing_id": "a1e13e8c-a39d-4251-9cba-8907b999b89f"
+  },
+  "investigation": {
+    "decision": "investigate",
+    "capability": "process.list",
+    "backend": "velociraptor",
+    "artifact": "Windows.System.Pslist",
+    "operation_state": "FINISHED",
+    "durable_state": "completed"
+  },
+  "replay": {
+    "adapter_status": 200,
+    "core_status": 200,
+    "same_processing_id": true,
+    "additional_backend_operations": 0
+  },
+  "restored_state": {
+    "validation_saved_search_disabled": true,
+    "temporary_diagnostic_active": false
+  }
+}

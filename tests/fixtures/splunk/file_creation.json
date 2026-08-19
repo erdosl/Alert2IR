@@ -16,6 +16,6 @@
     "RecordID": "1757566",
     "ProcessGuid": "{aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee}",
     "Image": "C:\\Windows\\System32\\cmd.exe",
-    "TargetFilename": "C:\\Windows\\Temp\\Alert2IR-WS07-sanitized.bin"
+    "TargetFilename": "C:\\Windows\\Temp\\Alert2IR-AttackSimulation-sanitized.bin"
   }
 }

@@ -23,7 +23,7 @@ Keep UFW default-deny and allow exactly the four endpoint/protocol DNS tuples pl
 - Replacing interface DNS would couple unrelated name resolution to a lab-only authoritative service.
 - CoreDNS, dnsmasq, Unbound, and a containerized service add a different runtime or weaker fit when packaged native BIND directly supplies authoritative-only behavior.
 - Active Directory/GPO adds an unneeded control plane; local NRPT is sufficient for two endpoints.
-- Puppet ownership is unnecessary for this bounded infrastructure workstream and would expand its current endpoint catalog boundary.
+- Puppet ownership is unnecessary for this bounded infrastructure change and would expand its current endpoint catalog boundary.
 
 ## Consequences
 

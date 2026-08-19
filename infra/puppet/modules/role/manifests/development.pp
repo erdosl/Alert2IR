@@ -1,3 +1,3 @@
-# Development host configuration will be implemented in a later workstream.
+# This role intentionally has no additional development-host resources yet.
 class role::development {
 }

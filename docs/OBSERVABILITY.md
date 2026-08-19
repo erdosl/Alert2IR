@@ -61,7 +61,7 @@ systemctl is-enabled alloy
 curl -fsS http://127.0.0.1:12345/-/ready
 
 docker ps \
-  --filter label=com.docker.compose.project=alert2ir-ws09-live \
+  --filter label=com.docker.compose.project=alert2ir \
   --format 'table {{.Names}}\t{{.Status}}'
 
 curl -fsS http://127.0.0.1:8000/healthz

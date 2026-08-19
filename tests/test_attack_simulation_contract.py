@@ -1,7 +1,7 @@
 """Repository contracts for attack scenarios and ground-truth evidence.
 
-These offline tests preserve historical v1 records and validate the Tier 1
-portfolio plus the future sanitized v2 contract. They do not execute a
+These offline tests validate the Tier 1 portfolio, synthetic legacy-schema
+examples, and the sanitized v2 contract. They do not execute a
 scenario, contact a lab system, or manufacture runtime evidence.
 """
 
@@ -43,39 +43,17 @@ STAGING_ACL_CONTRACT = (
 ATOMIC_REPOSITORY = "https://github.com/redcanaryco/atomic-red-team"
 ATOMIC_COMMIT = "1ba1dd8d9ce6f74700f7aec2e60de5632f667f03"
 COMMAND_PROMPT_EXECUTABLE = r"C:\Windows\System32\cmd.exe"
-FILE_SCENARIO_ID = "alert2ir.ws07.windows.cmd-file-write.v1"
-FILE_PATH_TEMPLATE = r"C:\Windows\Temp\Alert2IR-WS07-${run_id}.bin"
-FILE_MESSAGE_TEMPLATE = "Alert2IR WS07 ground truth ${run_id}"
+FILE_SCENARIO_ID = "alert2ir.attack-simulation.windows.cmd-file-write.v1"
+FILE_PATH_TEMPLATE = r"C:\Windows\Temp\Alert2IR-AttackSimulation-${run_id}.bin"
+FILE_MESSAGE_TEMPLATE = "Alert2IR attack simulation ground truth ${run_id}"
 POWERSHELL_DECODED_SCRIPT = (
     "& (gcm ('ie{0}' -f 'x')) "
     '("Wr"+"it"+"e-H"+"ost \'H"+"el"+"lo, fr"+"om P"+"ow"+"erS"+"h"+'
     '"ell!\'")'
 )
-EXPECTED_WS07_CANARY_RECORDS = {
-    "45e78645-170d-4f2c-b158-32fdc89bec8d.json",
-    "2c752432-9aa7-4a4d-bdb5-4ffacd2698b7.json",
-    "34b43f09-1023-4c5c-8609-03c410bb28a3.json",
-}
-HISTORICAL_EVIDENCE_SHA256 = {
-    "validation/attack-simulation/2c752432-9aa7-4a4d-bdb5-4ffacd2698b7.json": (
-        "e16867fd3537b4be94bf3b4717858b9a2e28157c32166d7a88ecf63244c0b800"
-    ),
-    "validation/attack-simulation/34b43f09-1023-4c5c-8609-03c410bb28a3.json": (
-        "a447694d5d76089070545c32495a995167b830567eb643852932dcb42b9d29b1"
-    ),
-    "validation/attack-simulation/45e78645-170d-4f2c-b158-32fdc89bec8d.json": (
-        "7a7778222f7c1a8c93434127b6474cb0b6bf69e5845f097f5dffd6ffb7635340"
-    ),
-    "validation/detection/t1057-process-discovery-tasklist.json": (
-        "034ce4a28b19267119866427ff746694f88a038dbeb03f1736e874409450cdec"
-    ),
-    "validation/detection/t1059-001-powershell-encoded-command.json": (
-        "964ffd0d568b762b803eadbcd77212ea974feb31f6b024cab3afd7c978f74ac6"
-    ),
-    "validation/detection/t1059-003-cmd-temp-file-write-display.json": (
-        "2fe12cd5d25d99a471e34a236af4113029057b6f97bcfe6c19c8f5aaaccbf0c6"
-    ),
-}
+VALIDATION_SUMMARY = (
+    REPOSITORY_ROOT / "validation" / "attack-simulation" / "validation-summary.json"
+)
 
 APPROVED_ENDPOINTS = {
     ("win11-02", "WIN11-02", "192.168.56.62", "Ethernet"),
@@ -83,7 +61,7 @@ APPROVED_ENDPOINTS = {
 }
 
 EXPECTED_SCENARIOS = {
-    "alert2ir.ws07.windows.process-discovery-tasklist.v1": {
+    "alert2ir.attack-simulation.windows.process-discovery-tasklist.v1": {
         "technique_id": "T1057",
         "atomic_guid": "c5806a4f-62b8-4900-980b-c7ec004e9908",
         "atomic_test_name": "Process Discovery - tasklist",
@@ -95,7 +73,7 @@ EXPECTED_SCENARIOS = {
         "executable": COMMAND_PROMPT_EXECUTABLE,
         "elevation_required": False,
     },
-    "alert2ir.ws07.windows.powershell-command.v1": {
+    "alert2ir.attack-simulation.windows.powershell-command.v1": {
         "technique_id": "T1059.001",
         "atomic_guid": "a538de64-1c74-46ed-aa60-b995ed302598",
         "atomic_test_name": "PowerShell Command Execution",
@@ -107,7 +85,7 @@ EXPECTED_SCENARIOS = {
         "executable": COMMAND_PROMPT_EXECUTABLE,
         "elevation_required": False,
     },
-    "alert2ir.ws07.windows.cmd-file-write.v1": {
+    "alert2ir.attack-simulation.windows.cmd-file-write.v1": {
         "technique_id": "T1059.003",
         "atomic_guid": "127b4afe-2346-4192-815c-69042bec570e",
         "atomic_test_name": "Writes text to a file and displays it.",
@@ -154,7 +132,7 @@ CONTROL_VARIANT_ID = (
 VALID_TELEMETRY_ROLES = {"primary", "secondary", "cleanup", "related"}
 VALID_TELEMETRY_PHASES = {"execution", "investigation_window", "cleanup"}
 
-FORBIDDEN_WS08_WS09_FIELDS = {
+FORBIDDEN_DOWNSTREAM_FIELDS = {
     "splunk",
     "spl",
     "splunk_search",
@@ -198,14 +176,14 @@ def mapping_keys(value: object):
 
 
 def reject_forbidden_fields(value: object) -> None:
-    """Reject WS08/WS09 concerns when they appear as contract field names."""
+    """Reject downstream concerns when they appear as scenario field names."""
     forbidden = {
         key
         for key in mapping_keys(value)
-        if key.lower().replace("-", "_") in FORBIDDEN_WS08_WS09_FIELDS
+        if key.lower().replace("-", "_") in FORBIDDEN_DOWNSTREAM_FIELDS
     }
     if forbidden:
-        raise ValueError(f"forbidden WS08/WS09 fields: {sorted(forbidden)}")
+        raise ValueError(f"forbidden downstream fields: {sorted(forbidden)}")
 
 
 def require_exact_fields(
@@ -272,27 +250,27 @@ def resolve_scenario(scenario: dict, run_id: str) -> tuple[dict, str, str | None
     cleanup = resolve_template(scenario["executor"]["cleanup_command_template"])
 
     if scenario["scenario_id"] == FILE_SCENARIO_ID:
-        expected_path = rf"C:\Windows\Temp\Alert2IR-WS07-{run_id}.bin"
-        expected_message = f"Alert2IR WS07 ground truth {run_id}"
+        expected_path = rf"C:\Windows\Temp\Alert2IR-AttackSimulation-{run_id}.bin"
+        expected_message = f"Alert2IR attack simulation ground truth {run_id}"
         if inputs != {
             "file_contents_path": expected_path,
             "message": expected_message,
         }:
-            raise ValueError("file scenario inputs must resolve to the approved v1 target")
+            raise ValueError("file scenario inputs must resolve to the approved target")
         expected_command = (
             f'echo "{expected_message}" > "{expected_path}" & type "{expected_path}"'
         )
         expected_cleanup = f'del "{expected_path}" >nul 2>&1'
         if command != expected_command:
-            raise ValueError("file scenario command must target the approved v1 file")
+            raise ValueError("file scenario command must target the approved file")
         if cleanup != expected_cleanup:
-            raise ValueError("file scenario cleanup must target the approved v1 file")
+            raise ValueError("file scenario cleanup must target the approved file")
 
     return inputs, command, cleanup
 
 
 def validate_ground_truth_record(record: object, manifest: dict) -> None:
-    """Validate only the documented WS07 ground-truth version 1 contract."""
+    """Validate the documented ground-truth version 1 contract."""
     reject_forbidden_fields(record)
     record = require_exact_fields(
         record,
@@ -338,7 +316,7 @@ def validate_ground_truth_record(record: object, manifest: dict) -> None:
     ) is None:
         raise ValueError("alert2ir_commit must be a 40-character lowercase hex SHA")
     if record["operator_role"] != "lab-admin":
-        raise ValueError("operator_role must be lab-admin for WS07 v1")
+        raise ValueError("operator_role must be lab-admin for ground-truth v1")
 
     endpoint = require_exact_fields(
         record["endpoint"],
@@ -359,7 +337,7 @@ def validate_ground_truth_record(record: object, manifest: dict) -> None:
         endpoint["interface"],
     )
     if endpoint_identity not in APPROVED_ENDPOINTS:
-        raise ValueError("endpoint must match an approved WS07 Windows identity")
+        raise ValueError("endpoint must match an approved Windows identity")
 
     provenance = require_exact_fields(
         record["source_provenance"],
@@ -430,7 +408,7 @@ def validate_ground_truth_record(record: object, manifest: dict) -> None:
         "required": False,
         "acquisition_allowed": False,
     }:
-        raise ValueError("WS07 ground-truth v1 supports only no-prerequisite scenarios")
+        raise ValueError("ground-truth v1 supports only no-prerequisite scenarios")
     if prerequisite["status"] != "not_required":
         raise ValueError("prerequisite.status must be not_required")
     if not isinstance(prerequisite["details"], str) or not prerequisite[
@@ -710,9 +688,13 @@ class AttackSimulationScenarioContractTests(unittest.TestCase):
                 self.assertEqual(provenance["definition_sha256"], expected["definition_sha256"])
                 self.assertNotIn("latest", json.dumps(provenance).lower())
 
-        tasklist = self.scenarios["alert2ir.ws07.windows.process-discovery-tasklist.v1"]
+        tasklist = self.scenarios[
+            "alert2ir.attack-simulation.windows.process-discovery-tasklist.v1"
+        ]
         self.assertEqual(tasklist["executor"]["command_template"], "tasklist")
-        powershell = self.scenarios["alert2ir.ws07.windows.powershell-command.v1"]
+        powershell = self.scenarios[
+            "alert2ir.attack-simulation.windows.powershell-command.v1"
+        ]
         self.assertEqual(powershell["executor"]["command_template"], "powershell.exe -e  #{obfuscated_code}")
         decoded = base64.b64decode(
             powershell["inputs"]["obfuscated_code"], validate=True
@@ -721,13 +703,15 @@ class AttackSimulationScenarioContractTests(unittest.TestCase):
         self.assertNotIn("executionpolicy", powershell["executor"]["command_template"].lower())
         self.assertNotIn("bypass", powershell["executor"]["command_template"].lower())
 
-    def test_historical_ground_truth_and_detection_evidence_bytes_are_immutable(self) -> None:
-        for relative_path, expected_hash in HISTORICAL_EVIDENCE_SHA256.items():
-            with self.subTest(path=relative_path):
-                self.assertEqual(
-                    sha256((REPOSITORY_ROOT / relative_path).read_bytes()).hexdigest(),
-                    expected_hash,
-                )
+    def test_current_summary_is_explicitly_derived_from_historical_validation(self) -> None:
+        summary = json.loads(VALIDATION_SUMMARY.read_text(encoding="utf-8"))
+        self.assertEqual(
+            summary["schema"],
+            "alert2ir.attack-simulation.validation-summary.v1",
+        )
+        self.assertEqual(summary["record_type"], "derived_current_summary")
+        self.assertTrue(summary["original_records_preserved_in_git_history"])
+        self.assertEqual(set(summary["current_scenario_ids"]), set(EXPECTED_SCENARIOS))
 
     def test_local_wrappers_and_reviewed_artifacts_are_hash_pinned(self) -> None:
         local_items = [
@@ -928,7 +912,7 @@ class AttackSimulationScenarioContractTests(unittest.TestCase):
         ]
         self.assertEqual(
             [scenario["scenario_id"] for scenario in encoded],
-            ["alert2ir.ws07.windows.powershell-command.v1"],
+            ["alert2ir.attack-simulation.windows.powershell-command.v1"],
         )
         self.assertTrue(
             all(scenario["provenance"]["kind"] == "atomic" for scenario in encoded)
@@ -1065,7 +1049,7 @@ class AttackSimulationScenarioContractTests(unittest.TestCase):
         self.assertEqual(scenario["inputs"]["message"], FILE_MESSAGE_TEMPLATE)
         run_id = "12345678-1234-4234-9234-123456789abc"
         inputs, command, cleanup = resolve_scenario(scenario, run_id)
-        resolved_path = rf"C:\Windows\Temp\Alert2IR-WS07-{run_id}.bin"
+        resolved_path = rf"C:\Windows\Temp\Alert2IR-AttackSimulation-{run_id}.bin"
         self.assertEqual(inputs["file_contents_path"], resolved_path)
         self.assertIn(f'"{resolved_path}"', command)
         self.assertEqual(cleanup, f'del "{resolved_path}" >nul 2>&1')
@@ -1100,8 +1084,8 @@ class AttackSimulationScenarioContractTests(unittest.TestCase):
         self.assertEqual(
             primary_event_ids,
             {
-                "alert2ir.ws07.windows.process-discovery-tasklist.v1": 1,
-                "alert2ir.ws07.windows.powershell-command.v1": 1,
+                "alert2ir.attack-simulation.windows.process-discovery-tasklist.v1": 1,
+                "alert2ir.attack-simulation.windows.powershell-command.v1": 1,
                 FILE_SCENARIO_ID: 11,
                 "alert2ir.tier1.windows.host-only-tcp.v1": 3,
                 "alert2ir.tier1.windows.owned-alias-dns.v1": 22,
@@ -1690,13 +1674,19 @@ class GroundTruthRecordContractTests(unittest.TestCase):
     def test_repository_ground_truth_records_satisfy_contract(self) -> None:
         record_directory = REPOSITORY_ROOT / "validation" / "attack-simulation"
         record_paths = sorted(record_directory.glob("*.json"))
-        actual_record_names = {record_path.name for record_path in record_paths}
-        self.assertTrue(EXPECTED_WS07_CANARY_RECORDS <= actual_record_names)
+        self.assertFalse(
+            any(
+                json.loads(record_path.read_text(encoding="utf-8")).get("schema_version")
+                == 1
+                for record_path in record_paths
+            )
+        )
         for record_path in record_paths:
             record = json.loads(record_path.read_text(encoding="utf-8"))
             if record.get("schema") in {
                 "alert2ir-ground-truth-v2",
                 "alert2ir-live-attestation-v1",
+                "alert2ir.attack-simulation.validation-summary.v1",
             }:
                 continue
             with self.subTest(record=record_path.name):
@@ -1721,7 +1711,9 @@ class GroundTruthRecordContractTests(unittest.TestCase):
                     validate_ground_truth_record(record, self.manifest)
 
     def test_unknown_scenario_id_is_rejected(self) -> None:
-        self.record["scenario_id"] = "alert2ir.ws07.windows.unknown.v1"
+        self.record["scenario_id"] = (
+            "alert2ir.attack-simulation.windows.unknown.v1"
+        )
         with self.assertRaisesRegex(ValueError, "scenario_id"):
             validate_ground_truth_record(self.record, self.manifest)
 
@@ -1786,7 +1778,7 @@ class GroundTruthRecordContractTests(unittest.TestCase):
 
         mismatched = deepcopy(self.record)
         mismatched["endpoint"]["computer_name"] = "WIN11-01"
-        with self.assertRaisesRegex(ValueError, "approved WS07 Windows identity"):
+        with self.assertRaisesRegex(ValueError, "approved Windows identity"):
             validate_ground_truth_record(mismatched, self.manifest)
 
         win11_01 = deepcopy(self.record)
@@ -1912,7 +1904,7 @@ class GroundTruthRecordContractTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "unexpected fields"):
                     validate_ground_truth_record(record, self.manifest)
 
-    def test_nested_later_workstream_variants_are_rejected_by_closed_objects(self) -> None:
+    def test_nested_downstream_variants_are_rejected_by_closed_objects(self) -> None:
         mutations = (
             ("execution", "splunk_search_text"),
             ("source_provenance", "sigma_rule_id"),
@@ -1943,12 +1935,12 @@ class GroundTruthRecordContractTests(unittest.TestCase):
 
         validate_ground_truth_record(self.record, self.manifest)
 
-    def test_forbidden_ws08_and_ws09_fields_are_rejected(self) -> None:
-        for forbidden in sorted(FORBIDDEN_WS08_WS09_FIELDS):
+    def test_forbidden_downstream_fields_are_rejected(self) -> None:
+        for forbidden in sorted(FORBIDDEN_DOWNSTREAM_FIELDS):
             with self.subTest(forbidden=forbidden):
                 record = deepcopy(self.record)
                 record[forbidden] = "out of scope"
-                with self.assertRaisesRegex(ValueError, "forbidden WS08/WS09"):
+                with self.assertRaisesRegex(ValueError, "forbidden downstream"):
                     validate_ground_truth_record(record, self.manifest)
 
 

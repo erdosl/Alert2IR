@@ -1,4 +1,3 @@
-# Splunk server configuration will be implemented in a later workstream.
+# This role intentionally does not manage the Splunk server deployment.
 class role::splunk_server {
 }
-

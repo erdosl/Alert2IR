@@ -70,7 +70,7 @@ Canonical Sigma
 
 This keeps Splunk detection execution distinct from canonical ingestion while closing one narrow transition between them. The saved-search predicate remains Sigma-derived, and reviewed rule UUID/title/level configuration plus one bounded result row becomes the source finding. The gateway authenticates exact raw body bytes and timestamp before parsing, then invokes the frozen conversion. The Event 3, 15, and 22 mappings remain deterministic code without live detection acceptance; adding the adapter does not change their status. The validation-only high rule is separate from production-intent detections, is disabled by default, and was returned to disabled state after controlled owned-lab acceptance.
 
-The final owned-lab acceptance record under `validation/integration/` proves one safe `win11-02` Sysmon event traversed the scheduled Splunk detection, authenticated gateway, canonical high alert, `investigate` decision, `process.list` capability, and Velociraptor `Windows.System.Pslist` to durable completion. Replaying that same finding returned the same processing and created no additional Velociraptor operation. This demonstrates durable logical duplicate suppression for the observed replay; it is not a globally exactly-once delivery guarantee.
+The current derived acceptance summary under `validation/integration/` records that one safe `win11-02` Sysmon event traversed the scheduled Splunk detection, authenticated gateway, canonical high alert, `investigate` decision, `process.list` capability, and Velociraptor `Windows.System.Pslist` to durable completion. The original execution records remain in Git history. Replaying that same finding returned the same processing and created no additional Velociraptor operation. This demonstrates durable logical duplicate suppression for the observed replay; it is not a globally exactly-once delivery guarantee.
 
 Attack behavior, sanitized ground truth, scenario-to-detection objectives, Sigma, target translation, live/historical validation, and future investigation remain separate authorities. The attack-simulation manifest contains no Splunk or investigation-backend fields, and this breadth work does not change the canonical alert or investigation domain model.
 
@@ -187,5 +187,5 @@ Intentional extension points are source adapters, policy implementations, invest
 - [Owned-lab topology and deployed integrations](LAB.md)
 - [Authorized lab scope](LAB_SCOPE.md)
 - [Observability operation and recovery](OBSERVABILITY.md)
-- [Workstream status and future work](ROADMAP.md)
+- [Capability status and future work](ROADMAP.md)
 - [Architecture decision record index](adr/README.md)

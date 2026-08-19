@@ -368,7 +368,7 @@ class SplunkFindingEnvelopeTests(unittest.TestCase):
             invocation("/tmp/results.csv.gz", "/protected/secret")
         )
 
-    def test_validation_row_produces_exact_phase_one_envelope(self) -> None:
+    def test_validation_row_produces_exact_finding_envelope(self) -> None:
         finding = sender.build_finding(fixture_row(), self.config)
         self.assertEqual(
             finding,
@@ -460,7 +460,7 @@ class SplunkFindingEnvelopeTests(unittest.TestCase):
 
 
 class SplunkSenderAuthenticationTests(unittest.TestCase):
-    def test_sender_hmac_vector_exactly_matches_phase_two(self) -> None:
+    def test_sender_hmac_vector_exactly_matches_gateway(self) -> None:
         body = b'{"a":1}'
         signature = sender.signature_header(SECRET, "1786566372", body)
         self.assertEqual(
@@ -493,7 +493,7 @@ class SplunkSenderAuthenticationTests(unittest.TestCase):
 
 
 class SplunkSenderResponseTests(unittest.TestCase):
-    def test_phase_two_response_classifications_are_explicit(self) -> None:
+    def test_gateway_response_classifications_are_explicit(self) -> None:
         contracts = (
             (response(200, "completed"), "success", False),
             (response(202, "accepted"), "success", False),
@@ -751,15 +751,15 @@ class RecordingAlert2IRClient:
         )
 
 
-class SplunkCrossPhaseTests(unittest.IsolatedAsyncioTestCase):
-    async def test_sender_to_authenticated_gateway_to_phase_one(self) -> None:
+class SplunkCrossBoundaryTests(unittest.IsolatedAsyncioTestCase):
+    async def test_sender_to_authenticated_gateway_to_canonical_alert(self) -> None:
         config = sender.ActionConfiguration(**configuration())
         body = sender.serialize_finding(sender.build_finding(fixture_row(), config))
         timestamp = str(NOW_EPOCH)
-        phase_two_client = RecordingAlert2IRClient()
+        core_client = RecordingAlert2IRClient()
         app = create_splunk_adapter_app(
             shared_secret=SECRET,
-            alert2ir_client=phase_two_client,
+            alert2ir_client=core_client,
             clock=lambda: NOW,
         )
         async with httpx2.AsyncClient(
@@ -781,8 +781,8 @@ class SplunkCrossPhaseTests(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(response_value.status_code, 200)
-        self.assertEqual(len(phase_two_client.calls), 1)
-        alert, key = phase_two_client.calls[0]
+        self.assertEqual(len(core_client.calls), 1)
+        alert, key = core_client.calls[0]
         self.assertEqual(alert.severity.value, "high")
         self.assertEqual(
             [(entity.kind, entity.value) for entity in alert.entities],

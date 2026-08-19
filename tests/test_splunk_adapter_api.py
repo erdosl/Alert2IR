@@ -445,7 +445,7 @@ class SplunkAdapterBoundaryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.json(), {"error": "unsupported_media_type"})
         self.assertEqual(self.delivery.calls, [])
 
-    async def test_all_phase_one_fixtures_reach_client_once_when_valid(self) -> None:
+    async def test_all_finding_fixtures_reach_client_once_when_valid(self) -> None:
         expected_hosts = {
             "process_creation.json": "win11-02",
             "file_creation.json": "win11-02",
@@ -489,13 +489,13 @@ class SplunkAlert2IRClientTests(unittest.IsolatedAsyncioTestCase):
             timeout_seconds=5.0,
             transport=httpx2.MockTransport(recorder),
         )
-        phase_one = canonicalize(
+        canonical_finding = canonicalize(
             SplunkFinding.model_validate(fixture_object())
         )
         try:
             result = await client.submit_alert(
-                phase_one.alert,
-                idempotency_key=phase_one.idempotency_key,
+                canonical_finding.alert,
+                idempotency_key=canonical_finding.idempotency_key,
             )
         finally:
             await client.aclose()
@@ -509,7 +509,7 @@ class SplunkAlert2IRClientTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(request.headers["Idempotency-Key"], EXPECTED_PROCESS_KEY)
         self.assertEqual(
             json.loads(request.content),
-            CanonicalAlertRequest.from_domain(phase_one.alert).model_dump(mode="json"),
+            CanonicalAlertRequest.from_domain(canonical_finding.alert).model_dump(mode="json"),
         )
         self.assertEqual(
             json.loads(request.content)["entities"],

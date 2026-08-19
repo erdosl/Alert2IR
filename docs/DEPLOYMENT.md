@@ -17,6 +17,28 @@ This guide describes the repository-defined Docker Compose deployment of the Ale
 
 Host package installation and bootstrap are outside this guide. The repository-owned Puppet boundary is documented in [`infra/puppet`](../infra/puppet/README.md).
 
+## Canonical identity and target host layout
+
+The application Compose project is declared as `alert2ir` in `compose.yaml`. Operators do not supply a project name, and Compose therefore generates predictable names such as `alert2ir-core-1`, `alert2ir-postgres-1`, and `alert2ir-splunk_adapter-1`. The independent observability deployment remains the separate functional project `alert2ir-observability`.
+
+The repository target for a managed runtime host is:
+
+```text
+/opt/alert2ir/
+    releases/<full-git-sha>/
+    current -> releases/<full-git-sha>
+
+/etc/alert2ir/
+    runtime.env
+    secrets/
+        splunk-adapter.secret
+        velociraptor-api.yaml
+```
+
+Release directories contain reviewed repository deployment files. Runtime environment, credentials, and generated configuration remain external so a release path can be replaced or rolled back without copying secrets into a checkout. Operational commands run from `/opt/alert2ir/current` and may use `--env-file /etc/alert2ir/runtime.env`; they do not use `--project-name`.
+
+This is the repository target design, not a claim about the current lab. The current legacy deployment, its data-bearing volume, and its runtime paths remain untouched by Migration A. A separately approved Migration B must inventory them, preserve rollback configuration, and perform the live cutover.
+
 ## Configuration
 
 Copy the template to the Git-ignored local environment file and replace every placeholder:
@@ -31,6 +53,7 @@ cp .env.example .env
 | `POSTGRES_USER` | Required | PostgreSQL role used by the application |
 | `POSTGRES_PASSWORD` | Required | PostgreSQL role password |
 | `ALERT2IR_DATABASE_URL` | Required | Application connection URL for the internal `postgres` service |
+| `ALERT2IR_POSTGRES_VOLUME` | Required | Exact pre-existing external Docker volume that owns PostgreSQL data |
 | `ALERT2IR_BACKEND` | Optional; defaults to `mock` | Selects exactly `mock` or `velociraptor` |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | Optional; blank disables external export | OpenTelemetry collector endpoint |
 | `ALERT2IR_SPLUNK_ADAPTER_SECRET_SOURCE` | Required by `splunk_adapter` | Absolute protected host path to the shared HMAC secret file; this is a path, never secret bytes |
@@ -38,7 +61,15 @@ cp .env.example .env
 | `ALERT2IR_VELOCIRAPTOR_HOST` | Velociraptor mode | One exact canonical `host` target value |
 | `ALERT2IR_VELOCIRAPTOR_CLIENT_ID` | Velociraptor mode | Velociraptor client mapped to that host |
 
-`POSTGRES_PASSWORD` and the password embedded in `ALERT2IR_DATABASE_URL` must agree; URL-encode the URL password when necessary. Compose keeps the database on its internal network and injects the connection URL into `core`.
+`POSTGRES_PASSWORD` and the password embedded in `ALERT2IR_DATABASE_URL` must agree; URL-encode the URL password when necessary. Compose keeps the database on its internal network and injects the connection URL into `core`. The external-volume contract fails interpolation when `ALERT2IR_POSTGRES_VOLUME` is absent, preventing Compose from silently creating a new project-prefixed database volume.
+
+For a fresh deployment only, deliberately create the neutral volume before first startup and set the variable to the same name:
+
+```bash
+docker volume create alert2ir-postgres-data
+```
+
+An existing deployment must instead use the exact data-bearing volume approved by its migration plan. Changing the Compose project name does not rename or automatically attach a project-prefixed volume. Migration A creates or attaches no volume.
 
 Validate interpolation and the resulting base deployment without starting services:
 
@@ -145,7 +176,7 @@ docker compose up -d core splunk_adapter
 docker compose ps
 ```
 
-Both Python services use the same repository Dockerfile and build context and run as its dedicated non-root user. `splunk_adapter` overrides only the container command to run the Phase 2 application factory on container port `8091`. It receives `http://core:8000` as its private upstream origin and shares the `alert2ir_private` bridge network with `core`; it receives no database or Velociraptor credentials. Its `depends_on` condition waits for the shallow `core` healthcheck, not PostgreSQL readiness. A request arriving while core delivery is unavailable receives the existing bounded transient classification; there is no adapter queue or infrastructure retry.
+Both Python services use the same repository Dockerfile and build context and run as its dedicated non-root user. `splunk_adapter` overrides only the container command to run the source-gateway application factory on container port `8091`. It receives `http://core:8000` as its private upstream origin and shares the `alert2ir_private` bridge network with `core`; it receives no database or Velociraptor credentials. Compose starts `core` only after the PostgreSQL healthcheck succeeds, then starts the adapter after the shallow `core` healthcheck succeeds. This ordering does not replace runtime readiness: a later database outage leaves `/healthz` shallow while `/readyz` reports persistence/schema unavailability. A request arriving while core delivery is unavailable receives the existing bounded transient classification; there is no adapter queue or infrastructure retry.
 
 `splunk_adapter` startup fails if its core URL, timeout, or secret file is invalid. Its `/healthz` reports only that configuration loaded and the HTTP process is alive. It does not probe Splunk, core, PostgreSQL, or Velociraptor.
 
@@ -205,7 +236,7 @@ curl -sS -o /dev/null -w '%{http_code}\n' -X POST \
   --data '{}' http://192.168.56.63:8091/v1/splunk/findings
 ```
 
-A separately authorized low-severity signed smoke finding may prove adapter-to-core delivery without requesting investigation. It is optional and must be recorded as a delivery smoke test, not end-to-end acceptance. The high-severity validation marker remains disabled in Phase 4 and must not be executed until Phase 5.
+A separately authorized low-severity signed smoke finding may prove adapter-to-core delivery without requesting investigation. It is optional and must be recorded as a delivery smoke test, not end-to-end acceptance. The high-severity validation marker remains disabled during deployment preflight and must not be executed until a separately authorized end-to-end validation.
 
 After startup, the application launches one bounded failure-isolated reconciliation pass. It does not delay liveness/readiness or wait for every remote operation. Review its bounded telemetry when incomplete work exists.
 
@@ -280,7 +311,7 @@ sudo -u splunk /opt/splunk/bin/splunk btool savedsearches list \
   'Alert2IR Investigation Delivery Validation Marker' --debug
 ```
 
-Require the effective saved search to retain `disabled = true` and `enableSched = 0`, the reviewed rule UUID/title/level, per-result delivery, the exact adapter URL, and the protected sender secret path. Confirm `bin/alert2ir_delivery.py` remains executable. Do not run the reserved marker or enable the schedule during Phase 4.
+Require the effective saved search to retain `disabled = true` and `enableSched = 0`, the reviewed rule UUID/title/level, per-result delivery, the exact adapter URL, and the protected sender secret path. Confirm `bin/alert2ir_delivery.py` remains executable. Do not run the reserved marker or enable the schedule during deployment preflight.
 
 The HMAC protects authentication and body integrity but does not encrypt HTTP. This is acceptable only on the owned host-only network with exact-interface binding and the source firewall rule above. TLS is required before crossing a broader or untrusted network boundary.
 
@@ -292,7 +323,7 @@ Collector or central-platform unavailability must not become an application depe
 
 ## Data persistence
 
-The `postgres_data` named volume owns PostgreSQL state. Container restart, `docker compose restart core`, application-container recreation, and ordinary Compose down/up preserve that volume.
+The logical `postgres_data` mount is backed by the explicit external volume selected by `ALERT2IR_POSTGRES_VOLUME`. Container restart, `docker compose restart core`, application-container recreation, and ordinary Compose down/up preserve that volume. Because it is external, Compose does not create, rename, copy, or delete it.
 
 Use the same Compose file set that started the deployment for normal shutdown:
 
@@ -307,7 +338,7 @@ Start PostgreSQL, reapply the migration command, and start `core` to restore the
 For an application revision change:
 
 1. Select a reviewed revision with successful hosted validation and inspect its Compose, environment, dependency, and migration changes.
-2. Preserve `.env`, any external Velociraptor configuration, and the `postgres_data` volume.
+2. Preserve the runtime environment, external secret/configuration files, and the exact volume selected by `ALERT2IR_POSTGRES_VOLUME`.
 3. Run `docker compose config` with the selected Compose file set.
 4. Build the application image and ensure PostgreSQL is healthy.
 5. Run `docker compose run --rm core alembic upgrade head` with that same file set.
@@ -318,13 +349,7 @@ Migrations are forward-only: neither the baseline nor Durable Execution migratio
 
 ## Destructive reset boundary
 
-Normal troubleshooting and shutdown must not remove named volumes. This command intentionally destroys the PostgreSQL volume and its Alert2IR records:
-
-```bash
-docker compose down --volumes
-```
-
-Run it only for an explicitly authorized destructive reset with an understood recovery plan. Use the matching Compose file set when Velociraptor mode was selected.
+Normal troubleshooting and shutdown must not remove the external PostgreSQL volume. `docker compose down --volumes` does not own that external resource and is not a database-reset procedure. Any deliberate database reset requires separate destructive authorization, an exact inspected volume name, and an understood recovery plan; this guide intentionally provides no routine removal command.
 
 ## Source-gateway rollback
 

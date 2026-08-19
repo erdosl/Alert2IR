@@ -1,4 +1,4 @@
-"""Repository contract tests for the WS02 Puppet environment.
+"""Repository contract tests for the Alert2IR Puppet environment.
 
 These tests freeze the reviewed repository boundary; they are not a Puppet
 parser, catalog compiler, provider test, or a substitute for endpoint
@@ -16,7 +16,7 @@ import zipfile
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 PUPPET_ROOT = REPOSITORY_ROOT / "infra" / "puppet"
-ARTIFACT_BUILDER = REPOSITORY_ROOT / "tools" / "puppet" / "build-ws02-puppet-artifact.sh"
+ARTIFACT_BUILDER = REPOSITORY_ROOT / "tools" / "puppet" / "build-puppet-artifact.sh"
 CANONICAL_SYSMON_XML = REPOSITORY_ROOT / "config" / "sysmon" / "alert2ir-sysmon.xml"
 
 RESOURCE_DECLARATION = re.compile(

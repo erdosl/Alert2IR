@@ -2,7 +2,7 @@
 
 This directory is a narrow Splunk Enterprise custom alert-action app. It turns one per-result saved-search row into `alert2ir.splunk-finding.v1` and sends that finding only to the authenticated Alert2IR source gateway at `/v1/splunk/findings`. It never calls `/v1/alerts`, chooses a canonical source, or supplies an idempotency key.
 
-The app is implemented, packageable, statically tested, and separately live-validated in the owned lab. The repository-defined Compose deployment publishes its adapter only at the lab host-only address `192.168.56.63:8091`. This source package alone is not live evidence; the sanitized acceptance record is retained under `validation/integration/`. The committed saved search is disabled, and its host-specific adapter URL and secret-file values are intentionally blank so installation fails closed until an operator supplies `local/` overrides.
+The app is implemented, packageable, statically tested, and separately live-validated in the owned lab. The repository-defined Compose deployment publishes its adapter only at the lab host-only address `192.168.56.63:8091`. This source package alone is not live evidence; a current summary derived from the sanitized acceptance records is retained under `validation/integration/`, with originals in Git history. The committed saved search is disabled, and its host-specific adapter URL and secret-file values are intentionally blank so installation fails closed until an operator supplies `local/` overrides.
 
 ## Invocation and result contract
 
@@ -15,7 +15,7 @@ ProcessGuid Image ParentImage TargetFilename
 
 With `forceCsvResults=true`, Splunk may append exactly one `__mv_<field>` companion for every projected field. The parser accepts either the projection alone or that exact companion set and discards the companions before finding construction; any arbitrary column or `__mv_` name still fails closed. The saved search uses `alert.digest_mode = false`, so one matching event creates one action invocation. Zero rows, more than one row, malformed CSV, a missing/unsupported projected column, and oversized compressed or decompressed results fail locally without an HTTP request. `_raw`, XML, command line, user, process IDs, search SID, results URL, management URL, and session key are neither forwarded nor logged.
 
-`rule_id`, `rule_title`, `sigma_level`, and `channel` come only from reviewed action configuration. Result columns cannot override them. The action constructs the existing Phase 1 envelope and serializes it once using UTF-8 JSON with sorted keys, compact separators, and NaN disabled. The same exact body bytes are reused for every attempt.
+`rule_id`, `rule_title`, `sigma_level`, and `channel` come only from reviewed action configuration. Result columns cannot override them. The action constructs the bounded finding envelope and serializes it once using UTF-8 JSON with sorted keys, compact separators, and NaN disabled. The same exact body bytes are reused for every attempt.
 
 ## Authentication
 
@@ -28,7 +28,7 @@ X-Alert2IR-Timestamp: <Unix epoch seconds>
 X-Alert2IR-Signature: v1=<lowercase HMAC-SHA256 hex>
 ```
 
-The signed bytes exactly match the Phase 2 protocol:
+The signed bytes exactly match the source-authentication protocol:
 
 ```text
 alert2ir-splunk-v1\n<timestamp>\n<exact JSON body bytes>
@@ -49,7 +49,7 @@ The sender uses a five-second request timeout, follows no redirects, uses no env
 | `502`, `503`, or `504 transient_failure` | retry within the three-attempt bound |
 | connection failure or timeout | retry within the three-attempt bound |
 
-The action trusts the bounded Phase 2 classification when it agrees with the HTTP status. A malformed `200`/`202` remains a success because the HTTP contract establishes acceptance; malformed 4xx responses stop; malformed 5xx responses retry because acceptance cannot be established. There is no queue, durable spool, fourth attempt, or status poll.
+The action trusts the bounded gateway classification when it agrees with the HTTP status. A malformed `200`/`202` remains a success because the HTTP contract establishes acceptance; malformed 4xx responses stop; malformed 5xx responses retry because acceptance cannot be established. There is no queue, durable spool, fourth attempt, or status poll.
 
 ## Validation-only saved search
 
