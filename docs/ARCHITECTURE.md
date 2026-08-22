@@ -122,6 +122,30 @@ The availability endpoints deliberately expose different failure domains:
 
 Readiness does not depend on an investigation backend or any observability component. The [deployment guide](DEPLOYMENT.md) defines how operators use both endpoints.
 
+## Core container-to-host boundary
+
+The reference deployment gives `core` one stable address on the existing private application network so it can reach the native Velociraptor API and local Alloy receiver without authorizing sibling containers:
+
+```text
+alert2ir-core-1
+172.30.63.2
+     |
+     | alert2ir_private
+     | Linux bridge alert2ir-prv0
+     v
+ir-core host INPUT
+     |
+     +--> 192.168.56.63:8001 Velociraptor
+     |
+     +--> 192.168.56.63:4317 Alloy
+```
+
+The bridge uses subnet `172.30.63.0/28`, gateway `172.30.63.1`, and Docker dynamic IPAM range `172.30.63.8/29`. The static `core` address `172.30.63.2` is deliberately outside that dynamic allocation range, so a dynamically addressed sibling cannot consume the firewall principal before `core` claims it. The runtime network name `alert2ir_alert2ir_private` remains Compose-derived and therefore depends on the canonical effective project name `alert2ir`; deployment rejects project-name overrides before mutation.
+
+UFW admits only `172.30.63.2/32` on `alert2ir-prv0` to those two TCP destinations. `splunk_adapter`, `postgres`, and other Docker sources are not trusted for either port and fall through to the host's default INPUT deny. `core` remains single-homed, and its application destinations stay on the stable host-only IPv4 address.
+
+This native-host contract is distinct from the Splunk source boundary. Splunk reaches Docker-published `192.168.56.63:8091` through Docker NAT and `FORWARD`, where the existing `DOCKER-USER` reconciler owns source restriction. UFW INPUT does not own the published `:8091` path, and `DOCKER-USER` does not own native `:8001` or `:4317`. `docs/adr/0018-core-container-host-input-boundary.md` records the decision and its alternatives.
+
 ## Observability architecture
 
 The application emits structured JSON logs and optional OpenTelemetry traces and metrics. The reference lab deployment is:

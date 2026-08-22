@@ -31,7 +31,8 @@ services:
       retries: 3
       start_period: 5s
     networks:
-      - alert2ir_private
+      alert2ir_private:
+        ipv4_address: 172.30.63.2
   splunk_adapter:
     build:
       context: .
@@ -111,3 +112,10 @@ volumes:
 networks:
   alert2ir_private:
     driver: bridge
+    driver_opts:
+      com.docker.network.bridge.name: alert2ir-prv0
+    ipam:
+      config:
+        - subnet: 172.30.63.0/28
+          ip_range: 172.30.63.8/29
+          gateway: 172.30.63.1

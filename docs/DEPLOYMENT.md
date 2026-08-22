@@ -19,7 +19,7 @@ The repository-owned Puppet environment provisions the exact Docker host stack a
 
 ## Canonical identity and target host layout
 
-The application Compose project is declared as `alert2ir` in `compose.yaml`. Operators do not supply a project name, and Compose therefore generates predictable names such as `alert2ir-core-1`, `alert2ir-postgres-1`, and `alert2ir-splunk_adapter-1`. The independent observability deployment remains the separate functional project `alert2ir-observability`.
+The application Compose project is declared as `alert2ir` in `compose.yaml`, but Compose project-name inputs can override that declaration. Canonical deployment therefore rejects project-name overrides before mutation. With the verified effective project name, Compose generates predictable names such as `alert2ir-core-1`, `alert2ir-postgres-1`, and `alert2ir-splunk_adapter-1`. The independent observability deployment remains the separate functional project `alert2ir-observability`.
 
 The repository target for a managed runtime host is:
 
@@ -152,6 +152,510 @@ sudo rm -f /usr/local/sbin/alert2ir-splunk-adapter-firewall
 ```
 
 Removal refuses to proceed while port 8091 has a listener and deletes only rules carrying the two Alert2IR ownership comments. It does not flush or remove `DOCKER-USER` and does not alter unrelated host policy.
+
+## Core container-to-host INPUT migration
+
+The application network gives `core` one stable firewall identity while keeping all three services on the existing logical Compose network:
+
+```text
+logical network:  alert2ir_private
+runtime network:  alert2ir_alert2ir_private
+Linux bridge:     alert2ir-prv0
+subnet:           172.30.63.0/28
+dynamic ip_range: 172.30.63.8/29
+gateway:          172.30.63.1
+core:             172.30.63.2
+```
+
+The Docker dynamic allocation range is constrained to `172.30.63.8/29`; it does not contain the static `core` firewall principal `172.30.63.2`. `core` continues to call the native Velociraptor API at `192.168.56.63:8001` and local Alloy OTLP at `192.168.56.63:4317`. The adapter continues to call `http://core:8000` through Compose DNS. UFW `INPUT`, not `DOCKER-USER`, owns the native-listener policy. The existing Docker-published `:8091` reconciler remains a separate unchanged authority.
+
+This section defines a later reviewed live migration; changing the repository alone does not apply it. Puppet does not own the application network or these UFW rules. Grafana `192.168.56.65:3000` is a separate Docker-published-port boundary on `obs01` and is outside this migration.
+
+### Preflight and evidence capture
+
+Every check in this subsection is a hard precondition and must complete in order. If any check fails or any inspected identity or policy is unexplained, **STOP BEFORE MUTATION**: do not run `docker compose down`, remove a container, remove a network, or change UFW.
+
+Use one reviewed full Git revision and the exact Compose file set for every command. The reference Velociraptor deployment uses both files; base/mock deployments omit only the override while retaining the same environment and file selection throughout:
+
+```bash
+cd /opt/alert2ir/current
+git status --short
+git rev-parse HEAD
+readlink -f /opt/alert2ir/current
+```
+
+The runtime network name `alert2ir_alert2ir_private` depends on effective Compose project name `alert2ir`. Validate the exact deployment model in a fail-fast child shell so the interactive login shell is not altered:
+
+```bash
+(
+  set -euo pipefail
+
+  if [ -n "${COMPOSE_PROJECT_NAME:-}" ]; then
+    printf '%s\n' \
+      'ERROR: COMPOSE_PROJECT_NAME must be unset for canonical Alert2IR deployment' >&2
+    exit 1
+  fi
+
+  docker compose --env-file /etc/alert2ir/runtime.env \
+    -f compose.yaml -f compose.velociraptor.yaml config --quiet
+
+  effective_project="$(
+    docker compose --env-file /etc/alert2ir/runtime.env \
+      -f compose.yaml -f compose.velociraptor.yaml \
+      config --format json |
+      python3 -c 'import json,sys; print(json.load(sys.stdin)["name"])'
+  )"
+
+  if [ "$effective_project" != "alert2ir" ]; then
+    printf 'ERROR: effective Compose project is %s, expected alert2ir\n' \
+      "$effective_project" >&2
+    exit 1
+  fi
+)
+```
+
+`config --quiet` validates interpolation without printing the rendered environment, database URL, passwords, or protected host paths. The JSON rendering is piped directly into a parser that emits only its top-level `name`; do not retain the complete rendered configuration as evidence. Canonical migration commands must not use `-p` or `--project-name`.
+
+If `COMPOSE_PROJECT_NAME` is non-empty, **STOP**. If the effective rendered project name is not exactly `alert2ir`, **STOP**. Do not run `docker compose down`, remove containers, or remove a network. Resolve the project identity first.
+
+Repeat the collision inventory immediately before cutover:
+
+```bash
+ip -4 addr show
+ip -4 route show table all
+ip rule show
+ip -d link show type bridge
+
+docker network ls --no-trunc
+for network_id in $(docker network ls -q); do
+  docker network inspect --format \
+    'name={{.Name}} driver={{.Driver}} ipam={{json .IPAM.Config}} options={{json .Options}}' \
+    "$network_id"
+done
+
+ip -4 route get 172.30.63.1
+ip -4 route get 172.30.63.2
+ip link show dev alert2ir-prv0
+```
+
+Before initial PR3 cutover, `alert2ir-prv0` must be absent. Stop if `172.30.63.0/28` overlaps any then-current host route, Docker IPAM network, VirtualBox NAT or host-only range, or other routed lab-private network. Do not substitute another subnet during deployment; return to repository review if the accepted range is no longer free.
+
+Record the exact data-bearing volume without printing the container environment:
+
+```bash
+docker inspect alert2ir-postgres-1 --format \
+  '{{range .Mounts}}{{if eq .Destination "/var/lib/postgresql"}}{{.Name}}{{end}}{{end}}'
+sudo awk -F= '$1 == "ALERT2IR_POSTGRES_VOLUME" { print $2 }' \
+  /etc/alert2ir/runtime.env
+```
+
+The two names must equal the previously approved external PostgreSQL volume. Stop on a blank value or mismatch.
+
+Capture host process and container identity before any change:
+
+```bash
+for unit in docker.service containerd.service alloy.service velociraptor_server.service; do
+  systemctl show "$unit" \
+    -p Id -p MainPID -p ExecMainStartTimestamp -p ActiveEnterTimestamp
+done
+
+for container in alert2ir-core-1 alert2ir-splunk_adapter-1 alert2ir-postgres-1; do
+  docker inspect --format \
+    'name={{.Name}} id={{.Id}} started={{.State.StartedAt}} health={{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}} networks={{json .NetworkSettings.Networks}}' \
+    "$container"
+done
+```
+
+Capture firewall and listener state without printing protected configuration, and verify the existing `:8091` reconciler:
+
+```bash
+sudo ufw status verbose
+sudo ufw status numbered
+sudo ufw show raw
+sudo ufw show added
+sudo iptables -t filter -nvxL INPUT --line-numbers
+sudo iptables -t filter -nvxL ufw-user-input --line-numbers
+sudo iptables -t filter -nvxL FORWARD --line-numbers
+sudo iptables -t filter -nvxL DOCKER-USER --line-numbers
+sudo ss -H -lntp \
+  '( sport = :8000 or sport = :8001 or sport = :4317 or sport = :8091 )'
+sudo /usr/local/sbin/alert2ir-splunk-adapter-firewall check
+```
+
+The captured firewall state is evidence, not permission to proceed. First enforce active UFW and both configured and effective default INPUT drop in another read-only child shell:
+
+```bash
+(
+  set -euo pipefail
+
+  ufw_status="$(sudo env LC_ALL=C ufw status | sed -n '1p')"
+  if [ "$ufw_status" != "Status: active" ]; then
+    printf '%s\n' 'ERROR: UFW must already be active; STOP before mutation' >&2
+    exit 1
+  fi
+
+  configured_input="$(
+    sudo awk -F= '
+      $1 == "DEFAULT_INPUT_POLICY" {
+        value = $2
+        gsub(/[[:space:]"]/, "", value)
+        print value
+      }
+    ' /etc/default/ufw
+  )"
+  effective_input="$(
+    sudo iptables -t filter -S INPUT |
+      awk '$1 == "-P" && $2 == "INPUT" { print $3 }'
+  )"
+
+  if [ "$configured_input" != "DROP" ] || [ "$effective_input" != "DROP" ]; then
+    printf 'ERROR: INPUT must be configured and effective DROP (configured=%s effective=%s); STOP before mutation\n' \
+      "$configured_input" "$effective_input" >&2
+    exit 1
+  fi
+)
+```
+
+Do not enable UFW or rewrite either default policy during this migration. Inactive UFW or a configured/effective INPUT policy other than deny/drop is a hard stop.
+
+Next require the known legacy migration inputs exactly once in `sudo ufw show added`. This check deliberately distinguishes them from unexplained policy:
+
+```bash
+(
+  set -euo pipefail
+  ufw_added="$(sudo ufw show added)"
+
+  for legacy_rule in \
+    "ufw allow in on br-d6c8e81dca5d from 172.19.0.0/16 to 192.168.56.63 port 8001 proto tcp comment 'Alert2IR Velociraptor API'" \
+    "ufw allow in on br-d6c8e81dca5d from 172.19.0.0/16 to 192.168.56.63 port 4317 proto tcp comment 'Alert2IR local OTLP'" \
+    "ufw allow in on br-987bf7432abc from 172.20.0.0/16 to 192.168.56.63 port 8001 proto tcp comment 'Alert2IR canonical Velociraptor API'" \
+    "ufw allow in on br-987bf7432abc from 172.20.0.0/16 to 192.168.56.63 port 4317 proto tcp comment 'Alert2IR canonical local OTLP'"
+  do
+    legacy_count="$(
+      printf '%s\n' "$ufw_added" | grep -Fxc -- "$legacy_rule" || true
+    )"
+    if [ "$legacy_count" -ne 1 ]; then
+      printf 'ERROR: expected legacy UFW rule count is %s, expected 1; STOP before mutation\n' \
+        "$legacy_count" >&2
+      exit 1
+    fi
+  done
+)
+```
+
+Then inspect the complete effective path in rule order, not only the four stored UFW commands:
+
+```bash
+sudo iptables -t filter -S INPUT
+sudo iptables -t filter -S ufw-before-input
+sudo iptables -t filter -S ufw-user-input
+sudo iptables -t filter -nvxL INPUT --line-numbers
+sudo iptables -t filter -nvxL ufw-before-input --line-numbers
+sudo iptables -t filter -nvxL ufw-user-input --line-numbers
+sudo iptables-save -t filter
+sudo ufw show raw
+```
+
+Follow every jump reachable from `INPUT` in its actual order, including any custom chain. For a fresh `NEW` TCP packet to `192.168.56.63:8001` or `192.168.56.63:4317`, the only pre-existing ACCEPTs that may match are the four exact historical interface/source/destination/port rules above. Established/related handling and unrelated, non-matching policy are not shadowing rules. Any additional earlier ACCEPT capable of matching a fresh unauthorized connection is an unexpected shadowing rule: **STOP BEFORE MUTATION** and investigate its ownership separately. Do not delete or repair it as part of this migration. If any expected legacy rule is absent, duplicated, or different, stop and inspect instead of guessing a deletion.
+
+Finally, capture the source-correct matrix described below from the actual `core`, `splunk_adapter`, and `postgres` containers, from `splunk` for the positive `:8091` path, and from `dev01` for its negative path. Classify each result as connected, timeout, refusal, or name/configuration failure; refusal is not firewall-denial evidence.
+
+Only after repository provenance, exact Compose selection and project identity, collision and bridge checks, external-volume identity, process/container/network evidence, the existing `:8091` check, all UFW hard gates, and the complete pre-change connectivity matrix pass may the controlled cutover begin. Any failure in this preflight means **STOP BEFORE MUTATION**.
+
+### Controlled Compose cutover
+
+Preserve the old release, runtime environment, protected files, preflight output, and exact external-volume identity for rollback. Use the same reviewed file set for every command:
+
+```bash
+docker compose --env-file /etc/alert2ir/runtime.env \
+  -f compose.yaml -f compose.velociraptor.yaml down
+
+docker compose --env-file /etc/alert2ir/runtime.env \
+  -f compose.yaml -f compose.velociraptor.yaml create
+```
+
+The shutdown command must not include a volume-removal option. Do not remove or copy the external PostgreSQL volume, prune Docker resources, or force-remove an unexpected network.
+
+Before starting any new container, inspect the stopped PR3 objects:
+
+```bash
+docker network inspect alert2ir_alert2ir_private --format \
+  'name={{.Name}} driver={{.Driver}} ipam={{json .IPAM.Config}} options={{json .Options}} containers={{json .Containers}}'
+ip -d link show dev alert2ir-prv0
+docker inspect alert2ir-core-1 --format '{{json .NetworkSettings.Networks}}'
+docker inspect alert2ir-splunk_adapter-1 --format '{{json .NetworkSettings.Networks}}'
+docker inspect alert2ir-postgres-1 --format '{{json .NetworkSettings.Networks}}'
+```
+
+Extract the actual network IPAM fields and the stopped `core` container's create-time requested static IPv4, then validate their relationships independently. This checks stored configuration, not a live or operational endpoint:
+
+```bash
+network_fields="$(
+  docker network inspect alert2ir_alert2ir_private --format \
+    '{{range .IPAM.Config}}{{.Subnet}} {{.IPRange}} {{.Gateway}}{{end}}'
+)"
+core_requested_address="$(
+  docker inspect alert2ir-core-1 --format \
+    '{{with index .NetworkSettings.Networks "alert2ir_alert2ir_private"}}{{.IPAMConfig.IPv4Address}}{{end}}'
+)"
+python3 - "$network_fields" "$core_requested_address" <<'PY'
+from ipaddress import ip_address, ip_network
+import sys
+
+subnet_text, dynamic_text, gateway_text = sys.argv[1].split()
+core_requested_text = sys.argv[2]
+if (subnet_text, dynamic_text, gateway_text, core_requested_text) != (
+    "172.30.63.0/28",
+    "172.30.63.8/29",
+    "172.30.63.1",
+    "172.30.63.2",
+):
+    raise SystemExit("unexpected stopped-object network or requested core IPv4 identity")
+
+subnet = ip_network(subnet_text)
+dynamic = ip_network(dynamic_text)
+gateway = ip_address(gateway_text)
+core = ip_address(core_requested_text)
+if not dynamic.subnet_of(subnet):
+    raise SystemExit("dynamic range is outside the application subnet")
+if gateway not in subnet or core not in subnet or core == gateway:
+    raise SystemExit("gateway/core subnet identity is invalid")
+if core in dynamic:
+    raise SystemExit("core firewall principal overlaps the dynamic range")
+PY
+```
+
+Require exactly:
+
+```text
+runtime network  alert2ir_alert2ir_private
+driver           bridge
+bridge option    com.docker.network.bridge.name=alert2ir-prv0
+subnet           172.30.63.0/28
+dynamic ip_range 172.30.63.8/29
+gateway          172.30.63.1
+core requested IPv4  172.30.63.2
+```
+
+The semantic check must prove `172.30.63.2` is not in `172.30.63.8/29`. `splunk_adapter` and `postgres` must remain dynamically addressed members of only `alert2ir_private`. The requested address must come from `IPAMConfig.IPv4Address`; do not use the stopped container's live `IPAddress` field as a substitute. A mismatch here occurs after the old deployment has been taken down and means the migration failed. **STOP before UFW mutation or service start**, investigate the stopped configuration, and use the narrow rollback if it cannot be reconciled. Do not force the network or manually connect the container.
+
+### Exact UFW reconciliation
+
+The only desired authorizations are the exact `core` `/32` to the two native listeners. First re-read the stored and effective policy:
+
+```bash
+sudo ufw status verbose
+sudo ufw status numbered
+sudo ufw show raw
+sudo ufw show added
+```
+
+For each complete command below, count its exact line in `sudo ufw show added`. If the count is zero, add it once; if it is one, leave it unchanged; if it is greater than one, stop and review the duplicates before changing anything:
+
+```bash
+sudo ufw allow in on alert2ir-prv0 \
+  from 172.30.63.2 \
+  to 192.168.56.63 \
+  port 8001 \
+  proto tcp \
+  comment 'Alert2IR core Velociraptor API'
+
+sudo ufw allow in on alert2ir-prv0 \
+  from 172.30.63.2 \
+  to 192.168.56.63 \
+  port 4317 \
+  proto tcp \
+  comment 'Alert2IR core local OTLP'
+```
+
+Re-run `sudo ufw show added` and require each exact rule once. Effective `ufw-user-input` rules must match ingress `alert2ir-prv0`, source `172.30.63.2/32`, destination `192.168.56.63/32`, TCP, and only destination ports `8001` and `4317`.
+
+The following four rules are historical migration state, not desired authorization. Before each removal, find and validate the exact interface, source, destination, port, and comment in a fresh `sudo ufw status numbered` and `sudo ufw show added` result. Prefer these exact specifications over a previously recorded numeric position:
+
+```bash
+sudo ufw --force delete allow in on br-d6c8e81dca5d \
+  from 172.19.0.0/16 to 192.168.56.63 port 8001 proto tcp \
+  comment 'Alert2IR Velociraptor API'
+sudo ufw status numbered
+
+sudo ufw --force delete allow in on br-d6c8e81dca5d \
+  from 172.19.0.0/16 to 192.168.56.63 port 4317 proto tcp \
+  comment 'Alert2IR local OTLP'
+sudo ufw status numbered
+
+sudo ufw --force delete allow in on br-987bf7432abc \
+  from 172.20.0.0/16 to 192.168.56.63 port 8001 proto tcp \
+  comment 'Alert2IR canonical Velociraptor API'
+sudo ufw status numbered
+
+sudo ufw --force delete allow in on br-987bf7432abc \
+  from 172.20.0.0/16 to 192.168.56.63 port 4317 proto tcp \
+  comment 'Alert2IR canonical local OTLP'
+sudo ufw status numbered
+```
+
+If an exact historical rule is absent or differs, do not guess or delete an unrelated numbered rule. Re-read state, reconcile the discrepancy against captured preflight evidence, and stop for review when identity is uncertain.
+
+After the narrow changes, require UFW active, default INPUT deny, default routed deny, both PR3 rules exactly once, all four historical broad rules absent, and all unrelated SSH and Velociraptor frontend rules unchanged:
+
+```bash
+sudo ufw status verbose
+sudo ufw status numbered
+sudo ufw show raw
+sudo ufw show added
+sudo iptables -t filter -S ufw-user-input
+```
+
+Do not reset UFW, change a default policy, replace the user chains, disable UFW, or add a raw iptables/nftables INPUT authority.
+
+Start the already-created deployment only after topology and firewall checks pass:
+
+```bash
+(
+  set -euo pipefail
+
+  docker compose --env-file /etc/alert2ir/runtime.env \
+    -f compose.yaml -f compose.velociraptor.yaml up -d --wait
+
+  core_live_address="$(
+    docker inspect alert2ir-core-1 --format \
+      '{{with index .NetworkSettings.Networks "alert2ir_alert2ir_private"}}{{.IPAddress}}{{end}}'
+  )"
+  if [ "$core_live_address" != "172.30.63.2" ]; then
+    printf 'ERROR: running core IPv4 is %s, expected 172.30.63.2\n' \
+      "$core_live_address" >&2
+    exit 1
+  fi
+)
+```
+
+The create-phase check proves the requested static IPv4; this start-phase check proves the actual assigned endpoint. If the running `core` address is not exactly `172.30.63.2`, acceptance fails: do not proceed with connectivity acceptance or treat the firewall identity as valid; investigate and use the narrow rollback as needed.
+
+The first network migration necessarily replaces the application network and recreates `core`, `splunk_adapter`, and `postgres`. It must not restart the Docker daemon, containerd, native Alloy, or native Velociraptor. Compare their captured PID and start identities after convergence.
+
+### Source-correct live acceptance
+
+Capture exact counters before and after the probes:
+
+```bash
+sudo iptables -t filter -nvxL INPUT --line-numbers
+sudo iptables -t filter -nvxL ufw-user-input --line-numbers
+sudo iptables -t filter -nvxL FORWARD --line-numbers
+sudo iptables -t filter -nvxL DOCKER-USER --line-numbers
+```
+
+When `tcpdump` is already installed, observe the native-listener path in one terminal without installing anything:
+
+```bash
+sudo timeout 20 tcpdump -nli any \
+  'tcp and dst host 192.168.56.63 and (dst port 8001 or dst port 4317)'
+```
+
+From the actual `core` container, both bounded connect/close probes must succeed:
+
+```bash
+docker exec -i alert2ir-core-1 python - <<'PY'
+import socket
+
+failed = False
+for port in (8001, 4317):
+    try:
+        with socket.create_connection(("192.168.56.63", port), timeout=3):
+            print(port, "CONNECTED")
+    except Exception as exc:
+        print(port, type(exc).__name__, str(exc))
+        failed = True
+raise SystemExit(1 if failed else 0)
+PY
+```
+
+The host must observe source `172.30.63.2` arriving on `alert2ir-prv0`, and each exact UFW `/32` allow counter must increase.
+
+Run the same Python probe from `alert2ir-splunk_adapter-1`. Both ports must time out or otherwise show a firewall block; a connection refusal does not satisfy the negative test. The unauthorized probes must not increment either exact core allow:
+
+```bash
+docker exec -i alert2ir-splunk_adapter-1 python - <<'PY'
+import socket
+
+failed = False
+for port in (8001, 4317):
+    try:
+        with socket.create_connection(("192.168.56.63", port), timeout=3):
+            print(port, "CONNECTED (FAIL)")
+            failed = True
+    except TimeoutError:
+        print(port, "BLOCKED")
+    except Exception as exc:
+        print(port, type(exc).__name__, str(exc), "(FAIL)")
+        failed = True
+raise SystemExit(1 if failed else 0)
+PY
+```
+
+Use the already-installed `bash`, `timeout`, and `/dev/tcp` support in the actual PostgreSQL container for an independent negative source; do not install diagnostics or launch another container:
+
+```bash
+for port in 8001 4317; do
+  if docker exec alert2ir-postgres-1 timeout 3 bash -c \
+    "exec 3<>/dev/tcp/192.168.56.63/$port; exec 3<&-; exec 3>&-"; then
+    echo "$port CONNECTED (FAIL)"
+    exit 1
+  else
+    probe_status=$?
+  fi
+  test "$probe_status" -eq 124 || exit 1
+  echo "$port BLOCKED"
+done
+```
+
+Each PostgreSQL probe must exit `124`. A successful connection or immediate refusal fails acceptance.
+
+For these `:8001`/`:4317` probes, INPUT counters must move, the exact core allow must move only for the positive source, and FORWARD and DOCKER-USER counters must not move. This counter comparison is required in addition to command exit status.
+
+Re-prove the separate `:8091` contract from the correct host namespaces. A bounded TCP connection from `splunk` (`192.168.56.61`) to `192.168.56.63:8091` must succeed. The same connection from `dev01` (`192.168.56.64`) must time out. Then require:
+
+```bash
+sudo /usr/local/sbin/alert2ir-splunk-adapter-firewall check
+sudo iptables -t filter -nvxL DOCKER-USER --line-numbers
+```
+
+Only the relevant `:8091` probes should move the existing owned DOCKER-USER counters.
+
+### Health, topology, and process acceptance
+
+Require all container and application health checks after the source tests:
+
+```bash
+docker compose --env-file /etc/alert2ir/runtime.env \
+  -f compose.yaml -f compose.velociraptor.yaml ps
+curl -fsS http://127.0.0.1:8000/healthz
+curl -fsS http://127.0.0.1:8000/readyz
+sudo ss -H -lntp \
+  '( sport = :8000 or sport = :8001 or sport = :4317 or sport = :8091 )'
+```
+
+Require `core`, `splunk_adapter`, and `postgres` healthy; approved-source adapter health on `192.168.56.63:8091`; native Velociraptor still on `192.168.56.63:8001`; native Alloy still on `192.168.56.63:4317`; and core still only on `127.0.0.1:8000`. No listener may gain an unexpected wildcard publication.
+
+Compare the post-cutover process inventory with preflight. All three container IDs and start timestamps must change on the first migration. Docker, containerd, Alloy, and Velociraptor PIDs and start timestamps must remain unchanged.
+
+### Idempotence and separate persistence gate
+
+After first convergence, re-run the exact UFW rule-count inspection and the same `docker compose ... up -d --wait` command. Command success alone is insufficient. Require both UFW authorizations exactly once; the same Docker network ID, runtime name, bridge, subnet, dynamic `ip_range`, gateway, and core address; unchanged container IDs/start timestamps; unchanged host-service PIDs/start timestamps; the complete source-correct matrix; and the existing `:8091` check.
+
+Only after review, commit, CI, first enforcement, human acceptance, and idempotence should a separately approved `ir-core` reboot test persistence. Do not manually reapply firewall state afterward. Require UFW enabled, both exact PR3 rules restored once, all four historical broad rules absent, runtime network `alert2ir_alert2ir_private`, bridge `alert2ir-prv0`, subnet `172.30.63.0/28`, dynamic `ip_range` `172.30.63.8/29`, gateway `172.30.63.1`, `core` at `172.30.63.2` and outside that dynamic range, healthy containers, existing `:8091` reconciler PASS, and the complete matrix. Reboot naturally changes host process PIDs and is distinct from first-cutover no-restart acceptance.
+
+### Narrow rollback
+
+Rollback uses the captured pre-state and previous reviewed release:
+
+1. Stop and remove only the PR3 application containers and application network with the exact PR3 Compose file set, preserving the external PostgreSQL volume.
+2. Remove only the two comment-identified PR3 UFW allows after verifying their exact current identity.
+3. Restore `/opt/alert2ir/current` to the previous reviewed release and use its exact runtime environment and Compose file set.
+4. Recreate the previous application network and all three containers without forcing deletion of an unexpected network.
+5. Restore the four captured historical broad UFW rules only when exact pre-PR3 behavior is required. This deliberately restores the known overbroad sibling-container authorization and must be recorded as such.
+6. Re-run the previous application health and connectivity matrix and the existing `:8091` helper check.
+
+Ordinary rollback does not remove, rename, copy, or reinitialize the PostgreSQL volume and does not restart Docker, containerd, Alloy, or Velociraptor. If the network cannot be replaced cleanly, stop and inspect instead of pruning or forcing deletion.
 
 ## Database migration
 

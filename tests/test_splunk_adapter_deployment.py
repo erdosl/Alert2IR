@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from ipaddress import ip_address, ip_network
 from pathlib import Path
 import re
 import subprocess
@@ -9,6 +10,7 @@ import tempfile
 import unittest
 
 from fastapi.testclient import TestClient
+import yaml
 
 from alert2ir.adapters.splunk.runtime import (
     CORE_URL_ENVIRONMENT_VARIABLE,
@@ -159,6 +161,7 @@ class SplunkAdapterComposeContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.compose = COMPOSE_PATH.read_text(encoding="utf-8")
+        cls.configuration = yaml.safe_load(cls.compose)
         cls.services = compose_service_blocks(cls.compose)
 
     def test_separate_adapter_service_and_exact_host_publications(self) -> None:
@@ -179,6 +182,8 @@ class SplunkAdapterComposeContractTests(unittest.TestCase):
         self.assertEqual(compose_service_ports(self.services["postgres"]), set())
         self.assertNotIn("0.0.0.0:8091", self.compose)
         self.assertNotIn("network_mode: host", self.compose)
+        self.assertNotIn("extra_hosts:", self.compose)
+        self.assertNotIn("host-gateway", self.compose)
 
     def test_adapter_uses_runtime_factory_and_private_core_origin(self) -> None:
         adapter = self.services["splunk_adapter"]
@@ -229,16 +234,81 @@ class SplunkAdapterComposeContractTests(unittest.TestCase):
         self.assertIn('max-size: "10m"', adapter)
         self.assertIn('max-file: "3"', adapter)
         self.assertNotIn("restart_policy", adapter)
-        for service_name in ("core", "postgres", "splunk_adapter"):
+        for service_name in ("postgres", "splunk_adapter"):
             with self.subTest(service=service_name):
                 self.assertRegex(
                     self.services[service_name],
                     r"(?m)^    networks:\n      - alert2ir_private$",
                 )
         self.assertRegex(
-            self.compose,
-            r"(?m)^networks:\n  alert2ir_private:\n    driver: bridge$",
+            self.services["core"],
+            r"(?m)^    networks:\n      alert2ir_private:\n"
+            r"        ipv4_address: 172\.30\.63\.2$",
         )
+
+    def test_private_network_has_exact_stable_ipam_and_bridge_contract(self) -> None:
+        self.assertEqual(self.configuration["name"], "alert2ir")
+        self.assertEqual(
+            set(self.configuration["networks"]),
+            {"alert2ir_private"},
+        )
+        network = self.configuration["networks"]["alert2ir_private"]
+        self.assertEqual(network["driver"], "bridge")
+        self.assertEqual(
+            network["driver_opts"],
+            {"com.docker.network.bridge.name": "alert2ir-prv0"},
+        )
+        self.assertEqual(
+            network["ipam"],
+            {
+                "config": [
+                    {
+                        "subnet": "172.30.63.0/28",
+                        "ip_range": "172.30.63.8/29",
+                        "gateway": "172.30.63.1",
+                    }
+                ]
+            },
+        )
+        self.assertNotIn("name", network)
+        self.assertNotIn("internal", network)
+        self.assertNotIn("enable_ipv6", network)
+
+    def test_core_static_address_is_semantically_reserved_from_dynamic_ipam(self) -> None:
+        ipam = self.configuration["networks"]["alert2ir_private"]["ipam"][
+            "config"
+        ][0]
+        core_text = self.configuration["services"]["core"]["networks"][
+            "alert2ir_private"
+        ]["ipv4_address"]
+
+        subnet = ip_network(ipam["subnet"])
+        dynamic = ip_network(ipam["ip_range"])
+        gateway = ip_address(ipam["gateway"])
+        core = ip_address(core_text)
+
+        self.assertTrue(dynamic.subnet_of(subnet))
+        self.assertIn(gateway, subnet)
+        self.assertIn(core, subnet)
+        self.assertNotEqual(core, gateway)
+        self.assertNotIn(core, dynamic)
+
+    def test_only_core_has_one_static_private_network_address(self) -> None:
+        services = self.configuration["services"]
+        self.assertEqual(
+            services["core"]["networks"],
+            {"alert2ir_private": {"ipv4_address": "172.30.63.2"}},
+        )
+        for service_name in ("postgres", "splunk_adapter"):
+            with self.subTest(service=service_name):
+                self.assertEqual(
+                    services[service_name]["networks"],
+                    ["alert2ir_private"],
+                )
+                self.assertNotIn(
+                    "ipv4_address",
+                    self.services[service_name],
+                )
 
     def test_restart_readiness_ordering_and_external_database_volume(self) -> None:
         for service_name in ("core", "postgres", "splunk_adapter"):

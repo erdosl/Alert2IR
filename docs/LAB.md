@@ -83,6 +83,8 @@ The tracked Compose deployment for `ir-core` defines:
 
 The base deployment selects the deterministic mock investigation backend. The Velociraptor override selects the live investigation backend and injects an external API configuration plus one exact host-to-client mapping. These modes are mutually exclusive in runtime composition.
 
+The private application network is the logical Compose network `alert2ir_private`, backed in the reference deployment by Linux bridge `alert2ir-prv0` and IPv4 subnet `172.30.63.0/28` with gateway `172.30.63.1`. Docker's configured dynamic IPAM range is `172.30.63.8/29`. Only `core` has a static container address, `172.30.63.2`; it is deliberately outside the dynamic allocation range so `splunk_adapter`, `postgres`, or another dynamically addressed sibling cannot consume the firewall principal before `core` claims it. UFW INPUT admits only `172.30.63.2/32` on that bridge to native `192.168.56.63:8001` for the Velociraptor API and `192.168.56.63:4317` for local Alloy OTLP. The host default INPUT deny excludes sibling containers from those ports. This is independent of the existing `DOCKER-USER` boundary for Docker-published `:8091`.
+
 Tracked configuration defines the deployment boundary but is not by itself live evidence. The adapter, protected secrets, and Splunk app were directly observed during the 2026-08-18 source-integration acceptance. The later firewall-persistence acceptance records that the exact source restriction is reconciled by a Docker systemd pre-start hook and survived a controlled `ir-core` reboot without manual firewall reapplication. Sanitized records under `validation/integration/` own that evidence.
 
 Alert processing uses source-scoped idempotency and durable execution state in PostgreSQL. Callers must retain their `Idempotency-Key` for acknowledgement recovery, and operators may inspect the returned processing-status resource or run the bounded one-shot reconciliation command documented in [DEPLOYMENT.md](DEPLOYMENT.md). No queue, broker, or separate worker is deployed.
@@ -131,9 +133,9 @@ Puppet does not restart Docker or containerd when their canonical configuration
 files change. Current adoption therefore migrates the two host-local numeric
 containerd socket GIDs to a name-based `alloy-containerd` contract without
 disrupting containers; a later reviewed containerd restart or reboot must prove
-the systemd post-start reconciliation and Alloy telemetry access. Compose/core
-source identity and the native `:8001`/`:4317` firewall rules remain separate
-network-contract work.
+the systemd post-start reconciliation and Alloy telemetry access. The Compose
+`core` source identity and native `:8001`/`:4317` UFW INPUT policy remain
+separate operator-owned network and firewall contracts outside Puppet.
 
 Exact ownership, artifact assembly, and validation procedures are in [`infra/puppet/README.md`](../infra/puppet/README.md).
 
