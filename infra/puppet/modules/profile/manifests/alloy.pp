@@ -172,8 +172,8 @@ class profile::alloy(
   }
 
   exec { 'alert2ir-alloy-containerd-access':
-    command => '/usr/local/sbin/alert2ir-alloy-containerd-access apply',
-    unless  => '/usr/local/sbin/alert2ir-alloy-containerd-access check',
+    command => '/usr/bin/bash /usr/local/sbin/alert2ir-alloy-containerd-access apply',
+    unless  => "/usr/bin/bash -c '/usr/bin/test -x /usr/local/sbin/alert2ir-alloy-containerd-access && /usr/local/sbin/alert2ir-alloy-containerd-access check'",
     require => [File['/usr/local/sbin/alert2ir-alloy-containerd-access'], Group['alloy-containerd'], Service['containerd']],
   }
 

@@ -1,9 +1,9 @@
 """Repository contract tests for the Alert2IR Puppet environment.
 
-These tests freeze the reviewed repository boundary. The host identity
-regressions use a local Puppet evaluator when available; the remaining checks
-are not a Puppet parser, catalog compiler, provider test, or a substitute for
-endpoint convergence validation with Puppet 8.20.
+These tests freeze the reviewed repository boundary. Focused noop regressions
+use a local Puppet evaluator when available; the remaining checks are not a
+Puppet parser, catalog compiler, provider test, or a substitute for endpoint
+convergence validation with Puppet 8.20.
 """
 
 import hashlib
@@ -240,6 +240,48 @@ end
         )
 
 
+def evaluate_managed_helper_first_adoption_noop(
+) -> tuple[subprocess.CompletedProcess[str], bool, bool]:
+    if PUPPET_EXECUTABLE is None:
+        raise AssertionError("Puppet executable is unavailable")
+
+    with tempfile.TemporaryDirectory() as temporary_directory:
+        temporary_root = Path(temporary_directory)
+        helper_path = temporary_root / "managed-helper"
+        apply_marker = temporary_root / "apply-ran"
+
+        isolated_directories = {}
+        for setting in ("codedir", "confdir", "logdir", "rundir", "ssldir", "vardir"):
+            path = temporary_root / setting
+            path.mkdir()
+            isolated_directories[setting] = path
+
+        manifest = (
+            f"file {{ '{helper_path}': ensure => file, mode => '0755', "
+            f'content => "#!/usr/bin/bash\\n/usr/bin/touch {apply_marker}\\n", }} '
+            "exec { 'alert2ir-managed-helper-first-adoption': "
+            f"command => '/usr/bin/bash {helper_path} apply', "
+            f'''unless => "/usr/bin/bash -c '/usr/bin/test -x {helper_path} && '''
+            f'''{helper_path} check'", require => File['{helper_path}'], }}'''
+        )
+        result = subprocess.run(
+            [
+                str(PUPPET_EXECUTABLE),
+                "apply",
+                "--execute",
+                manifest,
+                *(f"--{setting}={path}" for setting, path in isolated_directories.items()),
+                "--noop",
+                "--detailed-exitcodes",
+                "--color=false",
+            ],
+            cwd=REPOSITORY_ROOT,
+            capture_output=True,
+            text=True,
+        )
+        return result, helper_path.exists(), apply_marker.exists()
+
+
 class PuppetRepositoryContractTests(unittest.TestCase):
     def test_windows_endpoint_role_composes_only_the_frozen_profiles(self) -> None:
         source = read_puppet(
@@ -372,6 +414,79 @@ class PuppetRepositoryContractTests(unittest.TestCase):
         for resource_type, title, body in resources:
             with self.subTest(resource_type=resource_type, title=title):
                 assert_property(self, body, "ensure", "installed")
+
+    def test_alloy_containerd_access_helper_file_contract_is_preserved(self) -> None:
+        source = read_puppet(
+            PUPPET_ROOT / "modules" / "profile" / "manifests" / "alloy.pp"
+        )
+        profile = class_body(source, "profile::alloy")
+        helper = resource_body(
+            profile, "file", "/usr/local/sbin/alert2ir-alloy-containerd-access"
+        )
+
+        assert_property(self, helper, "ensure", "file")
+        assert_property(self, helper, "owner", "'root'")
+        assert_property(self, helper, "group", "'root'")
+        assert_property(self, helper, "mode", "'0755'")
+        assert_property(
+            self,
+            helper,
+            "source",
+            "'puppet:///modules/profile/alloy/alert2ir-alloy-containerd-access.sh'",
+        )
+
+    def test_alloy_containerd_access_exec_is_noop_safe_and_ordered(self) -> None:
+        source = read_puppet(
+            PUPPET_ROOT / "modules" / "profile" / "manifests" / "alloy.pp"
+        )
+        profile = class_body(source, "profile::alloy")
+        access = resource_body(
+            profile, "exec", "alert2ir-alloy-containerd-access"
+        )
+
+        assert_property(
+            self,
+            access,
+            "command",
+            "'/usr/bin/bash /usr/local/sbin/alert2ir-alloy-containerd-access apply'",
+        )
+        assert_property(
+            self,
+            access,
+            "unless",
+            '"/usr/bin/bash -c \'/usr/bin/test -x '
+            "/usr/local/sbin/alert2ir-alloy-containerd-access && "
+            "/usr/local/sbin/alert2ir-alloy-containerd-access check\'\"",
+        )
+        assert_property(
+            self,
+            access,
+            "require",
+            "[File['/usr/local/sbin/alert2ir-alloy-containerd-access'], "
+            "Group['alloy-containerd'], Service['containerd']]",
+        )
+        self.assertNotRegex(
+            access,
+            re.compile(
+                r"^\s*command\s*=>\s*['\"]"
+                r"/usr/local/sbin/alert2ir-alloy-containerd-access\s+apply",
+                re.MULTILINE,
+            ),
+        )
+
+        alloy_service = resource_body(profile, "service", "alloy")
+        self.assertIn("Exec['alert2ir-alloy-containerd-access']", alloy_service)
+
+    @unittest.skipUnless(PUPPET_EXECUTABLE, "Puppet evaluator is unavailable")
+    def test_managed_helper_first_adoption_noop_uses_existing_executable(self) -> None:
+        result, helper_exists, apply_ran = evaluate_managed_helper_first_adoption_noop()
+        output = result.stdout + result.stderr
+
+        self.assertEqual(result.returncode, 0, output)
+        self.assertNotIn("Could not find command", output)
+        self.assertIn("returns: executed successfully (noop)", output)
+        self.assertFalse(helper_exists, output)
+        self.assertFalse(apply_ran, output)
 
     def test_host_identity_guard_is_read_only_and_interface_independent(self) -> None:
         source = read_puppet(

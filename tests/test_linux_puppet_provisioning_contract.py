@@ -265,7 +265,9 @@ class LinuxPuppetProvisioningContractTests(unittest.TestCase):
             self,
             access_exec,
             "unless",
-            "'/usr/local/sbin/alert2ir-alloy-containerd-access check'",
+            '"/usr/bin/bash -c \'/usr/bin/test -x '
+            "/usr/local/sbin/alert2ir-alloy-containerd-access && "
+            "/usr/local/sbin/alert2ir-alloy-containerd-access check\'\"",
         )
 
     def test_development_profile_owns_only_git(self) -> None:
