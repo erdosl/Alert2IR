@@ -13,11 +13,39 @@ import tempfile
 import unittest
 import zipfile
 
+import yaml
+
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 PUPPET_ROOT = REPOSITORY_ROOT / "infra" / "puppet"
 ARTIFACT_BUILDER = REPOSITORY_ROOT / "tools" / "puppet" / "build-puppet-artifact.sh"
 CANONICAL_SYSMON_XML = REPOSITORY_ROOT / "config" / "sysmon" / "alert2ir-sysmon.xml"
+EXPECTED_PUPPET_ENVIRONMENT_FILES = {
+    "README.md",
+    "data/common.yaml",
+    "data/nodes/dev01.yaml",
+    "data/nodes/ir-core.yaml",
+    "data/nodes/obs01.yaml",
+    "data/nodes/splunk.yaml",
+    "data/nodes/win11-01.yaml",
+    "data/nodes/win11-02.yaml",
+    "environment.conf",
+    "hiera.yaml",
+    "manifests/site.pp",
+    "modules/profile/manifests/base.pp",
+    "modules/profile/manifests/host_identity_guard.pp",
+    "modules/profile/manifests/linux_base.pp",
+    "modules/profile/manifests/operator_tools.pp",
+    "modules/profile/manifests/splunk_forwarder.pp",
+    "modules/profile/manifests/sysmon.pp",
+    "modules/role/manifests/development.pp",
+    "modules/role/manifests/ir_core.pp",
+    "modules/role/manifests/observability.pp",
+    "modules/role/manifests/splunk_server.pp",
+    "modules/role/manifests/windows_endpoint.pp",
+}
+STAGED_SYSMON_PATH = "modules/profile/files/sysmon/alert2ir-sysmon.xml"
+EXPECTED_ARTIFACT_FILES = EXPECTED_PUPPET_ENVIRONMENT_FILES | {STAGED_SYSMON_PATH}
 
 RESOURCE_DECLARATION = re.compile(
     r"""
@@ -33,6 +61,7 @@ NODE_DECLARATION = re.compile(
     r"^\s*node\s+(?P<names>(?:'[^']+'\s*,\s*)*'[^']+')\s*\{",
     re.MULTILINE,
 )
+DEFAULT_NODE_DECLARATION = re.compile(r"^\s*node\s+default\s*\{", re.MULTILINE)
 CLASSIFICATION_STATEMENT = re.compile(
     r"^\s*(?:include|contain)\s+(?P<class>[a-z][a-z0-9_:]*)\s*;?\s*$",
     re.MULTILINE,
@@ -60,7 +89,9 @@ def braced_body(source: str, opening_brace: int) -> str:
 
 def class_body(source: str, class_name: str) -> str:
     declaration = re.search(
-        rf"^\s*class\s+{re.escape(class_name)}\s*\{{", source, re.MULTILINE
+        rf"^\s*class\s+{re.escape(class_name)}(?:\s*\([^)]*\))?\s*\{{",
+        source,
+        re.MULTILINE,
     )
     if declaration is None:
         raise AssertionError(f"class {class_name} is not declared")
@@ -141,6 +172,106 @@ class PuppetRepositoryContractTests(unittest.TestCase):
         profile = class_body(source, "profile::base")
 
         self.assertEqual(resource_types(profile), [])
+
+    def test_linux_roles_compose_only_the_foundation_profiles(self) -> None:
+        expected_profiles = [
+            "profile::linux_base",
+            "profile::host_identity_guard",
+            "profile::operator_tools",
+        ]
+        roles = {
+            "role::development": "development.pp",
+            "role::ir_core": "ir_core.pp",
+            "role::observability": "observability.pp",
+            "role::splunk_server": "splunk_server.pp",
+        }
+
+        for role_name, manifest_name in roles.items():
+            with self.subTest(role=role_name):
+                source = read_puppet(
+                    PUPPET_ROOT / "modules" / "role" / "manifests" / manifest_name
+                )
+                role = class_body(source, role_name)
+                profiles = [
+                    match.group("class")
+                    for match in CLASSIFICATION_STATEMENT.finditer(role)
+                ]
+                self.assertEqual(profiles, expected_profiles)
+                self.assertEqual(resource_types(role), [])
+
+    def test_linux_base_is_resource_free_and_guards_the_reference_platform(self) -> None:
+        source = read_puppet(
+            PUPPET_ROOT / "modules" / "profile" / "manifests" / "linux_base.pp"
+        )
+        profile = class_body(source, "profile::linux_base")
+
+        self.assertEqual(resource_types(profile), [])
+        for required_contract in (
+            "$facts['kernel']",
+            "$facts['os']",
+            "'Linux'",
+            "'Ubuntu'",
+            "'24.04'",
+            "'amd64'",
+            "'x86_64'",
+        ):
+            with self.subTest(required_contract=required_contract):
+                self.assertIn(required_contract, profile)
+        self.assertGreaterEqual(profile.count("fail("), 4)
+
+    def test_operator_tools_owns_only_ripgrep_and_shellcheck(self) -> None:
+        source = read_puppet(
+            PUPPET_ROOT / "modules" / "profile" / "manifests" / "operator_tools.pp"
+        )
+        profile = class_body(source, "profile::operator_tools")
+        resources = resource_blocks(profile)
+
+        self.assertEqual(resource_types(profile), ["package", "package"])
+        self.assertEqual(
+            [(resource_type, title) for resource_type, title, _ in resources],
+            [("package", "ripgrep"), ("package", "shellcheck")],
+        )
+        for resource_type, title, body in resources:
+            with self.subTest(resource_type=resource_type, title=title):
+                assert_property(self, body, "ensure", "installed")
+
+    def test_host_identity_guard_is_read_only_and_interface_independent(self) -> None:
+        source = read_puppet(
+            PUPPET_ROOT
+            / "modules"
+            / "profile"
+            / "manifests"
+            / "host_identity_guard.pp"
+        )
+        profile = class_body(source, "profile::host_identity_guard")
+
+        self.assertRegex(
+            source,
+            re.compile(
+                r"class\s+profile::host_identity_guard\s*\(\s*"
+                r"String\[1\]\s+\$expected_host_only_ipv4\s*,?\s*\)",
+                re.MULTILINE,
+            ),
+        )
+        self.assertEqual(resource_types(profile), [])
+        for required_contract in (
+            "$trusted",
+            "['certname']",
+            "$facts['networking']",
+            "['hostname']",
+            "['interfaces']",
+            "['bindings']",
+            "['address']",
+            "$expected_host_only_ipv4",
+            ".filter",
+            ".length",
+        ):
+            with self.subTest(required_contract=required_contract):
+                self.assertIn(required_contract, profile)
+        self.assertIn("$certname != $hostname", profile)
+        self.assertGreaterEqual(profile.count("fail("), 6)
+        self.assertNotIn("enp0s8", source)
+        self.assertNotRegex(profile, r"\bexec\s*\{")
 
     def test_sysmon_profile_preserves_the_staged_file_and_service_boundary(self) -> None:
         source = read_puppet(
@@ -232,45 +363,111 @@ class PuppetRepositoryContractTests(unittest.TestCase):
         )
         self.assertNotRegex(profile, r"(?:~>|->)")
 
-    def test_site_classifies_only_the_two_windows_endpoints_through_the_role(self) -> None:
+    def test_site_explicitly_classifies_the_six_lab_nodes_and_fails_closed_by_default(
+        self,
+    ) -> None:
         source = read_puppet(PUPPET_ROOT / "manifests" / "site.pp")
-        classifications: dict[str, set[str]] = {}
+        classifications: dict[str, list[str]] = {}
 
         for declaration in NODE_DECLARATION.finditer(source):
-            body = braced_body(source, source.index("{", declaration.start(), declaration.end()))
-            classes = {
+            body = braced_body(
+                source,
+                source.index("{", declaration.start(), declaration.end()),
+            )
+            classes = [
                 statement.group("class")
                 for statement in CLASSIFICATION_STATEMENT.finditer(body)
-            }
+            ]
             for node_name in re.findall(r"'([^']+)'", declaration.group("names")):
+                self.assertNotIn(node_name, classifications)
                 classifications[node_name] = classes
 
         self.assertEqual(
             classifications,
             {
-                "win11-01": {"role::windows_endpoint"},
-                "win11-02": {"role::windows_endpoint"},
+                "win11-01": ["role::windows_endpoint"],
+                "win11-02": ["role::windows_endpoint"],
+                "splunk": ["role::splunk_server"],
+                "ir-core": ["role::ir_core"],
+                "dev01": ["role::development"],
+                "obs01": ["role::observability"],
             },
         )
 
-    def test_git_tracked_hiera_data_remains_empty(self) -> None:
-        tracked = subprocess.run(
-            ["git", "ls-files", "--", "infra/puppet/data"],
-            cwd=REPOSITORY_ROOT,
-            check=True,
-            capture_output=True,
-            text=True,
+        defaults = list(DEFAULT_NODE_DECLARATION.finditer(source))
+        self.assertEqual(len(defaults), 1)
+        default_body = braced_body(
+            source,
+            source.index("{", defaults[0].start(), defaults[0].end()),
         )
-        data_files = [
-            REPOSITORY_ROOT / relative_path
-            for relative_path in tracked.stdout.splitlines()
-            if Path(relative_path).suffix in {".yaml", ".yml"}
-        ]
+        self.assertRegex(default_body, r"\bfail\s*\(")
+        self.assertEqual(list(CLASSIFICATION_STATEMENT.finditer(default_body)), [])
+        self.assertEqual(resource_types(default_body), [])
 
-        self.assertTrue(data_files, "expected Git-tracked Hiera YAML files")
+    def test_hiera_yaml_is_valid_and_mapping_typed(self) -> None:
+        data_files = sorted((PUPPET_ROOT / "data").rglob("*.yaml"))
+        self.assertTrue(data_files, "expected Hiera YAML files")
         for data_file in data_files:
             with self.subTest(data_file=data_file.relative_to(REPOSITORY_ROOT)):
-                self.assertEqual(data_file.read_text(encoding="utf-8").strip(), "--- {}")
+                data = yaml.safe_load(data_file.read_text(encoding="utf-8"))
+                self.assertIsInstance(data, dict)
+                self.assertTrue(all(isinstance(key, str) for key in data))
+
+    def test_hiera_contains_only_reviewed_public_identity_data(self) -> None:
+        expected = {
+            "common.yaml": {},
+            "nodes/dev01.yaml": {
+                "profile::host_identity_guard::expected_host_only_ipv4": "192.168.56.64"
+            },
+            "nodes/ir-core.yaml": {
+                "profile::host_identity_guard::expected_host_only_ipv4": "192.168.56.63"
+            },
+            "nodes/obs01.yaml": {
+                "profile::host_identity_guard::expected_host_only_ipv4": "192.168.56.65"
+            },
+            "nodes/splunk.yaml": {
+                "profile::host_identity_guard::expected_host_only_ipv4": "192.168.56.61"
+            },
+            "nodes/win11-01.yaml": {},
+            "nodes/win11-02.yaml": {},
+        }
+        actual = {
+            data_file.relative_to(PUPPET_ROOT / "data").as_posix(): yaml.safe_load(
+                data_file.read_text(encoding="utf-8")
+            )
+            for data_file in sorted((PUPPET_ROOT / "data").rglob("*.yaml"))
+        }
+
+        self.assertEqual(actual, expected)
+
+    def test_hiera_has_no_obvious_secret_markers(self) -> None:
+        # Defense in depth only: the exact key/value allowlist above is the authority.
+        prohibited_markers = (
+            "password",
+            "secret",
+            "token",
+            "private_key",
+            "private-key",
+            "client_secret",
+            "api_key",
+            "begin private key",
+            "begin openssh private key",
+        )
+        for data_file in sorted((PUPPET_ROOT / "data").rglob("*.yaml")):
+            serialized = data_file.read_text(encoding="utf-8").lower()
+            for marker in prohibited_markers:
+                with self.subTest(
+                    data_file=data_file.relative_to(REPOSITORY_ROOT), marker=marker
+                ):
+                    self.assertNotIn(marker, serialized)
+
+    def test_puppet_environment_file_set_is_exact(self) -> None:
+        actual_files = {
+            path.relative_to(PUPPET_ROOT).as_posix()
+            for path in PUPPET_ROOT.rglob("*")
+            if path.is_file()
+        }
+        self.assertEqual(actual_files, EXPECTED_PUPPET_ENVIRONMENT_FILES)
 
     def test_git_derived_puppet_artifact_is_reproducible_and_scoped(self) -> None:
         commit = subprocess.run(
@@ -302,19 +499,10 @@ class PuppetRepositoryContractTests(unittest.TestCase):
                 }
                 expected_files = self.expected_artifact_files(commit)
                 self.assertEqual(file_names, expected_files)
-                self.assertTrue(
-                    {
-                        "environment.conf",
-                        "hiera.yaml",
-                        "manifests/site.pp",
-                        "modules/role/manifests/windows_endpoint.pp",
-                        "modules/profile/manifests/sysmon.pp",
-                        "modules/profile/manifests/splunk_forwarder.pp",
-                    }.issubset(file_names)
-                )
+                self.assertTrue(file_names.issubset(EXPECTED_ARTIFACT_FILES))
 
                 staged_xml = archive.read(
-                    "modules/profile/files/sysmon/alert2ir-sysmon.xml"
+                    STAGED_SYSMON_PATH
                 )
                 self.assertEqual(staged_xml, canonical_bytes)
                 self.assertEqual(hashlib.sha256(staged_xml).hexdigest(), canonical_sha256)
@@ -353,7 +541,7 @@ class PuppetRepositoryContractTests(unittest.TestCase):
         return {
             PurePosixPath(path).relative_to("infra/puppet").as_posix()
             for path in result.stdout.splitlines()
-        } | {"modules/profile/files/sysmon/alert2ir-sysmon.xml"}
+        } | {STAGED_SYSMON_PATH}
 
 
 if __name__ == "__main__":

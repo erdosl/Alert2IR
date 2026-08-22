@@ -39,7 +39,7 @@ Application users and developers should begin with the [application and API cont
 | Understand endpoint telemetry policy | [Sysmon telemetry](docs/SYSMON.md) |
 | Collect bounded Windows endpoint inventory | [Windows endpoint inventory](docs/WINDOWS_ENDPOINT_INVENTORY.md) |
 | Operate or validate authoritative DNS and Windows NRPT | `config/dns/README.md` |
-| Apply the repository-owned Windows desired state | [Puppet environment](infra/puppet/README.md) |
+| Apply or validate the repository-owned Puppet desired state | [Puppet environment](infra/puppet/README.md) |
 | Understand accepted architectural rationale | [Architecture decision records](docs/adr/README.md) |
 | See completed, deferred, and next work | [Roadmap](docs/ROADMAP.md) |
 

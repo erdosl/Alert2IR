@@ -27,12 +27,18 @@ validate_static_semantics() {
     grep -Eq 'allow-query-cache[[:space:]]*\{[[:space:]]*none;[[:space:]]*\};' "${options_file}"
     grep -Eq 'session-keyfile[[:space:]]+none;' "${options_file}"
     grep -Eq 'controls[[:space:]]*\{[[:space:]]*\};' "${top_file}"
-    ! grep -Eqi 'forwarders|forward[[:space:]]+(first|only)' "${options_file}" "${local_file}"
+    if grep -Eqi 'forwarders|forward[[:space:]]+(first|only)' "${options_file}" "${local_file}"; then
+        return 1
+    fi
     grep -Eq 'zone[[:space:]]+"alert2ir\.test"' "${local_file}"
     grep -Eq 'allow-update[[:space:]]*\{[[:space:]]*none;[[:space:]]*\};' "${local_file}"
     grep -Eq 'allow-transfer[[:space:]]*\{[[:space:]]*none;[[:space:]]*\};' "${local_file}"
-    ! grep -Eq '(^|[[:space:]])(AAAA|PTR|CNAME)([[:space:]]|$)' "${zone_file}"
-    ! grep -Eq '(^|[[:space:]])\*([[:space:]]|\.)' "${zone_file}"
+    if grep -Eq '(^|[[:space:]])(AAAA|PTR|CNAME)([[:space:]]|$)' "${zone_file}"; then
+        return 1
+    fi
+    if grep -Eq '(^|[[:space:]])\*([[:space:]]|\.)' "${zone_file}"; then
+        return 1
+    fi
 }
 
 require_command named-checkconf

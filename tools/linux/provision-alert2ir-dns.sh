@@ -361,8 +361,10 @@ apply_mode() {
     fi
     systemctl is-active --quiet "${service_unit}" || die "BIND service is not active"
     systemctl is-enabled --quiet "${service_unit}" || die "BIND service is not enabled"
-    journalctl -u "${service_unit}" --since '-2 minutes' --no-pager | grep -Eqi '(^|[^a-z])(error|fatal|failed)([^a-z]|$)' \
-        && die "recent BIND journal contains an error" || true
+    if journalctl -u "${service_unit}" --since '-2 minutes' --no-pager \
+        | grep -Eqi '(^|[^a-z])(error|fatal|failed)([^a-z]|$)'; then
+        die "recent BIND journal contains an error"
+    fi
     assert_listener_contract
     assert_resolved_contract
     check_hashes

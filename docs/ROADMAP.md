@@ -13,7 +13,8 @@ This roadmap records delivered capabilities, explicit deferrals, and planned pro
 | Application composition | Complete | The loopback-published application, PostgreSQL, and authenticated source gateway are defined with Docker Compose. |
 | Canonical alert processing | Complete | Vendor-neutral alerts, deterministic policy, incidents, investigations, capability routing, mock backend, and typed APIs are delivered. |
 | PostgreSQL persistence | Complete | Explicit migrations, durable processing records, execution attempts, and data-preserving lifecycle behavior are delivered. |
-| Puppet endpoint configuration | Complete within bounded scope | Narrow Windows roles/profiles and deterministic standalone convergence contracts are delivered. |
+| Puppet desired state | Complete within bounded scope | Existing Windows telemetry ownership is preserved, and all four Ubuntu reference hosts have explicit roles, platform/identity guards, and the two operator tools in the deterministic standalone environment. |
+| Linux Puppet runtime bootstrap | Planned | Select, pin, verify, and document a Linux Puppet 8 distribution before live Linux convergence; PR1 does not install Puppet or construct VMs. |
 | Controlled attack simulation | Complete within bounded scope | Seven primary scenarios and one control are statically implemented; direct file telemetry and cleanup have live validation. |
 | Sigma detection content | Complete within bounded scope | Canonical rules, deterministic Splunk translation, and controlled validation are delivered. |
 | Velociraptor backend | Complete | Optional `process.list` investigation and durable operation-reference handling are delivered. |
@@ -51,6 +52,7 @@ Universal Forwarder acknowledgement hardening remains an operational follow-up. 
 ## Deliberate deferrals
 
 - Resume optional commercial backends only when legitimate access and a concrete capability requirement are approved.
+- Select and validate the pinned Linux Puppet runtime/bootstrap before any live Linux catalog application.
 - Revisit PowerShell-dependent live simulation only if an independent endpoint-baseline requirement introduces an approved trusted script-execution model.
 - Registry telemetry, PowerShell Operational logging, named pipes, and higher-risk simulation classes remain separate policy decisions.
 

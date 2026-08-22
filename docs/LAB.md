@@ -17,11 +17,11 @@ All six virtual machines use the host-only `192.168.56.0/24` lab network. NAT in
 | Host | Address | Platform | Durable role | Key deployed services |
 | --- | --- | --- | --- | --- |
 | `win11-01` | `192.168.56.60` | Windows 11 | Reference Windows telemetry endpoint | Sysmon, Splunk Universal Forwarder |
-| `splunk` | `192.168.56.61` | Ubuntu Server | Detection execution and validation platform | Splunk Enterprise |
+| `splunk` | `192.168.56.61` | Ubuntu Server 24.04 LTS | Detection execution and validation platform | Splunk Enterprise |
 | `win11-02` | `192.168.56.62` | Windows 11 | Canary and investigation target | Sysmon, Splunk Universal Forwarder, Velociraptor client |
-| `ir-core` | `192.168.56.63` | Ubuntu Server | Alert2IR application and investigation host | Alert2IR `core`, PostgreSQL, native Alloy, native Velociraptor |
-| `dev01` | `192.168.56.64` | Ubuntu | Development and lab administration | Repository checkout, validation tools, native authoritative BIND 9 |
-| `obs01` | `192.168.56.65` | Ubuntu Server | Central observability host | Native Alloy, Prometheus, Loki, Tempo, Grafana, Alertmanager |
+| `ir-core` | `192.168.56.63` | Ubuntu Server 24.04 LTS | Alert2IR application and investigation host | Alert2IR `core`, PostgreSQL, native Alloy, native Velociraptor |
+| `dev01` | `192.168.56.64` | Ubuntu 24.04 LTS | Development and lab administration | Repository checkout, validation tools, native authoritative BIND 9 |
+| `obs01` | `192.168.56.65` | Ubuntu Server 24.04 LTS | Central observability host | Native Alloy, Prometheus, Loki, Tempo, Grafana, Alertmanager |
 
 The hostnames identify reference-lab machines, not logical application components. In particular, `ir-core` is a VM hostname, while `core` is the Compose service running the Alert2IR application.
 
@@ -29,7 +29,7 @@ The hostnames identify reference-lab machines, not logical application component
 
 | From | To | Relationship |
 | --- | --- | --- |
-| `dev01` | Owned lab hosts | Repository development, controlled management, and validation over the host-only network |
+| `dev01` | Owned lab hosts | Repository development, controlled management, validation, and intended standalone Puppet control over the host-only network |
 | `win11-01`, `win11-02` | `dev01` | Local NRPT routes only `.alert2ir.test` to authoritative UDP/TCP `53` on `192.168.56.64` |
 | `win11-01`, `win11-02` | `splunk` | Sysmon Operational events forwarded to the Splunk receiving service on TCP `9997` |
 | `dev01` (`192.168.56.64`) | `ir-core` (`192.168.56.63:22`) | Exact UFW host-input exception for development and lab-administration SSH |
@@ -111,12 +111,18 @@ Certificates, API credentials, client identifiers, and generated server state re
 
 ## Puppet configuration boundary
 
-The repository's Puppet environment applies deliberately through standalone `puppet apply` on the two Windows endpoints; no Puppet Server control plane is deployed. Its current catalog boundary:
+The repository's Puppet environment uses deliberate standalone `puppet apply`; no Puppet Server control plane is deployed. Windows catalog application remains established on the two endpoints. Linux desired state is now represented for all four Ubuntu 24.04 LTS amd64 hosts, but no Linux host currently has Puppet or Facter installed and no live Linux convergence is claimed.
+
+The catalog boundary:
 
 - keeps the already-installed Sysmon and Splunk Universal Forwarder services running and enabled at startup;
 - stages the project-owned Sysmon XML bytes;
 - does not apply or compare the active Sysmon configuration;
-- does not own the complete Splunk forwarding configuration, endpoint networking, or lab administration.
+- verifies Linux platform and physical identity facts without changing them;
+- ensures `ripgrep` and `shellcheck` are installed on the four Linux reference VMs;
+- does not own Linux runtime bootstrap, the `jgipsz` account, ordinary public-key SSH authorization, private keys, `sshd`, sudo, firewall policy, endpoint networking, or service/application deployment.
+
+`dev01` remains the lab administration and intended Puppet control origin. Existing SSH and sudo access are bootstrap/external prerequisites rather than Puppet-managed desired state.
 
 Exact ownership, artifact assembly, and validation procedures are in [`infra/puppet/README.md`](../infra/puppet/README.md).
 

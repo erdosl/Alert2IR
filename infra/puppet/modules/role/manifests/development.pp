@@ -1,3 +1,5 @@
-# This role intentionally has no additional development-host resources yet.
 class role::development {
+  contain profile::linux_base
+  contain profile::host_identity_guard
+  contain profile::operator_tools
 }
