@@ -191,7 +191,13 @@ Get-NetIPAddress -AddressFamily IPv4 |
 
 Require the computer name and host-only address to match [LAB.md](../../docs/LAB.md), then explicitly use `--certname=win11-02` or `--certname=win11-01`. Stop on any mismatch. Puppet does not own these identity or network values; they are an external safety guard.
 
-Linux roles add a catalog-evaluation guard without changing the host. It requires the trusted certname to equal the structured networking hostname and requires the node's public Hiera address to appear exactly once among structured IPv4 interface bindings. A missing, malformed, absent, or duplicate identity fact fails catalog evaluation. The stable invariant is the address, not `enp0s8` or any other interface name.
+Linux roles add a catalog-evaluation guard without changing the host. It
+requires the trusted certname to equal the structured networking hostname. The
+expected host-only IPv4 must appear exactly once among all structured IPv4
+interface bindings. Interfaces without IPv4 bindings are ignored. If IPv4
+bindings are present but malformed, catalog evaluation fails. A missing or
+duplicate expected address also fails. The stable invariant is the address,
+not `enp0s8` or any other interface name.
 
 ## Windows standalone apply
 

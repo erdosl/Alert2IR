@@ -1,13 +1,17 @@
 """Repository contract tests for the Alert2IR Puppet environment.
 
-These tests freeze the reviewed repository boundary; they are not a Puppet
-parser, catalog compiler, provider test, or a substitute for endpoint
-convergence validation with Puppet 8.20.
+These tests freeze the reviewed repository boundary. The host identity
+regressions use a local Puppet evaluator when available; the remaining checks
+are not a Puppet parser, catalog compiler, provider test, or a substitute for
+endpoint convergence validation with Puppet 8.20.
 """
 
 import hashlib
+import json
+import os
 from pathlib import Path, PurePosixPath
 import re
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -22,6 +26,17 @@ ARTIFACT_BUILDER = REPOSITORY_ROOT / "tools" / "puppet" / "build-puppet-artifact
 CANONICAL_SYSMON_XML = REPOSITORY_ROOT / "config" / "sysmon" / "alert2ir-sysmon.xml"
 CANONICAL_IR_CORE_ALLOY = REPOSITORY_ROOT / "observability" / "alloy" / "ir-core.alloy"
 CANONICAL_OBS01_ALLOY = REPOSITORY_ROOT / "observability" / "alloy" / "obs01.alloy"
+
+
+def find_puppet_executable() -> Path | None:
+    candidates = [Path("/opt/puppetlabs/bin/puppet")]
+    system_puppet = shutil.which("puppet")
+    if system_puppet is not None:
+        candidates.append(Path(system_puppet))
+    return next((candidate for candidate in candidates if candidate.is_file()), None)
+
+
+PUPPET_EXECUTABLE = find_puppet_executable()
 EXPECTED_PUPPET_ENVIRONMENT_FILES = {
     "README.md",
     "data/common.yaml",
@@ -168,6 +183,61 @@ def assert_property(
         ),
         f"expected {name} => {value}",
     )
+
+
+def evaluate_host_identity_guard(
+    networking: object, certname: str = "ir-core"
+) -> subprocess.CompletedProcess[str]:
+    if PUPPET_EXECUTABLE is None:
+        raise AssertionError("Puppet executable is unavailable")
+
+    with tempfile.TemporaryDirectory() as temporary_directory:
+        temporary_root = Path(temporary_directory)
+        fact_directory = temporary_root / "facts"
+        fact_directory.mkdir()
+        (fact_directory / "networking.rb").write_text(
+            """require 'json'
+Facter.add(:networking) do
+  has_weight 100000
+  setcode do
+    JSON.parse(ENV.fetch('ALERT2IR_TEST_NETWORKING'))
+  end
+end
+""",
+            encoding="utf-8",
+        )
+
+        isolated_directories = {}
+        for setting in ("codedir", "confdir", "logdir", "rundir", "ssldir", "vardir"):
+            path = temporary_root / setting
+            path.mkdir()
+            isolated_directories[setting] = path
+
+        return subprocess.run(
+            [
+                str(PUPPET_EXECUTABLE),
+                "apply",
+                "--execute",
+                (
+                    "class { 'profile::host_identity_guard': "
+                    "expected_host_only_ipv4 => '192.168.56.63', }"
+                ),
+                f"--modulepath={PUPPET_ROOT / 'modules'}",
+                f"--certname={certname}",
+                *(f"--{setting}={path}" for setting, path in isolated_directories.items()),
+                "--noop",
+                "--detailed-exitcodes",
+                "--color=false",
+            ],
+            cwd=REPOSITORY_ROOT,
+            capture_output=True,
+            text=True,
+            env={
+                **os.environ,
+                "ALERT2IR_TEST_NETWORKING": json.dumps(networking),
+                "FACTERLIB": str(fact_directory),
+            },
+        )
 
 
 class PuppetRepositoryContractTests(unittest.TestCase):
@@ -337,9 +407,158 @@ class PuppetRepositoryContractTests(unittest.TestCase):
             with self.subTest(required_contract=required_contract):
                 self.assertIn(required_contract, profile)
         self.assertIn("$certname != $hostname", profile)
+        self.assertIn("if $bindings == undef", profile)
+        self.assertIn("has unusable IPv4 bindings", profile)
         self.assertGreaterEqual(profile.count("fail("), 6)
         self.assertNotIn("enp0s8", source)
         self.assertNotRegex(profile, r"\bexec\s*\{")
+
+    @unittest.skipUnless(PUPPET_EXECUTABLE, "Puppet evaluator is unavailable")
+    def test_host_identity_guard_accepts_interfaces_without_ipv4_bindings(self) -> None:
+        cases = {
+            "live IPv6-only veth": {
+                "hostname": "ir-core",
+                "interfaces": {
+                    "enp0s8": {
+                        "bindings": [
+                            {
+                                "address": "192.168.56.63",
+                                "netmask": "255.255.255.0",
+                                "network": "192.168.56.0",
+                            }
+                        ]
+                    },
+                    "veth89a8871": {
+                        "bindings6": [
+                            {
+                                "address": "fe80::66:98ff:fe76:20bb",
+                                "scope6": "link",
+                            }
+                        ]
+                    },
+                },
+            },
+            "empty IPv4 bindings": {
+                "hostname": "ir-core",
+                "interfaces": {
+                    "enp0s8": {"bindings": [{"address": "192.168.56.63"}]},
+                    "dummy0": {"bindings": []},
+                },
+            },
+        }
+
+        for case, networking in cases.items():
+            with self.subTest(case=case):
+                result = evaluate_host_identity_guard(networking)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    @unittest.skipUnless(PUPPET_EXECUTABLE, "Puppet evaluator is unavailable")
+    def test_host_identity_guard_rejects_absent_malformed_and_duplicate_ipv4(self) -> None:
+        cases = {
+            "expected IPv4 absent": (
+                {
+                    "hostname": "ir-core",
+                    "interfaces": {
+                        "enp0s8": {"bindings": [{"address": "10.0.2.15"}]},
+                        "veth89a8871": {
+                            "bindings6": [
+                                {
+                                    "address": "fe80::66:98ff:fe76:20bb",
+                                    "scope6": "link",
+                                }
+                            ]
+                        },
+                    },
+                },
+                (
+                    "Expected host-only IPv4 '192.168.56.63' is absent from "
+                    "network interface bindings"
+                ),
+            ),
+            "malformed present IPv4 bindings": (
+                {
+                    "hostname": "ir-core",
+                    "interfaces": {
+                        "enp0s8": {"bindings": [{"address": "192.168.56.63"}]},
+                        "dummy0": {"bindings": {"unexpected": "structure"}},
+                    },
+                },
+                "Network interface 'dummy0' has unusable IPv4 bindings",
+            ),
+            "duplicate within one interface": (
+                {
+                    "hostname": "ir-core",
+                    "interfaces": {
+                        "enp0s8": {
+                            "bindings": [
+                                {"address": "192.168.56.63"},
+                                {"address": "192.168.56.63"},
+                            ]
+                        }
+                    },
+                },
+                (
+                    "Expected host-only IPv4 '192.168.56.63' appears more "
+                    "than once on interface 'enp0s8'"
+                ),
+            ),
+            "duplicate across interfaces": (
+                {
+                    "hostname": "ir-core",
+                    "interfaces": {
+                        "enp0s8": {"bindings": [{"address": "192.168.56.63"}]},
+                        "dummy0": {"bindings": [{"address": "192.168.56.63"}]},
+                    },
+                },
+                (
+                    "Expected host-only IPv4 '192.168.56.63' appears on more "
+                    "than one network interface"
+                ),
+            ),
+        }
+
+        for case, (networking, expected_error) in cases.items():
+            with self.subTest(case=case):
+                result = evaluate_host_identity_guard(networking)
+                output = result.stdout + result.stderr
+                self.assertNotEqual(result.returncode, 0, output)
+                self.assertIn(expected_error, output)
+
+    @unittest.skipUnless(PUPPET_EXECUTABLE, "Puppet evaluator is unavailable")
+    def test_host_identity_guard_preserves_malformed_interface_and_binding_failures(self) -> None:
+        cases = {
+            "interface facts not a hash": (
+                {
+                    "hostname": "ir-core",
+                    "interfaces": {
+                        "enp0s8": {"bindings": [{"address": "192.168.56.63"}]},
+                        "bad0": "unexpected",
+                    },
+                },
+                "Network interface 'bad0' has unusable structured facts",
+            ),
+            "binding item not a hash": (
+                {
+                    "hostname": "ir-core",
+                    "interfaces": {"enp0s8": {"bindings": ["unexpected"]}},
+                },
+                "Network interface 'enp0s8' has an unusable IPv4 binding",
+            ),
+            "binding address unusable": (
+                {
+                    "hostname": "ir-core",
+                    "interfaces": {"enp0s8": {"bindings": [{}]}},
+                },
+                "Network interface 'enp0s8' has an IPv4 binding without a usable address",
+            ),
+        }
+
+        for case, (networking, expected_error) in cases.items():
+            with self.subTest(case=case):
+                result = evaluate_host_identity_guard(networking)
+                output = result.stdout + result.stderr
+                self.assertNotEqual(result.returncode, 0, output)
+                self.assertIn(expected_error, output)
 
     def test_sysmon_profile_preserves_the_staged_file_and_service_boundary(self) -> None:
         source = read_puppet(

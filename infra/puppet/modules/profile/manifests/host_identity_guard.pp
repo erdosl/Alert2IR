@@ -43,28 +43,32 @@ class profile::host_identity_guard(
     }
 
     $bindings = $interface_facts['bindings']
-    if !($bindings =~ Array) {
-      fail("Network interface '${interface_name}' has no traversable IPv4 bindings")
-    }
-
-    $matching_bindings = $bindings.filter |$binding| {
-      if !($binding =~ Hash) {
-        fail("Network interface '${interface_name}' has an unusable IPv4 binding")
+    if $bindings == undef {
+      false
+    } else {
+      if !($bindings =~ Array) {
+        fail("Network interface '${interface_name}' has unusable IPv4 bindings")
       }
 
-      $address = $binding['address']
-      if !($address =~ String[1]) {
-        fail("Network interface '${interface_name}' has an IPv4 binding without a usable address")
+      $matching_bindings = $bindings.filter |$binding| {
+        if !($binding =~ Hash) {
+          fail("Network interface '${interface_name}' has an unusable IPv4 binding")
+        }
+
+        $address = $binding['address']
+        if !($address =~ String[1]) {
+          fail("Network interface '${interface_name}' has an IPv4 binding without a usable address")
+        }
+
+        $address == $expected_host_only_ipv4
       }
 
-      $address == $expected_host_only_ipv4
-    }
+      if $matching_bindings.length > 1 {
+        fail("Expected host-only IPv4 '${expected_host_only_ipv4}' appears more than once on interface '${interface_name}'")
+      }
 
-    if $matching_bindings.length > 1 {
-      fail("Expected host-only IPv4 '${expected_host_only_ipv4}' appears more than once on interface '${interface_name}'")
+      $matching_bindings.length == 1
     }
-
-    $matching_bindings.length == 1
   }
 
   if $matching_interfaces.empty {
