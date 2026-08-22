@@ -62,7 +62,7 @@ PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src \
 
 Without `ALERT2IR_TEST_DATABASE_URL`, the nine PostgreSQL migration/persistence tests skip. Point that variable only at a disposable test database when those integrations are required; never use a production, shared, or live-lab database.
 
-The ordinary environment intentionally excludes Sigma dependencies, so its two Sigma modules also skip. The [detection guide](docs/DETECTIONS.md) documents the separate pinned environment and 21 deterministic Sigma contracts.
+The ordinary environment intentionally excludes Sigma dependencies, so its two Sigma modules also skip. The [detection guide](docs/DETECTIONS.md) documents the separate pinned environment, reviewed MITRE validation inputs, and deterministic Sigma contracts.
 
 The GitHub Actions `Tests` workflow installs Ubuntu's BIND validation utilities, runs the full Python and DNS contract suite with ephemeral PostgreSQL, validates shell and Puppet syntax, validates both canonical Alloy files with the pinned no-network image, and runs the Sigma contracts in a separate job. Routine CI requires neither a commercial product nor the owned live lab and never applies Puppet, BIND, UFW, or NRPT. Green CI does not claim live Splunk or Velociraptor behavior, Windows scenario execution, Puppet convergence, production readiness, or unrecorded infrastructure behavior.
 

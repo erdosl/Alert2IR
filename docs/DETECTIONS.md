@@ -9,6 +9,7 @@ Alert2IR keeps detection execution separate from canonical alert ingestion. Sigm
 | [`detections/sigma/windows/`](../detections/sigma/windows/) | Production-intent rules plus the byte-preserved retired cmd rule |
 | `detections/sigma/validation/windows/` | Explicit validation-only breadth rules |
 | `config/attack-simulation/detection-objectives.json` | Active objective, content class, pipeline, control, retired-rule mapping, and static/live status |
+| `config/sigma/validation-data.json` | Reviewed ATT&CK and D3FEND versions, immutable source provenance, exact sizes, and SHA-256 digests used by Sigma validation |
 | [`alert2ir-splunk-xml-sysmon.yml`](../config/sigma/pipelines/alert2ir-splunk-xml-sysmon.yml) | Historically pinned process-creation mapping to EventCode 1 |
 | `config/sigma/pipelines/alert2ir-splunk-xml-sysmon-breadth.yml` | New narrow mappings to EventCodes 3, 11, 15, and 22 |
 | `config/attack-simulation/detection-validation-v2.schema.json` | Generalized sanitized validation evidence |
@@ -59,18 +60,30 @@ The mapping is **VERIFIED-CODE** and repeated translations are byte-deterministi
 
 ## Deterministic verification
 
-The ordinary environment intentionally omits Sigma packages, so the Sigma modules report explained skips there. Use the separately pinned environment:
+The ordinary environment intentionally omits Sigma packages, so the Sigma modules report explained skips there. Direct Sigma tool versions remain pinned only in `requirements-sigma.txt`. MITRE validation inputs are pinned independently in `config/sigma/validation-data.json`; neither the toolchain tests nor CI use pySigma's ambient user cache.
+
+Use the separately pinned environment and prepare a fresh cache outside the repository:
 
 ```bash
 python3 -m venv .venv-sigma
 .venv-sigma/bin/python -m pip install --requirement requirements-sigma.txt
 .venv-sigma/bin/python -m pip check
-.venv-sigma/bin/python -m unittest -v \
+sigma_root="$(mktemp -d)"
+.venv-sigma/bin/python tools/sigma/prepare_validation_data.py \
+  --metadata config/sigma/validation-data.json \
+  --download-directory "$sigma_root/downloads" \
+  --cache-home "$sigma_root/home"
+PYTHONDONTWRITEBYTECODE=1 ALERT2IR_SIGMA_HOME="$sigma_root/home" \
+  .venv-sigma/bin/python -m unittest -v \
   tests.test_sigma_detection_contract \
   tests.test_sigma_toolchain_contract
 ```
 
-Those contracts parse every active rule, preserve the retired rule distinction, verify exact logsource-to-EventCode isolation, reject environment scope in canonical content, compile the new semantics, check unrelated-logsource non-transformation, and require byte-identical repeated SPL.
+Preparation downloads the ATT&CK file from the manifest's full `attack-stix-data` commit and the independently versioned D3FEND URL. It verifies each file's exact size and SHA-256 digest before parsing it, verifies the embedded dataset version, and seeds both caches through pySigma's supported loader APIs. The contracts then give the real `sigma` subprocess only that fresh isolated `HOME` and install an explicit Python network-denial guard. Any attempted network access during validation fails with `Alert2IR Sigma subprocess attempted network access`; all default validators, including ATT&CK and D3FEND tag validation, remain enabled.
+
+Those contracts parse every active rule, preserve the retired rule distinction, verify exact logsource-to-EventCode isolation, reject environment scope in canonical content, compile the new semantics, check unrelated-logsource non-transformation, require byte-identical repeated SPL, prove the network guard is active, and prove an invalid ATT&CK tag still fails semantically.
+
+To update ATT&CK deliberately, select and review a release, resolve it to a full 40-character commit in `mitre-attack/attack-stix-data`, download `enterprise-attack/enterprise-attack.json` from that commit, compute its exact byte size and SHA-256 digest, and confirm its `x-mitre-collection` embedded version. Update the single manifest entry, prepare a cold cache, run the network-denied Sigma suite, and review every tag-validation change before committing. Update D3FEND independently by selecting a reviewed versioned ontology URL, computing its size and digest, confirming its embedded ontology version, and following the same cold-cache test process. Never update either input by following `master`, `main`, or `latest`.
 
 ## Detection-validation v1 and v2
 

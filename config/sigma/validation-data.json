@@ -1,0 +1,19 @@
+{
+  "schema": "alert2ir.sigma-validation-data.v1",
+  "datasets": {
+    "mitre_attack": {
+      "repository": "mitre-attack/attack-stix-data",
+      "version": "19.2",
+      "commit": "6cda5ad8462c79e14fbb872f4e09059b18e0cfc4",
+      "path": "enterprise-attack/enterprise-attack.json",
+      "size": 53835637,
+      "sha256": "dc1639caa5501d720e280cf1cbd8fbe009884a0c9b3e6e9ed9d0c25166c3d8f4"
+    },
+    "mitre_d3fend": {
+      "version": "1.5.0",
+      "url": "https://d3fend.mitre.org/ontologies/d3fend/1.5.0/d3fend.json",
+      "size": 4877739,
+      "sha256": "db82077fffb3897387fde29006b140b1401cb6df4b5729c0496c830e099114b9"
+    }
+  }
+}

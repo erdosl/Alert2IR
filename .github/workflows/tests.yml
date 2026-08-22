@@ -136,13 +136,43 @@ jobs:
           python - <<'PY'
           from importlib.metadata import version
           from pathlib import Path
+          import re
           import sys
 
-          expected = {
-              "sigma-cli": "3.1.0",
-              "pysigma": "1.5.0",
-              "pysigma-backend-splunk": "2.1.0",
-          }
+          required = {"sigma-cli", "pysigma", "pysigma-backend-splunk"}
+          expected = {}
+          for line_number, raw_line in enumerate(
+              Path("requirements-sigma.txt").read_text(
+                  encoding="utf-8"
+              ).splitlines(),
+              start=1,
+          ):
+              requirement = raw_line.partition("#")[0].strip()
+              if not requirement:
+                  continue
+              match = re.fullmatch(
+                  r"([A-Za-z0-9][A-Za-z0-9_.-]*)==([^\s;]+)",
+                  requirement,
+              )
+              if match is None:
+                  raise SystemExit(
+                      "requirements-sigma.txt:"
+                      f"{line_number} is not an exact == pin"
+                  )
+              distribution = re.sub(
+                  r"[-_.]+", "-", match.group(1)
+              ).lower()
+              if distribution in expected:
+                  raise SystemExit(
+                      "requirements-sigma.txt:"
+                      f"{line_number} duplicates {distribution}"
+                  )
+              expected[distribution] = match.group(2)
+          if set(expected) != required:
+              raise SystemExit(
+                  "requirements-sigma.txt must contain exactly "
+                  f"{sorted(required)!r}, got {sorted(expected)!r}"
+              )
           actual = {name: version(name) for name in expected}
           sigma = Path(sys.executable).with_name("sigma")
           if actual != expected:
@@ -154,6 +184,16 @@ jobs:
           print(f"Sigma executable: {sigma}")
           print(f"Sigma direct versions: {actual}")
           PY
+
+      - name: Prepare pinned Sigma validation data
+        shell: bash
+        run: |
+          sigma_root="$(mktemp -d "${RUNNER_TEMP}/alert2ir-sigma.XXXXXX")"
+          python tools/sigma/prepare_validation_data.py \
+            --metadata config/sigma/validation-data.json \
+            --download-directory "$sigma_root/downloads" \
+            --cache-home "$sigma_root/home"
+          echo "ALERT2IR_SIGMA_HOME=$sigma_root/home" >> "$GITHUB_ENV"
 
       - name: Run Sigma contracts
         run: |
