@@ -85,6 +85,16 @@ jobs:
           git ls-files -z '*.sh' |
             xargs -0 --no-run-if-empty shellcheck --
 
+      - name: Validate canonical Alloy configuration
+        shell: bash
+        run: |
+          for alloy_config in ir-core obs01; do
+            docker run --rm --network none \
+              -v "$PWD/observability/alloy/${alloy_config}.alloy:/etc/alloy/config.alloy:ro" \
+              docker.io/grafana/alloy:v1.18.1@sha256:754409730f1a4ed9781f8a2ea3b6a8c55750ee125a267ecf8fb449f9a25c109a \
+              validate /etc/alloy/config.alloy
+          done
+
       - name: Validate Puppet 8 DSL syntax compatibility
         shell: bash
         run: |

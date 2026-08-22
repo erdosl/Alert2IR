@@ -21,7 +21,7 @@ Detection execution and canonical ingestion remain separate components, now join
 
 ## Start here
 
-Application users and developers should begin with the [application and API contract](docs/APPLICATION.md). Deployers should use the [Compose deployment guide](docs/DEPLOYMENT.md), which covers configuration, migration, startup, `/healthz` and `/readyz` acceptance, backend mode selection, and data-preserving lifecycle.
+Application users and developers should begin with the [application and API contract](docs/APPLICATION.md). Deployers should use the [Compose deployment guide](docs/DEPLOYMENT.md), which covers configuration, migration, startup, `/healthz` and `/readyz` acceptance, backend mode selection, and data-preserving lifecycle. The separate [Puppet environment](infra/puppet/README.md) owns the bounded Linux host prerequisites for Docker, native Alloy, and stable deployment roots; container-image bind-directory ownership stays with the observability deployment, and Puppet does not invoke Compose or install protected product state.
 
 ## Documentation
 
@@ -64,7 +64,7 @@ Without `ALERT2IR_TEST_DATABASE_URL`, the nine PostgreSQL migration/persistence 
 
 The ordinary environment intentionally excludes Sigma dependencies, so its two Sigma modules also skip. The [detection guide](docs/DETECTIONS.md) documents the separate pinned environment and 21 deterministic Sigma contracts.
 
-The GitHub Actions `Tests` workflow installs Ubuntu's BIND validation utilities, runs the full Python and DNS contract suite with ephemeral PostgreSQL, and runs the Sigma contracts in a separate job. Routine CI requires neither a commercial product nor the owned live lab and never applies BIND, UFW, or NRPT. Green CI does not claim live Splunk or Velociraptor behavior, Windows scenario execution, Puppet convergence, production readiness, or unrecorded infrastructure behavior.
+The GitHub Actions `Tests` workflow installs Ubuntu's BIND validation utilities, runs the full Python and DNS contract suite with ephemeral PostgreSQL, validates shell and Puppet syntax, validates both canonical Alloy files with the pinned no-network image, and runs the Sigma contracts in a separate job. Routine CI requires neither a commercial product nor the owned live lab and never applies Puppet, BIND, UFW, or NRPT. Green CI does not claim live Splunk or Velociraptor behavior, Windows scenario execution, Puppet convergence, production readiness, or unrecorded infrastructure behavior.
 
 ## License
 

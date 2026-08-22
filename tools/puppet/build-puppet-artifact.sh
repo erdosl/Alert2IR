@@ -20,7 +20,11 @@ if ! commit=$(git -C "$repository_root" rev-parse --verify "${ref}^{commit}"); t
   exit 1
 fi
 
-for required_path in infra/puppet config/sysmon/alert2ir-sysmon.xml; do
+for required_path in \
+  infra/puppet \
+  config/sysmon/alert2ir-sysmon.xml \
+  observability/alloy/ir-core.alloy \
+  observability/alloy/obs01.alloy; do
   if ! git -C "$repository_root" cat-file -e "${commit}:${required_path}"; then
     echo "Error: required path '$required_path' is absent from commit $commit." >&2
     exit 1
@@ -45,11 +49,17 @@ temporary_directory=$(mktemp -d "$output_directory/.alert2ir_puppet-build.XXXXXX
 trap 'rm -rf -- "$temporary_directory"' EXIT
 environment_root="$temporary_directory/environment"
 temporary_artifact_path="$temporary_directory/alert2ir_puppet-${short_commit}.zip"
-mkdir -p "$environment_root/modules/profile/files/sysmon"
+mkdir -p \
+  "$environment_root/modules/profile/files/sysmon" \
+  "$environment_root/modules/profile/files/alloy"
 
 git -C "$repository_root" archive "${commit}:infra/puppet" | tar -x -C "$environment_root"
 git -C "$repository_root" show "${commit}:config/sysmon/alert2ir-sysmon.xml" \
   > "$environment_root/modules/profile/files/sysmon/alert2ir-sysmon.xml"
+git -C "$repository_root" show "${commit}:observability/alloy/ir-core.alloy" \
+  > "$environment_root/modules/profile/files/alloy/ir-core.alloy"
+git -C "$repository_root" show "${commit}:observability/alloy/obs01.alloy" \
+  > "$environment_root/modules/profile/files/alloy/obs01.alloy"
 
 commit_timestamp=$(git -C "$repository_root" show -s --format=%ct "$commit")
 python3 - "$environment_root" "$temporary_artifact_path" "$commit_timestamp" <<'PY'
@@ -80,6 +90,8 @@ PY
 
 artifact_sha256=$(sha256sum "$temporary_artifact_path" | awk '{print $1}')
 sysmon_sha256=$(sha256sum "$environment_root/modules/profile/files/sysmon/alert2ir-sysmon.xml" | awk '{print $1}')
+ir_core_alloy_sha256=$(sha256sum "$environment_root/modules/profile/files/alloy/ir-core.alloy" | awk '{print $1}')
+obs01_alloy_sha256=$(sha256sum "$environment_root/modules/profile/files/alloy/obs01.alloy" | awk '{print $1}')
 
 if ! mv -n -- "$temporary_artifact_path" "$artifact_path" \
   || [[ -e $temporary_artifact_path || -L $temporary_artifact_path ]]; then
@@ -91,3 +103,5 @@ printf 'Git commit: %s\n' "$commit"
 printf 'Artifact path: %s\n' "$artifact_path"
 printf 'Artifact SHA-256: %s\n' "$artifact_sha256"
 printf 'Staged Sysmon XML SHA-256: %s\n' "$sysmon_sha256"
+printf 'Staged ir-core Alloy SHA-256: %s\n' "$ir_core_alloy_sha256"
+printf 'Staged obs01 Alloy SHA-256: %s\n' "$obs01_alloy_sha256"

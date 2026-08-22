@@ -4,7 +4,7 @@
 
 This is the operator runbook for the Alert2IR reference observability deployment. It owns first-look workflow, dashboard and alert interpretation, request/log/trace correlation, recovery, failure-isolation expectations, and operational privilege warnings.
 
-Exact component pins, listeners, data paths, retention, Compose structure, immutable deployment convention, and configuration validation belong in the [`observability/` configuration reference](../observability/README.md). Git-tracked configuration is authoritative; runtime telemetry and local service data are disposable lab state.
+Exact component pins, listeners, data paths, image-coupled directory ownership, retention, Compose structure, immutable deployment convention, and configuration validation belong in the [`observability/` configuration reference](../observability/README.md). Git-tracked configuration is authoritative; runtime telemetry and local service data are disposable lab state, although routine service recreation preserves the retained host bind directories.
 
 ## System overview
 
@@ -203,7 +203,8 @@ Use the same bounded systemd, journal, validation, and local-readiness checks. T
 2. Inspect only a relevant recent log window.
 3. Check the existing health endpoint or container health state.
 4. Validate the exact Git-tracked configuration before recreation.
-5. Recreate only the affected service when evidence requires it, preserving data paths and the Compose project.
+5. If a service bind-directory entry is missing or drifted, run the reviewed deployment helper with the explicit `/srv/alert2ir-observability` root; it normalizes only the entry and never recursively rewrites retained contents.
+6. Recreate only the affected service when evidence requires it, preserving data paths and the Compose project.
 
 Never use `docker compose down -v`, `docker system prune`, `docker volume prune`, or manual Docker-log truncation as routine recovery. Exact deployment, retention, data-path, and rollback conventions are in the [configuration reference](../observability/README.md).
 

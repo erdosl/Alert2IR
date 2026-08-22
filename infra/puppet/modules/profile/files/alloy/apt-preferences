@@ -1,0 +1,3 @@
+Package: alloy
+Pin: version 1.18.1-1
+Pin-Priority: 1001

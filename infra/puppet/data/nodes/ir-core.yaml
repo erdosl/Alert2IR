@@ -1,2 +1,5 @@
 ---
 profile::host_identity_guard::expected_host_only_ipv4: '192.168.56.63'
+profile::alloy::config_source: 'ir-core.alloy'
+profile::alloy::storage_path: '/var/lib/alloy/alert2ir'
+profile::alloy::systemd_dropin_source: 'ir-core.conf'

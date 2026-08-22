@@ -20,6 +20,8 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 PUPPET_ROOT = REPOSITORY_ROOT / "infra" / "puppet"
 ARTIFACT_BUILDER = REPOSITORY_ROOT / "tools" / "puppet" / "build-puppet-artifact.sh"
 CANONICAL_SYSMON_XML = REPOSITORY_ROOT / "config" / "sysmon" / "alert2ir-sysmon.xml"
+CANONICAL_IR_CORE_ALLOY = REPOSITORY_ROOT / "observability" / "alloy" / "ir-core.alloy"
+CANONICAL_OBS01_ALLOY = REPOSITORY_ROOT / "observability" / "alloy" / "obs01.alloy"
 EXPECTED_PUPPET_ENVIRONMENT_FILES = {
     "README.md",
     "data/common.yaml",
@@ -32,9 +34,26 @@ EXPECTED_PUPPET_ENVIRONMENT_FILES = {
     "environment.conf",
     "hiera.yaml",
     "manifests/site.pp",
+    "modules/profile/files/alloy/alert2ir-alloy-containerd-access.sh",
+    "modules/profile/files/alloy/apt-preferences",
+    "modules/profile/files/alloy/grafana.asc",
+    "modules/profile/files/alloy/grafana.list",
+    "modules/profile/files/alloy/systemd/20-alert2ir-alloy-containerd-access.conf",
+    "modules/profile/files/alloy/systemd/ir-core.conf",
+    "modules/profile/files/alloy/systemd/obs01.conf",
+    "modules/profile/files/docker/apt-preferences",
+    "modules/profile/files/docker/containerd-config.toml",
+    "modules/profile/files/docker/docker.asc",
+    "modules/profile/files/docker/docker.sources",
+    "modules/profile/files/docker/obs01-daemon.json",
+    "modules/profile/manifests/alert2ir_host.pp",
+    "modules/profile/manifests/alloy.pp",
     "modules/profile/manifests/base.pp",
+    "modules/profile/manifests/development.pp",
+    "modules/profile/manifests/docker_host.pp",
     "modules/profile/manifests/host_identity_guard.pp",
     "modules/profile/manifests/linux_base.pp",
+    "modules/profile/manifests/observability_host.pp",
     "modules/profile/manifests/operator_tools.pp",
     "modules/profile/manifests/splunk_forwarder.pp",
     "modules/profile/manifests/sysmon.pp",
@@ -45,7 +64,14 @@ EXPECTED_PUPPET_ENVIRONMENT_FILES = {
     "modules/role/manifests/windows_endpoint.pp",
 }
 STAGED_SYSMON_PATH = "modules/profile/files/sysmon/alert2ir-sysmon.xml"
-EXPECTED_ARTIFACT_FILES = EXPECTED_PUPPET_ENVIRONMENT_FILES | {STAGED_SYSMON_PATH}
+STAGED_IR_CORE_ALLOY_PATH = "modules/profile/files/alloy/ir-core.alloy"
+STAGED_OBS01_ALLOY_PATH = "modules/profile/files/alloy/obs01.alloy"
+STAGED_EXTERNAL_PATHS = {
+    STAGED_SYSMON_PATH,
+    STAGED_IR_CORE_ALLOY_PATH,
+    STAGED_OBS01_ALLOY_PATH,
+}
+EXPECTED_ARTIFACT_FILES = EXPECTED_PUPPET_ENVIRONMENT_FILES | STAGED_EXTERNAL_PATHS
 
 RESOURCE_DECLARATION = re.compile(
     r"""
@@ -173,20 +199,51 @@ class PuppetRepositoryContractTests(unittest.TestCase):
 
         self.assertEqual(resource_types(profile), [])
 
-    def test_linux_roles_compose_only_the_foundation_profiles(self) -> None:
-        expected_profiles = [
-            "profile::linux_base",
-            "profile::host_identity_guard",
-            "profile::operator_tools",
-        ]
+    def test_linux_roles_compose_only_the_reviewed_pr2_profiles(self) -> None:
         roles = {
-            "role::development": "development.pp",
-            "role::ir_core": "ir_core.pp",
-            "role::observability": "observability.pp",
-            "role::splunk_server": "splunk_server.pp",
+            "role::development": (
+                "development.pp",
+                [
+                    "profile::linux_base",
+                    "profile::host_identity_guard",
+                    "profile::operator_tools",
+                    "profile::docker_host",
+                    "profile::development",
+                ],
+            ),
+            "role::ir_core": (
+                "ir_core.pp",
+                [
+                    "profile::linux_base",
+                    "profile::host_identity_guard",
+                    "profile::operator_tools",
+                    "profile::docker_host",
+                    "profile::alert2ir_host",
+                    "profile::alloy",
+                ],
+            ),
+            "role::observability": (
+                "observability.pp",
+                [
+                    "profile::linux_base",
+                    "profile::host_identity_guard",
+                    "profile::operator_tools",
+                    "profile::docker_host",
+                    "profile::observability_host",
+                    "profile::alloy",
+                ],
+            ),
+            "role::splunk_server": (
+                "splunk_server.pp",
+                [
+                    "profile::linux_base",
+                    "profile::host_identity_guard",
+                    "profile::operator_tools",
+                ],
+            ),
         }
 
-        for role_name, manifest_name in roles.items():
+        for role_name, (manifest_name, expected_profiles) in roles.items():
             with self.subTest(role=role_name):
                 source = read_puppet(
                     PUPPET_ROOT / "modules" / "role" / "manifests" / manifest_name
@@ -198,6 +255,17 @@ class PuppetRepositoryContractTests(unittest.TestCase):
                 ]
                 self.assertEqual(profiles, expected_profiles)
                 self.assertEqual(resource_types(role), [])
+
+                if "profile::alloy" in expected_profiles:
+                    self.assertIn(
+                        "Class['profile::docker_host'] -> Class['profile::alloy']",
+                        role,
+                    )
+                if role_name == "role::observability":
+                    self.assertIn(
+                        "Class['profile::observability_host'] -> Class['profile::alloy']",
+                        role,
+                    )
 
     def test_linux_base_is_resource_free_and_guards_the_reference_platform(self) -> None:
         source = read_puppet(
@@ -413,17 +481,24 @@ class PuppetRepositoryContractTests(unittest.TestCase):
                 self.assertIsInstance(data, dict)
                 self.assertTrue(all(isinstance(key, str) for key in data))
 
-    def test_hiera_contains_only_reviewed_public_identity_data(self) -> None:
+    def test_hiera_contains_only_reviewed_public_pr2_data(self) -> None:
         expected = {
             "common.yaml": {},
             "nodes/dev01.yaml": {
                 "profile::host_identity_guard::expected_host_only_ipv4": "192.168.56.64"
             },
             "nodes/ir-core.yaml": {
-                "profile::host_identity_guard::expected_host_only_ipv4": "192.168.56.63"
+                "profile::host_identity_guard::expected_host_only_ipv4": "192.168.56.63",
+                "profile::alloy::config_source": "ir-core.alloy",
+                "profile::alloy::storage_path": "/var/lib/alloy/alert2ir",
+                "profile::alloy::systemd_dropin_source": "ir-core.conf",
             },
             "nodes/obs01.yaml": {
-                "profile::host_identity_guard::expected_host_only_ipv4": "192.168.56.65"
+                "profile::host_identity_guard::expected_host_only_ipv4": "192.168.56.65",
+                "profile::alloy::config_source": "obs01.alloy",
+                "profile::alloy::storage_path": "/srv/alert2ir-observability/alloy",
+                "profile::alloy::systemd_dropin_source": "obs01.conf",
+                "profile::docker_host::daemon_config_source": "obs01-daemon.json",
             },
             "nodes/splunk.yaml": {
                 "profile::host_identity_guard::expected_host_only_ipv4": "192.168.56.61"
@@ -491,6 +566,18 @@ class PuppetRepositoryContractTests(unittest.TestCase):
             canonical_sha256 = hashlib.sha256(canonical_bytes).hexdigest()
             self.assertIn(f"Staged Sysmon XML SHA-256: {canonical_sha256}", first_output)
 
+            canonical_alloy = {
+                STAGED_IR_CORE_ALLOY_PATH: CANONICAL_IR_CORE_ALLOY.read_bytes(),
+                STAGED_OBS01_ALLOY_PATH: CANONICAL_OBS01_ALLOY.read_bytes(),
+            }
+            for staged_path, staged_bytes in canonical_alloy.items():
+                staged_name = "ir-core" if "ir-core" in staged_path else "obs01"
+                staged_sha256 = hashlib.sha256(staged_bytes).hexdigest()
+                self.assertIn(
+                    f"Staged {staged_name} Alloy SHA-256: {staged_sha256}",
+                    first_output,
+                )
+
             with zipfile.ZipFile(first_artifact) as archive:
                 file_names = {
                     entry.filename
@@ -506,6 +593,14 @@ class PuppetRepositoryContractTests(unittest.TestCase):
                 )
                 self.assertEqual(staged_xml, canonical_bytes)
                 self.assertEqual(hashlib.sha256(staged_xml).hexdigest(), canonical_sha256)
+
+                for staged_path, canonical_alloy_bytes in canonical_alloy.items():
+                    staged_alloy = archive.read(staged_path)
+                    self.assertEqual(staged_alloy, canonical_alloy_bytes)
+                    self.assertEqual(
+                        hashlib.sha256(staged_alloy).hexdigest(),
+                        hashlib.sha256(canonical_alloy_bytes).hexdigest(),
+                    )
 
             for artifact_name in file_names:
                 parts = {part.lower() for part in PurePosixPath(artifact_name).parts}
@@ -541,7 +636,7 @@ class PuppetRepositoryContractTests(unittest.TestCase):
         return {
             PurePosixPath(path).relative_to("infra/puppet").as_posix()
             for path in result.stdout.splitlines()
-        } | {STAGED_SYSMON_PATH}
+        } | STAGED_EXTERNAL_PATHS
 
 
 if __name__ == "__main__":

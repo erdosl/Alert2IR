@@ -27,16 +27,17 @@ Never store credentials, private endpoint data, or secrets in manifests, Hiera, 
 | `profile::splunk_forwarder` | `SplunkForwarder` running/automatic state only |
 | `profile::base` | No resources |
 
-The four Ubuntu 24.04 LTS amd64 hosts have distinct roles with the same bounded foundation:
+The four Ubuntu 24.04 LTS amd64 hosts retain the common foundation and add only
+the role-specific state supported by reviewed public or repository-owned inputs:
 
-| Host | Role |
-| --- | --- |
-| `splunk` | `role::splunk_server` |
-| `ir-core` | `role::ir_core` |
-| `dev01` | `role::development` |
-| `obs01` | `role::observability` |
+| Host | Role | Additional profiles after the foundation |
+| --- | --- | --- |
+| `splunk` | `role::splunk_server` | None; Splunk remains external |
+| `ir-core` | `role::ir_core` | `profile::docker_host`, `profile::alert2ir_host`, `profile::alloy` |
+| `dev01` | `role::development` | `profile::docker_host`, `profile::development` |
+| `obs01` | `role::observability` | `profile::docker_host`, `profile::observability_host`, `profile::alloy` |
 
-Each Linux role contains exactly:
+Every Linux role continues to contain exactly this common foundation:
 
 | Profile | Puppet owns |
 | --- | --- |
@@ -44,9 +45,68 @@ Each Linux role contains exactly:
 | `profile::host_identity_guard` | Read-only equality checks for trusted certname, hostname, and the expected host-only IPv4 in structured interface bindings |
 | `profile::operator_tools` | Installed `ripgrep` and `shellcheck` packages |
 
-The identity guard does not assume a Linux interface name or change host identity or networking. Per-node Hiera contains only the four public host-only IPv4 values already recorded in the lab inventory.
+The identity guard does not assume a Linux interface name or change host
+identity or networking. Per-node Hiera contains the four public host-only IPv4
+values plus only the Alloy and Docker canonical-file selectors that genuinely
+vary between `ir-core` and `obs01`.
 
-The Sysmon XML source is [`config/sysmon/alert2ir-sysmon.xml`](../../config/sysmon/alert2ir-sysmon.xml). The artifact builder takes it from the same reviewed Git commit as the Puppet environment and exposes one artifact-local copy through `puppet:///modules/profile/sysmon/alert2ir-sysmon.xml`.
+The PR2 profiles own this bounded host state:
+
+| Profile | Puppet owns |
+| --- | --- |
+| `profile::docker_host` | Reviewed Docker public APT key/source, exact APT pins and package versions, the canonical containerd baseline, optional bounded daemon JSON, and enabled/running Docker and containerd services |
+| `profile::alloy` | Reviewed Grafana public APT key/source, exact Alloy `1.18.1-1`, canonical staged config, host-specific native-service drop-in, named Docker/containerd access, state directory, and enabled/running Alloy service |
+| `profile::development` | Installed `git` only |
+| `profile::alert2ir_host` | Stable `/opt/alert2ir` release-parent and `/etc/alert2ir` protected-input parent directories only |
+| `profile::observability_host` | Stable observability release and protected-input parents plus the root-owned `/srv/alert2ir-observability` data root only |
+
+`profile::observability_host` does not manage children below the stable data
+root. The observability deployment prepares the five container bind-directory
+entries and owns their exact image-runtime UID/GID mapping. `profile::alloy`
+separately retains ownership of `/srv/alert2ir-observability/alloy` as native
+host-service state, with owner/group `alloy` and mode `0750`. The observability
+role orders `profile::observability_host` before `profile::alloy` so the shared
+parent exists first.
+
+Docker is exact on `dev01`, `ir-core`, and `obs01`: `containerd.io`
+`2.3.3-1~ubuntu.24.04~noble`, Engine and CLI
+`5:29.7.2-1~ubuntu.24.04~noble`, Buildx
+`0.36.1-1~ubuntu.24.04~noble`, and Compose plugin
+`5.4.0-1~ubuntu.24.04~noble`. `ca-certificates` is installed but its Ubuntu
+patch version is not pinned; `curl` is not a Puppet prerequisite. APT
+preferences use priority `1001`; package holds are not used. The Docker public
+key SHA-256 is
+`1500c1f56fa9e26b9b8f42452a553675796ade0807cdce11975eb98170b3a570`
+with fingerprint `9DC858229FC7DD38854AE2D88D81803C0EBFCD88`; the source SHA-256 is
+`8f33259a79a8149bed86c66e103fb4c3fa70f9219cd7ff315b6cc30988afef0c`.
+
+The canonical containerd baseline SHA-256 is
+`e2bdf61ad4c980e7439ed09a1ab65441afadede63087761679a97cc77cd4d20d`.
+It contains no active numeric socket GID. Alloy hosts instead use the unpinned
+system group `alloy-containerd`; a bounded helper verifies or applies group
+`alloy-containerd` and mode `0660` to only
+`/run/containerd/containerd.sock`. A containerd systemd `ExecStartPost`
+re-establishes that named-group invariant after a later restart. Puppet
+reconciles the current socket but does not restart containerd or Docker.
+
+Alloy uses the reviewed full upstream Grafana key bundle with SHA-256
+`d8f5f6f4c174c3b9184cb6ebbf691a2ee69831a109425de4e821f5b43c53a2f8`
+and active signing fingerprint `B53AE77BADB630A683046005963FA27710458545`.
+The source SHA-256 is
+`863616f8c5848c32fc1e1024007835dd0cb2447def236d6542f0b1aab9b729f2`.
+The repository files `observability/alloy/ir-core.alloy` and
+`observability/alloy/obs01.alloy` remain the only canonical configuration
+copies. The artifact builder stages their exact Git-object bytes for Puppet.
+
+Service events are deliberately narrow. Docker daemon or containerd config
+changes do not notify either service; they require a separately reviewed
+restart or reboot. Alloy configuration bytes are validated with
+`/usr/bin/alloy validate` before replacement and then reload the active Alloy
+service. Alloy unit execution or supplementary-group changes may restart only
+Alloy after `systemctl daemon-reload` where needed. Alloy never restarts Docker,
+containerd, or either Compose project.
+
+The Sysmon XML source is [`config/sysmon/alert2ir-sysmon.xml`](../../config/sysmon/alert2ir-sysmon.xml). The artifact builder takes it and the two canonical Alloy configurations from the same reviewed Git commit as the Puppet environment. It exposes artifact-local copies through the corresponding `puppet:///modules/profile/...` paths without adding tracked duplicate Alloy files.
 
 Puppet intentionally does **not** own:
 
@@ -59,7 +119,10 @@ Puppet intentionally does **not** own:
 - Puppet runtime installation or distribution on Linux;
 - the `jgipsz` account, SSH authorization or private keys, `sshd`, password authentication, root-login policy, or sudo policy;
 - host firewall policy or secret distribution;
-- Docker, Compose networking, Splunk, Alloy, Velociraptor, BIND, PostgreSQL, Alert2IR application deployment, attack simulation, attestation, or detections.
+- Docker administrator-group membership, containers, images, networks, volumes, Compose invocation, or application/observability release contents;
+- container-specific children below `/srv/alert2ir-observability` or the numeric runtime UID/GID identities coupled to pinned observability images;
+- Splunk Enterprise or its Alert2IR app, Velociraptor, BIND, PostgreSQL, Alert2IR application deployment, attack simulation, attestation, or detections;
+- `/opt/.../current` release selectors, runtime environment files, protected file contents, proprietary installers, or private authentication material.
 
 Staged Sysmon bytes are not proof that the active Sysmon configuration matches them. [SYSMON.md](../../docs/SYSMON.md) owns the collection policy and active-verification boundary; [LAB.md](../../docs/LAB.md) owns endpoint roles and network relationships.
 
@@ -81,7 +144,7 @@ After installation, verify the executable version and require the Puppet Agent s
 
 ### Linux bootstrap boundary
 
-Puppet and Facter are not currently installed on the four Linux reference hosts. PR1 defines desired state but does not select or install a Linux Puppet distribution. The exact pinned Linux Puppet runtime, provenance verification, and installation procedure must be reviewed before live acceptance; manifests target Puppet 8 semantics, while CI performs public Puppet 8 DSL syntax compatibility validation rather than runtime parity.
+Puppet and Facter are not currently installed on the four Linux reference hosts. The repository defines foundation and bounded role-specific desired state but does not select or install a Linux Puppet distribution. The exact pinned Linux Puppet runtime, provenance verification, and installation procedure must be reviewed before live acceptance; manifests target Puppet 8 semantics, while CI performs public Puppet 8 DSL syntax compatibility validation rather than runtime parity.
 
 Before Linux Puppet can run, bootstrap must already provide:
 
@@ -107,10 +170,10 @@ The builder:
 
 1. resolves the ref to a commit;
 2. materializes `infra/puppet` from that commit;
-3. adds the canonical Sysmon XML from the same commit;
+3. adds the canonical Sysmon XML and two canonical Alloy configurations from the same commit;
 4. creates a deterministic ZIP without repository/private state;
 5. refuses to overwrite an existing artifact;
-6. reports the commit and complete artifact/Sysmon SHA-256 values.
+6. reports the commit and complete artifact/Sysmon/Alloy SHA-256 values.
 
 Verify the complete artifact hash after transfer and retain it as execution evidence. The Windows endpoint does not require Git or repository access; extract the reviewed directory environment to a controlled local path.
 
@@ -181,7 +244,21 @@ sudo "$PUPPET" apply \
   --detailed-exitcodes
 ```
 
-Review every simulated change, then run the identical command without `--noop`. A second enforcing apply and final no-op must report no corrective resource events. PR1 implementation work must not run these commands on a live VM.
+Review every simulated change, then run the identical command without `--noop`. A second enforcing apply and final no-op must report no corrective resource events. Repository implementation work must not run these commands on a live VM.
+
+Adopt current lab state in the order `dev01`, `ir-core`, `obs01`, then the
+foundation-only `splunk` role. Stop on an unexpected Docker package change,
+Docker/containerd restart, container recreation, firewall change, protected-file
+change, Splunk change, or Velociraptor change. `obs01` is expected to converge
+the comment-only Alloy config drift and reload Alloy; current required Alloy
+groups already exist on both Alloy hosts.
+
+Because current `ir-core` and `obs01` containerd files encode non-portable
+numeric socket GIDs, first adoption normalizes them without restarting
+containerd. A later, separately reviewed restart or reboot acceptance must prove
+that `ExecStartPost` restores a root-owned `0660` socket in group
+`alloy-containerd` and that native Alloy remains healthy with Docker/containerd
+telemetry access.
 
 ## Validation workflow
 
@@ -194,7 +271,7 @@ For every catalog revision:
      .venv/bin/python -m unittest -v tests.test_puppet_contract
    ```
 
-2. run ShellCheck over every tracked `.sh` file and Puppet parser validation over every tracked `.pp` file;
+2. run ShellCheck over every tracked `.sh` file, `bash -n` over the socket helper, Puppet parser validation over every tracked `.pp` file, and the pinned Alloy validator over both canonical configs;
 3. build the same reviewed commit twice in separate output directories when deterministic artifact behavior needs verification, and require byte-identical ZIPs;
 4. verify physical identity, Puppet runtime, artifact hash, and explicit certname before any endpoint use;
 5. run no-op, review every proposed change, and reject changes outside the documented profiles;
@@ -202,10 +279,21 @@ For every catalog revision:
 7. after Linux runtime/bootstrap review, validate each Linux host with no-op, first apply, second apply, and final no-op;
 8. remove only temporary extracted artifacts after evidence is retained; do not remove managed state.
 
-The Python contract freezes node classification, role/profile composition, absence of unsupported resources and refresh relationships, exact public Hiera identity data, the complete Puppet environment file set, exact staged XML bytes, deterministic ZIP contents, and exclusion of private repository state. The separate Puppet 8 syntax job is a parser check, not catalog compilation or a substitute for endpoint convergence.
+The Python contracts freeze node classification, role/profile composition,
+exact package/source/config identities, bounded service events, named socket
+access, stable root and native Alloy directory ownership, absence of
+container-image UID/GID knowledge from Puppet, deferred authority, exact public Hiera data,
+the complete Puppet environment file set, staged Sysmon/Alloy bytes,
+deterministic ZIP contents, and exclusion of private repository state. The
+separate Puppet 8 syntax job is a parser check, not catalog compilation or a
+substitute for endpoint convergence.
 
 ## Failure and rollback boundary
 
 Stop if identity, artifact provenance, catalog compilation, proposed scope, service health, staged bytes, or telemetry differs from expectation. Do not broaden ownership or edit an endpoint-local artifact to make an apply pass.
 
-Rollback requires a separately reviewed Git-derived artifact and the same no-op/approval/apply process. Puppet can restore only resources it owns; active Sysmon rollback, Splunk configuration repair, Linux bootstrap, networking, SSH administration, and recovery outside the two operator packages remain outside this catalog.
+Rollback requires a separately reviewed Git-derived artifact and the same
+no-op/approval/apply process. Puppet can restore only resources it owns; active
+Sysmon rollback, Splunk or Velociraptor repair, Linux bootstrap, networking,
+firewall, SSH administration, Compose/application recovery, and protected input
+recovery remain outside this catalog.

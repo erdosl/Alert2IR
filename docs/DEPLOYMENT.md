@@ -15,7 +15,7 @@ This guide describes the repository-defined Docker Compose deployment of the Ale
 - a source-restricted host firewall rule for the Docker-published adapter port;
 - a readable external Velociraptor API configuration only when that investigation-backend mode is selected.
 
-Host package installation and bootstrap are outside this guide. The repository-owned Puppet boundary is documented in [`infra/puppet`](../infra/puppet/README.md).
+The repository-owned Puppet environment provisions the exact Docker host stack and stable parent directories on `ir-core`; Linux Puppet runtime/bootstrap remains external. This guide still owns reviewed release contents, the `current` selector, runtime environment, protected files, Compose lifecycle, data-volume selection, and firewall prerequisites. Exact boundaries are documented in [`infra/puppet`](../infra/puppet/README.md).
 
 ## Canonical identity and target host layout
 
@@ -35,7 +35,7 @@ The repository target for a managed runtime host is:
         velociraptor-api.yaml
 ```
 
-Release directories contain reviewed repository deployment files. Runtime environment, credentials, and generated configuration remain external so a release path can be replaced or rolled back without copying secrets into a checkout. Operational commands run from `/opt/alert2ir/current` and may use `--env-file /etc/alert2ir/runtime.env`; they do not use `--project-name`.
+Puppet creates only `/opt/alert2ir`, its `releases` parent, `/etc/alert2ir`, and its protected `secrets` parent. Deployment tooling creates release contents and the `current` symlink; protected administration installs runtime and secret files. Runtime environment, credentials, and generated configuration remain external so a release path can be replaced or rolled back without copying secrets into a checkout. Operational commands run from `/opt/alert2ir/current` and may use `--env-file /etc/alert2ir/runtime.env`; they do not use `--project-name`.
 
 This is the repository target design, not a claim about the current lab. The current legacy deployment, its data-bearing volume, and its runtime paths remain untouched by Migration A. A separately approved Migration B must inventory them, preserve rollback configuration, and perform the live cutover.
 

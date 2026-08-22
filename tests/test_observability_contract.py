@@ -41,6 +41,7 @@ PROMETHEUS_RULE_TESTS_PATH = (
     OBSERVABILITY_ROOT / "prometheus" / "tests" / "alert2ir_rules_test.yml"
 )
 README_PATH = OBSERVABILITY_ROOT / "README.md"
+PREPARE_DATA_PATH = OBSERVABILITY_ROOT / "prepare-observability-data.sh"
 
 REQUIRED_FILES = {
     ".env.example",
@@ -59,9 +60,42 @@ REQUIRED_FILES = {
     "prometheus/prometheus.yml",
     "prometheus/rules/alert2ir.yml",
     "prometheus/tests/alert2ir_rules_test.yml",
+    "prepare-observability-data.sh",
     "tempo/tempo.yml",
 }
 CENTRAL_SERVICES = {"grafana", "prometheus", "alertmanager", "loki", "tempo"}
+DATA_DIRECTORY_CONTRACT = {
+    "alertmanager": (
+        "quay.io/prometheus/alertmanager:v0.33.1@sha256:a89f8d4520954079275441eecdb71444328bd90633dd4eddfc33b9ed657f349b",
+        65534,
+        65534,
+        "/alertmanager",
+    ),
+    "prometheus": (
+        "quay.io/prometheus/prometheus:v3.13.2@sha256:1147c92841726a6fef55fe6124491d6f85480f8de204f7d420304ca5bbd0a8f7",
+        65534,
+        65534,
+        "/prometheus",
+    ),
+    "grafana": (
+        "docker.io/grafana/grafana:13.1.3@sha256:e27e68cfd5795c1bea54950766078a02e84dfa3bafe0a4d0e5382f713dfd8e4e",
+        472,
+        0,
+        "/var/lib/grafana",
+    ),
+    "loki": (
+        "docker.io/grafana/loki:3.7.6@sha256:83c76da7858a8f4f88117ac521864ac33896fdae7a352a1df4068556e7513f64",
+        10001,
+        10001,
+        "/loki",
+    ),
+    "tempo": (
+        "docker.io/grafana/tempo:3.0.3@sha256:05321ebf1f191fde34282b3dc86e68f511d489133df7963cd1670a2e1e11b33c",
+        10001,
+        10001,
+        "/var/tempo",
+    ),
+}
 IMAGE_REFERENCE = re.compile(
     r"^[a-z0-9./_-]+:v?\d+\.\d+\.\d+@sha256:[0-9a-f]{64}$"
 )
@@ -289,6 +323,79 @@ class ObservabilityRepositoryContractTests(unittest.TestCase):
 
         self.assertEqual(compose.count("    platform: linux/amd64"), 5)
         self.assertNotRegex(compose, r"^  alloy:", re.MULTILINE)
+
+    def test_observability_data_directory_ownership_matches_pinned_image_contract(self) -> None:
+        compose = COMPOSE_PATH.read_text(encoding="utf-8")
+        services = compose_service_blocks(compose)
+        helper = PREPARE_DATA_PATH.read_text(encoding="utf-8")
+        prepared = {
+            service: (int(uid), int(gid))
+            for service, uid, gid in re.findall(
+                r"^prepare_directory ([a-z]+) ([0-9]+) ([0-9]+)$",
+                helper,
+                re.MULTILINE,
+            )
+        }
+
+        self.assertEqual(
+            prepared,
+            {
+                service: (uid, gid)
+                for service, (_, uid, gid, _) in DATA_DIRECTORY_CONTRACT.items()
+            },
+        )
+        for service, (image, _, _, target) in DATA_DIRECTORY_CONTRACT.items():
+            with self.subTest(service=service):
+                service_block = services[service]
+                self.assertRegex(
+                    service_block,
+                    rf"(?m)^    image: {re.escape(image)}$",
+                )
+                self.assertIn(
+                    f"source: ${{OBSERVABILITY_DATA_ROOT:?OBSERVABILITY_DATA_ROOT is required}}/{service}",
+                    service_block,
+                )
+                self.assertIn(f"target: {target}", service_block)
+
+        self.assertNotRegex(compose, r"(?m)^volumes:\s*$")
+        self.assertIn("runtime UID/GID ABI", helper)
+        self.assertIn("Review the image digest/variant", helper)
+        self.assertIn("not host accounts", helper)
+
+    def test_observability_runtime_data_initialization_is_bounded_and_non_recursive(self) -> None:
+        helper = PREPARE_DATA_PATH.read_text(encoding="utf-8")
+        puppet_profile = (
+            REPOSITORY_ROOT
+            / "infra"
+            / "puppet"
+            / "modules"
+            / "profile"
+            / "manifests"
+            / "observability_host.pp"
+        ).read_text(encoding="utf-8")
+
+        self.assertTrue(PREPARE_DATA_PATH.stat().st_mode & 0o111)
+        self.assertIn("set -euo pipefail", helper)
+        self.assertIn("readonly EXPECTED_DATA_ROOT=/srv/alert2ir-observability", helper)
+        self.assertIn("[[ ! -v OBSERVABILITY_DATA_ROOT ]]", helper)
+        self.assertIn(
+            '[[ $OBSERVABILITY_DATA_ROOT != "$EXPECTED_DATA_ROOT" ]]',
+            helper,
+        )
+        self.assertIn("[[ -L $OBSERVABILITY_DATA_ROOT ]]", helper)
+        self.assertIn("[[ ! -d $OBSERVABILITY_DATA_ROOT ]]", helper)
+        self.assertIn("[[ -L $directory ]]", helper)
+        self.assertIn(
+            '/usr/bin/install -d -o "$owner" -g "$group" -m "$DATA_DIRECTORY_MODE" -- "$directory"',
+            helper,
+        )
+        self.assertNotRegex(
+            helper,
+            r"\b(?:chown|chmod)\b[^\n]*(?:\s-R\b|--recursive\b)",
+        )
+        self.assertNotRegex(helper, r"\bfind\b.*-exec\s+(?:chown|chmod)\b")
+        self.assertNotIn("/alloy", helper)
+        self.assertNotRegex(puppet_profile, r"(?:purge|recurse)\s*=>\s*true")
 
     def test_compose_exact_publication_and_privilege_boundary(self) -> None:
         compose = COMPOSE_PATH.read_text(encoding="utf-8")

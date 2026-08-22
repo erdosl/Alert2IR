@@ -9,6 +9,14 @@ Compose structure, immutable deployment, and static configuration validation.
 Runtime metrics, logs, traces, queues, and local databases are disposable lab
 state; configuration in Git is canonical.
 
+The repository Puppet environment owns native Alloy package/source/config/service
+state on `ir-core` and `obs01`, exact Docker host prerequisites, and stable
+observability host roots. It stages the two canonical `alloy/*.alloy` files from
+the same Git commit instead of maintaining duplicate copies. The observability
+deployment owns the container-specific bind directories and their pinned-image
+runtime UID/GID contract. Puppet does not select releases, populate protected
+inputs, invoke Compose, or manage those five container-data children.
+
 The reference stack is optional. Alert2IR processing continues when either
 Alloy instance, `obs01`, or a central service is unavailable. The durable
 application contract is vendor-neutral OpenTelemetry metrics/traces plus
@@ -50,6 +58,7 @@ reads only `core` and `splunk_adapter` stdout through the Docker API.
 | Path | Purpose |
 | --- | --- |
 | `compose.yaml` | Five central services, persistence, secrets, mounts, and exposure |
+| `prepare-observability-data.sh` | Bounded initialization of five container bind-directory entries |
 | `alloy/obs01.alloy` | Central gateways, host/container/self metrics, and forwarding |
 | `alloy/ir-core.alloy` | Edge OTLP, Docker logs, host/container/self metrics, and probes |
 | `prometheus/prometheus.yml` | Scrapes, Alertmanager target, and production rule loading |
@@ -107,6 +116,24 @@ obs01 Alloy uses `/srv/alert2ir-observability/alloy`; `ir-core` Alloy uses
 remote-write WAL data across restarts, but queues remain bounded rather than
 lossless.
 
+Git is canonical for configuration. Puppet creates the root-owned stable
+`/srv/alert2ir-observability` parent, while `profile::alloy` creates the native
+host-service `alloy` child as `alloy:alloy` mode `0750`. The deployment helper
+creates or normalizes only these container bind-directory entries:
+
+| Service | Host bind directory | Pinned-image runtime UID:GID | Mode |
+| --- | --- | --- | --- |
+| Alertmanager | `/srv/alert2ir-observability/alertmanager` | `65534:65534` | `0750` |
+| Prometheus | `/srv/alert2ir-observability/prometheus` | `65534:65534` | `0750` |
+| Grafana | `/srv/alert2ir-observability/grafana` | `472:0` | `0750` |
+| Loki | `/srv/alert2ir-observability/loki` | `10001:10001` | `0750` |
+| Tempo | `/srv/alert2ir-observability/tempo` | `10001:10001` | `0750` |
+
+These numeric values are runtime identities of the exact Linux/amd64 images
+pinned above, not host users or groups. Review the corresponding image
+digest/variant and directory mapping together whenever either changes; do not
+create host accounts merely to represent the container identities.
+
 - Prometheus: 30 days and a 12 GB size cap; either boundary may cause deletion.
 - Loki: 14 days (`336h`).
 - Tempo: 14 days (`336h`).
@@ -119,10 +146,14 @@ security key are external files mounted as Compose secrets and read through
 supported `__FILE` variables. No real value belongs in Git.
 
 Both native Alloy configurations require Docker metadata/log access. Membership
-in the Docker group is effectively root-equivalent. `ir-core` uses the dedicated
-`alloy-containerd` group for its root-owned `0660` containerd socket; API access
-is security-sensitive and is not inherently read-only. Alloy runs as a non-root
-service account, and no runtime socket is world-accessible.
+in the Docker group is effectively root-equivalent. Both hosts use the dedicated,
+unpinned `alloy-containerd` system group for the root-owned `0660` containerd
+socket; a bounded name-based helper and containerd `ExecStartPost` preserve that
+invariant without host-specific numeric GIDs. API access is security-sensitive
+and is not inherently read-only. Alloy runs as a non-root service account, and
+no runtime socket is world-accessible. Puppet may reload validated config-only
+changes or restart Alloy for its own unit/group-runtime changes, but never
+restarts Docker, containerd, or the Compose project.
 
 ## Immutable deployment model
 
@@ -136,6 +167,23 @@ Central releases are staged as exact Git trees below:
 Verify archive and manifest identity, switch `current` atomically, preserve prior
 releases and data directories, and recreate only services whose configuration or
 mounts changed. Never use `down -v` or prune retained data as a deployment step.
+Puppet creates the stable release, configuration, and data parents. Before the
+first Compose start and after any relevant pinned-image change, run the helper
+from the reviewed observability release with the explicit reference root:
+
+```bash
+sudo env OBSERVABILITY_DATA_ROOT=/srv/alert2ir-observability \
+  ./prepare-observability-data.sh
+```
+
+The helper requires that exact Puppet-created root, rejects a missing or
+symbolic-link root and symbolic-link service children, and creates or normalizes
+only the five directory entries above. It never recursively changes retained
+contents and does not touch the native Alloy child. Deployment tooling remains
+the authority for those entries, release bytes, `current`, secrets, images,
+containers, retained telemetry lifecycle, and rollback. Telemetry is disposable
+from a backup/durability standpoint, but routine service recreation preserves
+the retained bind directories independently of release and container recreation.
 
 ## Static validation
 
@@ -213,6 +261,9 @@ references, read-only mounts, and bounded queries.
 Run repository validation:
 
 ```bash
+bash -n observability/prepare-observability-data.sh
+shellcheck observability/prepare-observability-data.sh
+
 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src \
   .venv/bin/python -m unittest -v tests.test_observability_contract
 

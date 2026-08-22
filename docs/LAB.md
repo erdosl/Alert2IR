@@ -111,7 +111,7 @@ Certificates, API credentials, client identifiers, and generated server state re
 
 ## Puppet configuration boundary
 
-The repository's Puppet environment uses deliberate standalone `puppet apply`; no Puppet Server control plane is deployed. Windows catalog application remains established on the two endpoints. Linux desired state is now represented for all four Ubuntu 24.04 LTS amd64 hosts, but no Linux host currently has Puppet or Facter installed and no live Linux convergence is claimed.
+The repository's Puppet environment uses deliberate standalone `puppet apply`; no Puppet Server control plane is deployed. Windows catalog application remains established on the two endpoints. Linux foundation and bounded role-specific desired state are represented for all four Ubuntu 24.04 LTS amd64 hosts, but no Linux host currently has Puppet or Facter installed and no live Linux convergence is claimed.
 
 The catalog boundary:
 
@@ -120,15 +120,32 @@ The catalog boundary:
 - does not apply or compare the active Sysmon configuration;
 - verifies Linux platform and physical identity facts without changing them;
 - ensures `ripgrep` and `shellcheck` are installed on the four Linux reference VMs;
-- does not own Linux runtime bootstrap, the `jgipsz` account, ordinary public-key SSH authorization, private keys, `sshd`, sudo, firewall policy, endpoint networking, or service/application deployment.
+- owns exact Docker public-source/package state on `dev01`, `ir-core`, and `obs01`, including one portable containerd baseline and bounded `obs01` log rotation;
+- owns native Alloy public-source/package/config/service state on `ir-core` and `obs01`, including additive named-group access to the exact containerd socket;
+- owns `git` on `dev01`, stable documented application/observability parents, the root observability data directory, and native Alloy host-service state;
+- does not own Linux runtime bootstrap, the `jgipsz` account, ordinary public-key SSH authorization, private keys, `sshd`, sudo, firewall policy, endpoint networking, Compose/release lifecycle, Splunk Enterprise, Velociraptor protected state, or BIND.
 
 `dev01` remains the lab administration and intended Puppet control origin. Existing SSH and sudo access are bootstrap/external prerequisites rather than Puppet-managed desired state.
+
+Puppet does not restart Docker or containerd when their canonical configuration
+files change. Current adoption therefore migrates the two host-local numeric
+containerd socket GIDs to a name-based `alloy-containerd` contract without
+disrupting containers; a later reviewed containerd restart or reboot must prove
+the systemd post-start reconciliation and Alloy telemetry access. Compose/core
+source identity and the native `:8001`/`:4317` firewall rules remain separate
+network-contract work.
 
 Exact ownership, artifact assembly, and validation procedures are in [`infra/puppet/README.md`](../infra/puppet/README.md).
 
 ## Observability deployment
 
 Native Alloy on `ir-core` receives application OpenTelemetry data and observes host/container metrics, Docker logs, and local probes. It forwards edge telemetry to native Alloy gateways on `obs01`. The central Alloy instance forwards metrics to Prometheus, logs to Loki, and traces to Tempo. Grafana is the operator view, and Prometheus sends alerts through Alertmanager to the internal `lab-null` receiver.
+
+On `obs01`, Puppet owns the stable `/srv/alert2ir-observability` parent and
+native Alloy's `alloy` child. The observability deployment owns the
+Alertmanager, Prometheus, Grafana, Loki, and Tempo bind-directory entries and
+their runtime UID/GID mapping to the exact pinned images; it does not create
+host accounts for those numeric container identities.
 
 The observability path is failure-isolated: neither local Alloy nor the central platform is required for Alert2IR request processing, `/healthz`, or `/readyz`. [OBSERVABILITY.md](OBSERVABILITY.md) owns operator correlation, alerts, and recovery; [`observability/README.md`](../observability/README.md) owns the exact reference configuration and deployment procedure.
 

@@ -1,2 +1,6 @@
 ---
 profile::host_identity_guard::expected_host_only_ipv4: '192.168.56.65'
+profile::alloy::config_source: 'obs01.alloy'
+profile::alloy::storage_path: '/srv/alert2ir-observability/alloy'
+profile::alloy::systemd_dropin_source: 'obs01.conf'
+profile::docker_host::daemon_config_source: 'obs01-daemon.json'
